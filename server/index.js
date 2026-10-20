@@ -43,20 +43,28 @@ app.use((req, res, next) => {
     req.path.startsWith("/api/") &&
     !["GET", "HEAD", "OPTIONS"].includes(req.method)
   ) {
-    if (
-      req.get("x-minimail-request") !== "1" ||
-      (req.get("sec-fetch-site") && req.get("sec-fetch-site") !== "same-origin")
-    )
+    const fetchSite = req.get("sec-fetch-site");
+    if (fetchSite && fetchSite !== "same-origin")
       return res.status(403).json({ error: "Ungültiger Ursprung." });
     const origin = req.get("origin");
     if (origin) {
       try {
-        if (new URL(origin).host !== req.get("host"))
+        const parsed = new URL(origin);
+        const expectedProtocol =
+          process.env.NODE_ENV === "production" ? "https:" : "http:";
+        if (
+          parsed.host !== req.get("host") ||
+          parsed.protocol !== expectedProtocol
+        )
           return res.status(403).json({ error: "Ungültiger Ursprung." });
       } catch {
         return res.status(403).json({ error: "Ungültiger Ursprung." });
       }
     }
+    // Already-open tabs may still run the previous bundle without our custom
+    // header. Browsers set Sec-Fetch-Site for same-origin requests themselves.
+    if (req.get("x-minimail-request") !== "1" && fetchSite !== "same-origin")
+      return res.status(403).json({ error: "Ungültiger Ursprung." });
   }
   next();
 });

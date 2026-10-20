@@ -156,6 +156,17 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     ).run("owner", storedPassword("long-admin-password"), Date.now());
     db.close();
 
+    const openTab = await fetch(base + "/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: `https://127.0.0.1:${port}`,
+        "Sec-Fetch-Site": "same-origin",
+      },
+      body: JSON.stringify({ username: "owner", password: "wrong" }),
+    });
+    assert.equal(openTab.status, 401);
+
     const adminLogin = await admin("/auth/login", "POST", {
       username: "owner",
       password: "long-admin-password",
