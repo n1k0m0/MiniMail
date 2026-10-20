@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import LoginScreen from "./LoginScreen.jsx";
 import UserManagement from "./UserManagement.jsx";
@@ -139,6 +145,21 @@ const fullAddress = (list) =>
       item.name ? `${item.name} <${item.address}>` : item.address,
     )
     .join(", ") || "";
+function replyAllCc(message, accountEmail) {
+  const excluded = new Set(
+    [accountEmail, ...(message.from || []).map((item) => item.address)]
+      .filter(Boolean)
+      .map((address) => address.toLowerCase()),
+  );
+  return [...(message.to || []), ...(message.cc || [])]
+    .map((item) => item.address)
+    .filter((address) => {
+      if (!address || excluded.has(address.toLowerCase())) return false;
+      excluded.add(address.toLowerCase());
+      return true;
+    })
+    .join(", ");
+}
 function dateLabel(value) {
   if (!value) return "";
   const date = new Date(value),
@@ -286,6 +307,9 @@ function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
   const [modal, setModal] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const contextMenuRef = useRef(null);
+  const contextTriggerRef = useRef(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [theme, setTheme] = useState(
     localStorage.getItem("minimail-theme") || "light",
@@ -319,6 +343,9 @@ function App() {
     Math.max(260, messagePreference ?? defaultMessageWidth),
   );
   const messageScrollRef = useRef(null);
+  const contextMessage = contextMenu
+    ? messages.find((item) => item.uid === contextMenu.uid)
+    : null;
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
   const visibleFolders = useMemo(
     () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
@@ -334,6 +361,31 @@ function App() {
     window.addEventListener("resize", onWindowResize);
     return () => window.removeEventListener("resize", onWindowResize);
   }, []);
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return;
+    const element = contextMenuRef.current;
+    const bounds = element.getBoundingClientRect();
+    element.style.left = `${Math.max(8, Math.min(contextMenu.x, window.innerWidth - bounds.width - 8))}px`;
+    element.style.top = `${Math.max(8, Math.min(contextMenu.y, window.innerHeight - bounds.height - 8))}px`;
+    element.querySelector("button")?.focus();
+  }, [contextMenu]);
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = (event) => {
+      if (!contextMenuRef.current?.contains(event.target)) setContextMenu(null);
+    };
+    const close = () => setContextMenu(null);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", close);
+    messageScrollRef.current?.addEventListener("scroll", close);
+    const scroll = messageScrollRef.current;
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", close);
+      scroll?.removeEventListener("scroll", close);
+    };
+  }, [contextMenu]);
+  useEffect(() => setContextMenu(null), [accountId, folder, page, search]);
   useEffect(() => {
     let cancelled = false;
     let retry;
@@ -524,49 +576,87 @@ function App() {
     try {
       await action();
       refresh();
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
     }
   }
   async function flag(uid, key, enabled) {
-    await withAction(() =>
+    const success = await withAction(() =>
       api(`/accounts/${accountId}/messages/${uid}/flags`, {
         method: "PATCH",
         body: { folder, flags: { [key]: enabled } },
       }),
     );
-    setMessages((current) =>
-      current.map((item) =>
-        item.uid === uid ? { ...item, [key]: enabled } : item,
-      ),
-    );
+    if (success)
+      setMessages((current) =>
+        current.map((item) =>
+          item.uid === uid ? { ...item, [key]: enabled } : item,
+        ),
+      );
   }
-  async function remove() {
-    if (!selected) return;
-    await withAction(() =>
-      api(`/accounts/${accountId}/messages/${selected}`, {
+  async function remove(uid = selected) {
+    if (!uid) return;
+    const success = await withAction(() =>
+      api(`/accounts/${accountId}/messages/${uid}`, {
         method: "DELETE",
         body: { folder },
       }),
     );
-    setSelected(null);
+    if (success) {
+      setSelected((current) => (current === uid ? null : current));
+      setMessages((current) => current.filter((item) => item.uid !== uid));
+    }
   }
-  async function archive() {
+  async function archive(uid = selected) {
     const target = folders.find(
       (item) =>
         item.specialUse === "\\Archive" || /archiv|archive/i.test(item.name),
     );
-    if (!target || !selected) {
+    if (!target || !uid) {
       setError("Kein Archivordner auf diesem Postfach gefunden.");
       return;
     }
-    await withAction(() =>
-      api(`/accounts/${accountId}/messages/${selected}/move`, {
+    const success = await withAction(() =>
+      api(`/accounts/${accountId}/messages/${uid}/move`, {
         method: "POST",
         body: { folder, destination: target.path },
       }),
     );
-    setSelected(null);
+    if (success) {
+      setSelected((current) => (current === uid ? null : current));
+      setMessages((current) => current.filter((item) => item.uid !== uid));
+    }
+  }
+  function openContextMenu(event, uid) {
+    event.preventDefault();
+    contextTriggerRef.current = event.currentTarget;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setContextMenu({
+      uid,
+      x: event.type === "contextmenu" ? event.clientX : bounds.left + 24,
+      y: event.type === "contextmenu" ? event.clientY : bounds.top + 24,
+    });
+  }
+  async function composeFromMessage(uid, type) {
+    setContextMenu(null);
+    try {
+      const message =
+        selected === uid && detail?.uid === uid
+          ? detail
+          : await api(
+              `/accounts/${accountId}/messages/${uid}?folder=${encodeURIComponent(folder)}`,
+            );
+      setMessages((current) =>
+        current.map((item) =>
+          item.uid === uid ? { ...item, seen: true } : item,
+        ),
+      );
+      setModal({ type, message });
+    } catch (err) {
+      setError(err.message);
+    }
   }
   if (!auth)
     return (
@@ -920,10 +1010,18 @@ function App() {
                       key={item.uid}
                       className={`message-row ${selected === item.uid ? "selected" : ""} ${!item.seen ? "unread" : ""}`}
                       onClick={() => setSelected(item.uid)}
+                      onContextMenu={(event) =>
+                        openContextMenu(event, item.uid)
+                      }
                       role="button"
                       tabIndex={0}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") setSelected(item.uid);
+                        if (
+                          event.key === "ContextMenu" ||
+                          (event.shiftKey && event.key === "F10")
+                        )
+                          openContextMenu(event, item.uid);
                       }}
                     >
                       <div className="row-avatar">
@@ -942,7 +1040,9 @@ function App() {
                         </div>
                         <div className="row-subject" title={item.subject}>
                           <span>{item.subject}</span>
-                          {item.hasAttachments && <Paperclip size={13} aria-label="Mit Anhang" />}
+                          {item.hasAttachments && (
+                            <Paperclip size={13} aria-label="Mit Anhang" />
+                          )}
                         </div>
                       </div>
                       <button
@@ -1025,7 +1125,7 @@ function App() {
                         >
                           <Reply size={19} />
                         </button>
-                        <button title="Archivieren" onClick={archive}>
+                        <button title="Archivieren" onClick={() => archive()}>
                           <Archive size={19} />
                         </button>
                         <button
@@ -1037,7 +1137,7 @@ function App() {
                         >
                           <Mail size={19} />
                         </button>
-                        <button title="Löschen" onClick={remove}>
+                        <button title="Löschen" onClick={() => remove()}>
                           <Trash2 size={19} />
                         </button>
                       </div>
@@ -1151,6 +1251,98 @@ function App() {
           </div>
         )}
       </main>
+      {contextMenu && contextMessage && (
+        <div
+          ref={contextMenuRef}
+          className="message-context-menu"
+          role="menu"
+          aria-label="Aktionen für Nachricht"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setContextMenu(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setContextMenu(null);
+              contextTriggerRef.current?.focus();
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const items = [...event.currentTarget.querySelectorAll("button")];
+              const index = items.indexOf(document.activeElement);
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              items[(index + step + items.length) % items.length]?.focus();
+            }
+          }}
+        >
+          <button
+            role="menuitem"
+            onClick={() => composeFromMessage(contextMessage.uid, "reply")}
+          >
+            <Reply size={16} /> Antworten
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => composeFromMessage(contextMessage.uid, "reply-all")}
+          >
+            <Reply size={16} /> Allen antworten
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => composeFromMessage(contextMessage.uid, "forward")}
+          >
+            <ArrowRight size={16} /> Weiterleiten
+          </button>
+          <div className="context-menu-separator" role="separator" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              setContextMenu(null);
+              flag(contextMessage.uid, "seen", !contextMessage.seen);
+            }}
+          >
+            {contextMessage.seen ? <Mail size={16} /> : <MailOpen size={16} />}
+            {contextMessage.seen
+              ? "Als ungelesen markieren"
+              : "Als gelesen markieren"}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setContextMenu(null);
+              flag(contextMessage.uid, "flagged", !contextMessage.flagged);
+            }}
+          >
+            <Star
+              size={16}
+              fill={contextMessage.flagged ? "currentColor" : "none"}
+            />
+            {contextMessage.flagged ? "Markierung entfernen" : "Markieren"}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setContextMenu(null);
+              archive(contextMessage.uid);
+            }}
+          >
+            <Archive size={16} /> Archivieren
+          </button>
+          <div className="context-menu-separator" role="separator" />
+          <button
+            role="menuitem"
+            className="context-menu-danger"
+            onClick={() => {
+              setContextMenu(null);
+              remove(contextMessage.uid);
+            }}
+          >
+            <Trash2 size={16} /> Löschen
+          </button>
+        </div>
+      )}
       {error && (
         <div className="toast" role="alert">
           <span>{error}</span>
@@ -1206,6 +1398,7 @@ function App() {
       )}
       {(modal === "compose" ||
         modal?.type === "reply" ||
+        modal?.type === "reply-all" ||
         modal?.type === "forward") && (
         <ComposeModal
           account={activeAccount}
@@ -1649,11 +1842,13 @@ function SettingsModal({
 }
 
 function ComposeModal({ account, initial, onClose, onSent, setError }) {
-  const reply = initial?.type === "reply",
+  const replyAll = initial?.type === "reply-all",
+    reply = initial?.type === "reply" || replyAll,
     forward = initial?.type === "forward",
     original = initial?.message;
+  const replyRecipients = replyAll ? replyAllCc(original, account?.email) : "";
   const [to, setTo] = useState(reply ? original.from?.[0]?.address || "" : "");
-  const [cc, setCc] = useState("");
+  const [cc, setCc] = useState(replyRecipients);
   const [subject, setSubject] = useState(
     original
       ? `${reply ? "Re" : "Fwd"}: ${original.subject.replace(/^(Re|Fwd):\s*/i, "")}`
@@ -1673,7 +1868,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
   );
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [showCc, setShowCc] = useState(false);
+  const [showCc, setShowCc] = useState(Boolean(replyRecipients));
   async function submit(event) {
     event.preventDefault();
     if (!account) {
@@ -1719,7 +1914,9 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
             </div>
             <h2>
               {reply
-                ? "Antworten"
+                ? replyAll
+                  ? "Allen antworten"
+                  : "Antworten"
                 : forward
                   ? "Weiterleiten"
                   : "Neue Nachricht"}
