@@ -37,6 +37,88 @@ import "./style.css";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
 
 const PAGE_SIZE = 40;
+const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
+const MESSAGE_WIDTH_KEY = "minimail-message-width";
+
+function storedWidth(key) {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function ResizeHandle({
+  label,
+  value,
+  min,
+  max,
+  defaultWidth,
+  onResize,
+  onCommit,
+}) {
+  const drag = useRef(null);
+  function finish(event) {
+    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+    onCommit(drag.current.width);
+    document.body.style.userSelect = drag.current.userSelect;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    drag.current = null;
+  }
+  return (
+    <div
+      className="resize-handle"
+      role="separator"
+      tabIndex={0}
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      title="Breite ziehen · Doppelklick setzt zurück"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          startWidth: value,
+          width: value,
+          userSelect: document.body.style.userSelect,
+        };
+        document.body.style.userSelect = "none";
+      }}
+      onPointerMove={(event) => {
+        if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+        const width = Math.min(
+          max,
+          Math.max(
+            min,
+            drag.current.startWidth + event.clientX - drag.current.x,
+          ),
+        );
+        drag.current.width = width;
+        onResize(width);
+      }}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onDoubleClick={() => {
+        onResize(defaultWidth);
+        onCommit(defaultWidth);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const step = event.shiftKey ? 30 : 10;
+        const next = Math.min(
+          max,
+          Math.max(min, value + (event.key === "ArrowRight" ? step : -step)),
+        );
+        onResize(next);
+        onCommit(next);
+      }}
+    />
+  );
+}
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
@@ -205,6 +287,33 @@ function App() {
     localStorage.getItem("minimail-theme") || "light",
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [sidebarPreference, setSidebarPreference] = useState(() =>
+    storedWidth(SIDEBAR_WIDTH_KEY),
+  );
+  const [messagePreference, setMessagePreference] = useState(() =>
+    storedWidth(MESSAGE_WIDTH_KEY),
+  );
+  const narrowDesktop = windowWidth <= 1060;
+  const railWidth = narrowDesktop ? 58 : 72;
+  const defaultSidebarWidth = narrowDesktop ? 210 : 247;
+  const defaultMessageWidth = narrowDesktop ? 265 : 374;
+  const sidebarMax = Math.max(
+    180,
+    Math.min(440, windowWidth - railWidth - 260 - 220),
+  );
+  const sidebarWidth = Math.min(
+    sidebarMax,
+    Math.max(180, sidebarPreference ?? defaultSidebarWidth),
+  );
+  const messageMax = Math.max(
+    260,
+    Math.min(900, windowWidth - railWidth - sidebarWidth - 220),
+  );
+  const messageWidth = Math.min(
+    messageMax,
+    Math.max(260, messagePreference ?? defaultMessageWidth),
+  );
   const messageScrollRef = useRef(null);
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
   const visibleFolders = useMemo(
@@ -215,6 +324,11 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
   }, [theme]);
+  useEffect(() => {
+    const onWindowResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onWindowResize);
+    return () => window.removeEventListener("resize", onWindowResize);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let retry;
@@ -421,7 +535,13 @@ function App() {
       />
     );
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--message-width": `${messageWidth}px`,
+      }}
+    >
       <div className="icon-rail">
         <div className="brand-mark">
           <Mail size={22} strokeWidth={2.5} />
@@ -599,6 +719,17 @@ function App() {
             <Settings size={17} /> Einstellungen
           </button>
         </div>
+        <ResizeHandle
+          label="Breite der Ordnerleiste"
+          value={sidebarWidth}
+          min={180}
+          max={sidebarMax}
+          defaultWidth={defaultSidebarWidth}
+          onResize={setSidebarPreference}
+          onCommit={(width) =>
+            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width))
+          }
+        />
       </aside>
       <main className="workspace">
         <header className="topbar">
@@ -795,6 +926,17 @@ function App() {
                   onChange={changePage}
                 />
               </div>
+              <ResizeHandle
+                label="Breite der Nachrichtenliste"
+                value={messageWidth}
+                min={260}
+                max={messageMax}
+                defaultWidth={defaultMessageWidth}
+                onResize={setMessagePreference}
+                onCommit={(width) =>
+                  localStorage.setItem(MESSAGE_WIDTH_KEY, String(width))
+                }
+              />
             </section>
             <section
               className={`reader-panel ${selected ? "show-mobile" : ""}`}

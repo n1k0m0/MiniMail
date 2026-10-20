@@ -62,7 +62,7 @@ svg {
   height: 100vh;
   min-height: 620px;
   display: grid;
-  grid-template-columns: 72px 247px minmax(0, 1fr);
+  grid-template-columns: 72px var(--sidebar-width, 247px) minmax(0, 1fr);
   background: #fff;
   overflow: hidden;
 }
@@ -115,6 +115,7 @@ svg {
   font-family: Manrope;
 }
 .sidebar {
+  position: relative;
   background: #f6f8fc;
   border-right: 1px solid #e8edf5;
   display: flex;
@@ -482,15 +483,47 @@ svg {
 }
 .mail-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 374px) minmax(0, 1fr);
+  grid-template-columns: var(--message-width, 374px) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
 .message-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   border-right: 1px solid #edf0f5;
   min-height: 0;
+}
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  z-index: 5;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 4px;
+  height: 42px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: #b9c5df;
+  opacity: 0.65;
+}
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after {
+  background: #526fd6;
+  opacity: 1;
+}
+.resize-handle:focus-visible {
+  outline: 2px solid #9cb0fa;
+  outline-offset: -2px;
 }
 .list-header {
   height: 137px;
@@ -1595,7 +1628,7 @@ svg {
 }
 @media (max-width: 1060px) {
   .app-shell {
-    grid-template-columns: 58px 210px minmax(0, 1fr);
+    grid-template-columns: 58px var(--sidebar-width, 210px) minmax(0, 1fr);
   }
   .icon-rail {
     padding-top: 18px;
@@ -1604,7 +1637,7 @@ svg {
     padding: 0 8px;
   }
   .mail-layout {
-    grid-template-columns: minmax(265px, 34%) minmax(0, 1fr);
+    grid-template-columns: var(--message-width, 265px) minmax(0, 1fr);
   }
   .reader-content {
     padding: 33px 30px;
@@ -1638,6 +1671,9 @@ svg {
   }
   .sidebar.sidebar-open {
     transform: translateX(0);
+  }
+  .resize-handle {
+    display: none;
   }
   .close-mobile,
   .menu-mobile {
