@@ -25,6 +25,7 @@ db.exec(`
     check_interval_minutes INTEGER NOT NULL DEFAULT 5,
     last_checked_at INTEGER, inbox_unseen INTEGER, inbox_uid_next INTEGER,
     check_failed INTEGER NOT NULL DEFAULT 0,
+    is_primary INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 `);
@@ -64,6 +65,18 @@ if (!accountColumns.has("check_failed"))
   db.exec(
     "ALTER TABLE accounts ADD COLUMN check_failed INTEGER NOT NULL DEFAULT 0",
   );
+if (!accountColumns.has("is_primary")) {
+  db.exec(
+    "ALTER TABLE accounts ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0",
+  );
+  db.exec(`
+    UPDATE accounts SET is_primary=1
+    WHERE id IN (SELECT MIN(id) FROM accounts GROUP BY user_id)
+  `);
+}
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_per_user ON accounts(user_id) WHERE is_primary=1",
+);
 // Existing single-user installations keep their owner as administrator.
 if (
   !db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get() &&

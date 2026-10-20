@@ -455,7 +455,13 @@ function App() {
       .then((data) => {
         if (!active || authIdentityRef.current !== identity) return;
         setAccounts(data);
-        setAccountId((current) => current ?? data[0]?.id ?? null);
+        setAccountId(
+          (current) =>
+            current ??
+            data.find((account) => account.is_primary)?.id ??
+            data[0]?.id ??
+            null,
+        );
       })
       .catch((err) => {
         if (active && authIdentityRef.current === identity)
@@ -870,7 +876,16 @@ function App() {
                     {account.name[0]?.toUpperCase()}
                   </div>
                   <span className="account-text">
-                    <strong>{account.name}</strong>
+                    <span className="account-name-line">
+                      <strong>{account.name}</strong>
+                      {account.is_primary && (
+                        <Star
+                          size={12}
+                          fill="currentColor"
+                          aria-label="Primärpostfach"
+                        />
+                      )}
+                    </span>
                     <small>
                       {account.needsCredentials
                         ? "Passwort ergänzen"
@@ -1640,7 +1655,16 @@ function App() {
           onDeleted={async (id) => {
             const data = await api("/accounts");
             setAccounts(data);
-            if (accountId === id) setAccountId(data[0]?.id || null);
+            if (accountId === id)
+              setAccountId(
+                data.find((account) => account.is_primary)?.id ??
+                  data[0]?.id ??
+                  null,
+              );
+          }}
+          onPrimary={async (id) => {
+            await api(`/accounts/${id}/primary`, { method: "PATCH" });
+            setAccounts(await api("/accounts"));
           }}
         />
       )}
@@ -2071,7 +2095,20 @@ function SettingsModal({
   theme,
   setError,
   onDeleted,
+  onPrimary,
 }) {
+  const [primaryBusy, setPrimaryBusy] = useState(false);
+  async function makePrimary(id) {
+    if (primaryBusy) return;
+    setPrimaryBusy(true);
+    try {
+      await onPrimary(id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPrimaryBusy(false);
+    }
+  }
   async function remove(account) {
     if (
       !window.confirm(
@@ -2120,6 +2157,22 @@ function SettingsModal({
                     : `Alle ${account.check_interval_minutes} Minuten · ${account.check_failed ? "Prüfung fehlgeschlagen" : account.last_checked_at ? `zuletzt ${new Date(account.last_checked_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : "noch nicht geprüft"}`}
                 </span>
               </div>
+              <button
+                className={`primary-account-button ${account.is_primary ? "is-primary" : ""}`}
+                title={
+                  account.is_primary
+                    ? "Primärpostfach"
+                    : "Als Primärpostfach festlegen"
+                }
+                onClick={() => makePrimary(account.id)}
+                disabled={account.is_primary || primaryBusy}
+              >
+                <Star
+                  size={14}
+                  fill={account.is_primary ? "currentColor" : "none"}
+                />
+                {account.is_primary ? "Primär" : "Als primär"}
+              </button>
               <button onClick={() => onEdit(account)}>Bearbeiten</button>
               <button
                 className="danger-icon"

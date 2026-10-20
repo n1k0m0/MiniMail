@@ -213,6 +213,7 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(ownerAccount.data.smtp_username, "owner-smtp");
     assert.equal(ownerAccount.data.smtp_password_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
+    assert.equal(ownerAccount.data.is_primary, true);
     assert.equal(ownerAccount.data.check_interval_minutes, 5);
     assert.equal(ownerAccount.data.last_checked_at, null);
     assert.equal(
@@ -367,8 +368,14 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       200,
     );
     assert.equal((await member("/accounts")).data.length, 1);
+    assert.equal((await member("/accounts")).data[0].is_primary, true);
     assert.equal((await admin("/accounts")).data.length, 1);
     assert.equal((await admin("/accounts")).data[0].name, "owner");
+    assert.equal(
+      (await member(`/accounts/${ownerAccount.data.id}/primary`, "PATCH"))
+        .status,
+      404,
+    );
 
     const reset = await admin(
       `/admin/users/${created.data.user.id}/reset-password`,
@@ -421,6 +428,21 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     const drafts = (await admin("/accounts")).data;
     const draft = drafts.find((item) => item.email === "draft@example.test");
     assert.equal(draft.needsCredentials, true);
+    assert.equal(draft.is_primary, false);
+    assert.equal(
+      (await admin(`/accounts/${draft.id}/primary`, "PATCH")).status,
+      200,
+    );
+    const selectedPrimary = (await admin("/accounts")).data;
+    assert.equal(
+      selectedPrimary.find((item) => item.id === draft.id).is_primary,
+      true,
+    );
+    assert.equal(
+      selectedPrimary.find((item) => item.id === ownerAccount.data.id)
+        .is_primary,
+      false,
+    );
     assert.equal(draft.check_interval_minutes, 5);
     assert.equal(draft.smtp_username, "");
     const configured = await admin(`/accounts/${draft.id}`, "PUT", {
@@ -432,6 +454,9 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(configured.status, 200);
     assert.equal(configured.data.needsCredentials, false);
     assert.equal(configured.data.check_interval_minutes, 10);
+    assert.equal(configured.data.is_primary, true);
+    assert.equal((await admin(`/accounts/${draft.id}`, "DELETE")).status, 200);
+    assert.equal((await admin("/accounts")).data[0].is_primary, true);
   } finally {
     child.kill();
     if (child.exitCode === null)

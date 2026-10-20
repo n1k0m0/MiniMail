@@ -230,6 +230,19 @@ svg {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.account-name-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.account-name-line strong {
+  min-width: 0;
+}
+.account-name-line svg {
+  flex: none;
+  color: #d4a547;
+}
 .account-text small {
   font-size: 10px;
   color: #8a97ab;
@@ -1523,6 +1536,13 @@ svg {
   background: transparent;
   color: #bd7c83;
 }
+.settings-account button.primary-account-button.is-primary {
+  background: #fff1cf;
+  color: #a67c25;
+}
+.settings-account button.primary-account-button:disabled {
+  cursor: default;
+}
 .settings-add {
   height: 35px;
   background: transparent;
@@ -1798,6 +1818,10 @@ svg {
 [data-theme="dark"] .attachment-list a {
   border-color: #334057;
 }
+[data-theme="dark"] .settings-account button.primary-account-button.is-primary {
+  background: #493e2b;
+  color: #f2cc74;
+}
 [data-theme="dark"] .modal label,
 [data-theme="dark"] .auth-card label {
   color: #bac7df;
@@ -1834,6 +1858,15 @@ svg {
   }
 }
 @media (max-width: 760px) {
+  .settings-account {
+    flex-wrap: wrap;
+  }
+  .settings-account > div:nth-child(2) {
+    flex-basis: calc(100% - 43px);
+  }
+  .settings-account .primary-account-button {
+    margin-left: 43px;
+  }
   .empty-trash-label {
     display: none;
   }

@@ -331,6 +331,7 @@ function publicAccount(account) {
     imap_secure: !!rest.imap_secure,
     smtp_secure: !!rest.smtp_secure,
     check_failed: !!rest.check_failed,
+    is_primary: !!rest.is_primary,
     smtp_username: rest.smtp_username || "",
     needsCredentials: !decrypt(password_enc),
   };
@@ -417,9 +418,12 @@ app.post(
     if (!req.body.password)
       return res.status(400).json({ error: "Postfach-Passwort fehlt." });
     const b = req.body;
+    const makePrimary = !db
+      .prepare("SELECT id FROM accounts WHERE user_id=? AND is_primary=1")
+      .get(req.user.id);
     const result = db
       .prepare(
-        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes,is_primary) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         req.user.id,
@@ -439,6 +443,7 @@ app.post(
         b.check_interval_minutes === undefined
           ? 5
           : Number(b.check_interval_minutes),
+        makePrimary ? 1 : 0,
       );
     res.json(
       publicAccount(
@@ -483,10 +488,40 @@ app.put(
     );
   }),
 );
+app.patch("/api/accounts/:id/primary", (req, res) => {
+  const account = accountFor(req, res);
+  if (!account) return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("UPDATE accounts SET is_primary=0 WHERE user_id=?").run(
+      req.user.id,
+    );
+    db.prepare("UPDATE accounts SET is_primary=1 WHERE id=? AND user_id=?").run(
+      account.id,
+      req.user.id,
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  res.json({ ok: true });
+});
 app.delete("/api/accounts/:id", (req, res) => {
   const account = accountFor(req, res);
   if (!account) return;
-  db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
+    if (account.is_primary)
+      db.prepare(
+        "UPDATE accounts SET is_primary=1 WHERE id=(SELECT id FROM accounts WHERE user_id=? ORDER BY id LIMIT 1)",
+      ).run(req.user.id);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
   res.json({ ok: true });
 });
 app.get(
