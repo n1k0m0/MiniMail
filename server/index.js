@@ -467,7 +467,7 @@ app.get(
         account,
         folder(req),
         String(req.query.q || "").slice(0, 200),
-        Math.max(0, Number(req.query.page) || 0),
+        Math.max(0, Math.floor(Number(req.query.page) || 0)),
       ),
     );
   }),

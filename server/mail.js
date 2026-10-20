@@ -107,6 +107,7 @@ export async function listFolders(account) {
       .map((item) => ({
         path: item.path,
         name: item.name,
+        delimiter: item.delimiter || "/",
         specialUse: item.specialUse || null,
         count: item.status?.messages || 0,
         unseen: item.status?.unseen || 0,

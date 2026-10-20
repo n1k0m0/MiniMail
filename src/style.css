@@ -124,6 +124,7 @@ svg {
 }
 .sidebar-top {
   height: 83px;
+  flex: none;
   display: flex;
   align-items: center;
   padding: 0 10px;
@@ -142,6 +143,7 @@ svg {
 }
 .compose-button {
   height: 47px;
+  flex: none;
   border-radius: 10px;
   background: #405cce;
   color: #fff;
@@ -168,6 +170,13 @@ svg {
   letter-spacing: 1.5px;
   padding: 0 13px;
   margin: 0 0 12px;
+}
+.sidebar-content {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
 }
 .account-list {
   display: flex;
@@ -245,18 +254,65 @@ svg {
   color: #9ca8bd;
   padding: 0;
 }
+.folder-heading small {
+  letter-spacing: 0;
+  font-size: 10px;
+  font-weight: 600;
+}
+.folder-search {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  margin: 0 3px 9px;
+  color: #8999b0;
+  background: #fff;
+  border: 1px solid #e1e7f1;
+  border-radius: 8px;
+}
+.folder-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #34415b;
+  font-size: 11px;
+}
+.folder-search button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  color: #8999b0;
+}
 .folder-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+.folder-row {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+}
+.folder-row:hover {
+  background: #edf0f8;
+}
+.folder-row.current {
+  background: #e4eafd;
+  color: #3452c2;
 }
 .folder-item {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-width: 0;
   height: 39px;
-  padding: 0 12px;
+  padding: 0 4px;
   border-radius: 9px;
   background: transparent;
   color: #60708d;
@@ -265,12 +321,28 @@ svg {
   font-weight: 600;
 }
 .folder-item:hover {
-  background: #edf0f8;
+  background: transparent;
 }
-.folder-item.current {
-  background: #e4eafd;
+.folder-row.current .folder-item {
   color: #3452c2;
   font-weight: 800;
+}
+.folder-toggle {
+  width: 26px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #8694ad;
+}
+.folder-toggle .collapsed {
+  transform: rotate(-90deg);
+}
+.folder-no-results {
+  padding: 8px 12px;
+  color: #8b99ad;
+  font-size: 11px;
 }
 .folder-item span {
   flex: 1;
@@ -290,7 +362,7 @@ svg {
   font-size: 10px;
 }
 .sidebar-bottom {
-  margin-top: auto;
+  flex: none;
   padding: 10px 3px 17px;
 }
 .sidebar-tip {
@@ -466,6 +538,53 @@ svg {
   color: #66748d;
   font-weight: 800;
 }
+.page-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.page-controls button {
+  width: 25px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: transparent;
+  color: #66789b;
+  font-size: 17px;
+}
+.page-controls button:not(:disabled):hover {
+  background: #e9edfb;
+  color: #3556c4;
+}
+.page-controls-compact span {
+  min-width: 49px;
+  text-align: center;
+  white-space: nowrap;
+}
+.page-controls form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.page-controls input {
+  width: 42px;
+  height: 26px;
+  padding: 0 3px;
+  border: 1px solid #dfe6f0;
+  border-radius: 5px;
+  background: #fff;
+  color: #3e4d68;
+  text-align: center;
+  font-size: 11px;
+  appearance: textfield;
+}
+.page-controls input::-webkit-inner-spin-button,
+.page-controls input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
 .toolbar-page {
   color: #9ca8b7;
   font-weight: 500;
@@ -589,20 +708,16 @@ svg {
   color: #e7aa4f;
 }
 .pagination {
-  height: 44px;
+  min-height: 49px;
+  flex: none;
   border-top: 1px solid #edf0f5;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 5px;
+  padding: 0 12px;
   color: #8d9aaf;
   font-size: 11px;
-}
-.pagination button {
-  background: transparent;
-  color: #8d9aaf;
-  display: grid;
-  place-items: center;
 }
 .reader-panel {
   display: flex;
@@ -1431,8 +1546,8 @@ svg {
 [data-theme="dark"] .message-row.selected,
 [data-theme="dark"] .account-choice.selected,
 [data-theme="dark"] .account-choice:hover,
-[data-theme="dark"] .folder-item.current,
-[data-theme="dark"] .folder-item:hover {
+[data-theme="dark"] .folder-row.current,
+[data-theme="dark"] .folder-row:hover {
   background: #273450;
 }
 [data-theme="dark"] .search-box,
@@ -1446,6 +1561,9 @@ svg {
   border-color: #374259;
 }
 [data-theme="dark"] .search-box input,
+[data-theme="dark"] .folder-search,
+[data-theme="dark"] .folder-search input,
+[data-theme="dark"] .page-controls input,
 [data-theme="dark"] .modal input:not([type="checkbox"]),
 [data-theme="dark"] .modal textarea,
 [data-theme="dark"] .auth-card input {

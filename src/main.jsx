@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import LoginScreen from "./LoginScreen.jsx";
 import UserManagement from "./UserManagement.jsx";
@@ -34,6 +34,9 @@ import {
   X,
 } from "lucide-react";
 import "./style.css";
+import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
+
+const PAGE_SIZE = 40;
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
@@ -72,17 +75,110 @@ function dateLabel(value) {
 function folderMeta(folder) {
   const name = folder?.name || folder?.path || "Posteingang";
   const type = folder?.specialUse || "";
-  if (type === "\\Sent" || /gesendet|sent/i.test(name))
+  if (type === "\\Sent" || /^(gesendet|sent|sent items|sent mail)$/i.test(name))
     return { icon: Send, label: "Gesendet" };
-  if (type === "\\Drafts" || /entwurf|draft/i.test(name))
+  if (type === "\\Drafts" || /^(entwürfe|entwurf|drafts?)$/i.test(name))
     return { icon: FileText, label: "Entwürfe" };
-  if (type === "\\Trash" || /papierkorb|trash|gelöscht/i.test(name))
+  if (
+    type === "\\Trash" ||
+    /^(papierkorb|trash|deleted items|gelöscht)$/i.test(name)
+  )
     return { icon: Trash2, label: "Papierkorb" };
-  if (type === "\\Archive" || /archiv|archive/i.test(name))
+  if (type === "\\Archive" || /^(archiv|archive)$/i.test(name))
     return { icon: Archive, label: "Archiv" };
   if (folder?.path?.toUpperCase() === "INBOX")
     return { icon: Inbox, label: "Posteingang" };
   return { icon: Mail, label: name };
+}
+
+function PaginationControls({
+  page,
+  total,
+  loading,
+  onChange,
+  compact = false,
+}) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const [entry, setEntry] = useState(String(page + 1));
+  useEffect(() => setEntry(String(page + 1)), [page]);
+  function jump() {
+    const target = Number(entry);
+    if (Number.isInteger(target) && target >= 1 && target <= pages)
+      onChange(target - 1);
+    else setEntry(String(page + 1));
+  }
+  return (
+    <div
+      className={`page-controls ${compact ? "page-controls-compact" : ""}`}
+      aria-label="Nachrichtenseiten"
+    >
+      {!compact && (
+        <button
+          type="button"
+          title="Erste Seite"
+          aria-label="Erste Seite"
+          disabled={loading || page === 0}
+          onClick={() => onChange(0)}
+        >
+          «
+        </button>
+      )}
+      <button
+        type="button"
+        title="Neuere Nachrichten"
+        aria-label="Neuere Nachrichten"
+        disabled={loading || page === 0}
+        onClick={() => onChange(page - 1)}
+      >
+        <ChevronLeft size={17} />
+      </button>
+      {compact ? (
+        <span>
+          {page + 1} / {pages}
+        </span>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            jump();
+          }}
+        >
+          <label htmlFor="mail-page">Seite</label>
+          <input
+            id="mail-page"
+            type="number"
+            min="1"
+            max={pages}
+            value={entry}
+            onChange={(event) => setEntry(event.target.value)}
+            onBlur={jump}
+            aria-label="Seitennummer"
+          />
+          <span>von {pages}</span>
+        </form>
+      )}
+      <button
+        type="button"
+        title="Ältere Nachrichten"
+        aria-label="Ältere Nachrichten"
+        disabled={loading || page >= pages - 1}
+        onClick={() => onChange(page + 1)}
+      >
+        <ChevronRight size={17} />
+      </button>
+      {!compact && (
+        <button
+          type="button"
+          title="Letzte Seite"
+          aria-label="Letzte Seite"
+          disabled={loading || page >= pages - 1}
+          onClick={() => onChange(pages - 1)}
+        >
+          »
+        </button>
+      )}
+    </div>
+  );
 }
 
 function App() {
@@ -90,6 +186,8 @@ function App() {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState(null);
   const [folders, setFolders] = useState([]);
+  const [folderFilter, setFolderFilter] = useState("");
+  const [collapsedFolders, setCollapsedFolders] = useState(new Set());
   const [folder, setFolder] = useState("INBOX");
   const [messages, setMessages] = useState([]);
   const [total, setTotal] = useState(0);
@@ -107,6 +205,12 @@ function App() {
     localStorage.getItem("minimail-theme") || "light",
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const messageScrollRef = useRef(null);
+  const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
+  const visibleFolders = useMemo(
+    () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
+    [folderTree, collapsedFolders, folderFilter],
+  );
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
@@ -128,7 +232,10 @@ function App() {
       }
     }
     load();
-    return () => { cancelled = true; clearTimeout(retry); };
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+    };
   }, []);
   useEffect(() => {
     if (!auth?.user?.twoFactorEnabled || auth.user.mustChangePassword) return;
@@ -140,7 +247,10 @@ function App() {
       .catch((err) => setError(err.message));
   }, [auth]);
   useEffect(() => {
-    if (!accountId || accounts.find((item) => item.id === accountId)?.needsCredentials) {
+    if (
+      !accountId ||
+      accounts.find((item) => item.id === accountId)?.needsCredentials
+    ) {
       setFolders([]);
       return;
     }
@@ -158,7 +268,10 @@ function App() {
       .catch((err) => setError(err.message));
   }, [accountId, accounts, refreshKey]);
   useEffect(() => {
-    if (!accountId || accounts.find((item) => item.id === accountId)?.needsCredentials) {
+    if (
+      !accountId ||
+      accounts.find((item) => item.id === accountId)?.needsCredentials
+    ) {
       setMessages([]);
       setTotal(0);
       setLoading(false);
@@ -222,6 +335,20 @@ function App() {
     setPage(0);
     setSelected(null);
     setMobileSidebar(false);
+  }
+  function changePage(nextPage) {
+    if (nextPage === page) return;
+    setPage(nextPage);
+    setSelected(null);
+    if (messageScrollRef.current) messageScrollRef.current.scrollTop = 0;
+  }
+  function toggleFolder(path) {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   }
   function refresh() {
     setRefreshKey((value) => value + 1);
@@ -338,65 +465,132 @@ function App() {
           <span>Neue Nachricht</span>
           <Plus size={17} className="compose-plus" />
         </button>
-        <div className="section-label">POSTFÄCHER</div>
-        {accounts.length ? (
-          <div className="account-list">
-            {accounts.map((account) => (
-              <button
-                key={account.id}
-                className={`account-choice ${account.id === accountId ? "selected" : ""}`}
-                onClick={() => {
-                  setAccountId(account.id);
-                  setSelected(null);
-                  setPage(0);
-                }}
-              >
-                <div className="account-badge">
-                  {account.name[0]?.toUpperCase()}
-                </div>
-                <span className="account-text">
-                  <strong>{account.name}</strong>
-                  <small>{account.needsCredentials ? "Passwort ergänzen" : account.email}</small>
-                </span>
-                {account.id === accountId && <ChevronDown size={15} />}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <button
-            className="add-account-side"
-            onClick={() => setModal("account")}
-          >
-            <Plus size={16} /> Postfach verbinden
-          </button>
-        )}
-        {accountId && (
-          <>
-            <div className="section-label folder-heading">
-              ORDNER{" "}
-              <button onClick={refresh} title="Ordner aktualisieren">
-                <RefreshCw size={14} />
-              </button>
+        <div className="sidebar-content">
+          <div className="section-label">POSTFÄCHER</div>
+          {accounts.length ? (
+            <div className="account-list">
+              {accounts.map((account) => (
+                <button
+                  key={account.id}
+                  className={`account-choice ${account.id === accountId ? "selected" : ""}`}
+                  onClick={() => {
+                    setAccountId(account.id);
+                    setFolder("INBOX");
+                    setFolderFilter("");
+                    setCollapsedFolders(new Set());
+                    setSelected(null);
+                    setPage(0);
+                  }}
+                >
+                  <div className="account-badge">
+                    {account.name[0]?.toUpperCase()}
+                  </div>
+                  <span className="account-text">
+                    <strong>{account.name}</strong>
+                    <small>
+                      {account.needsCredentials
+                        ? "Passwort ergänzen"
+                        : account.email}
+                    </small>
+                  </span>
+                  {account.id === accountId && <ChevronDown size={15} />}
+                </button>
+              ))}
             </div>
-            <nav className="folder-list">
-              {folders.map((item) => {
-                const meta = folderMeta(item),
-                  Icon = meta.icon;
-                return (
-                  <button
-                    key={item.path}
-                    className={`folder-item ${folder === item.path ? "current" : ""}`}
-                    onClick={() => selectFolder(item.path)}
-                  >
-                    <Icon size={18} />
-                    <span>{meta.label}</span>
-                    {item.unseen > 0 && <b>{item.unseen}</b>}
-                  </button>
-                );
-              })}
-            </nav>
-          </>
-        )}
+          ) : (
+            <button
+              className="add-account-side"
+              onClick={() => setModal("account")}
+            >
+              <Plus size={16} /> Postfach verbinden
+            </button>
+          )}
+          {accountId && (
+            <>
+              <div className="section-label folder-heading">
+                <span>
+                  ORDNER <small>{folders.length}</small>
+                </span>
+                <button onClick={refresh} title="Ordner aktualisieren">
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+              {folders.length > 8 && (
+                <div className="folder-search">
+                  <Search size={15} />
+                  <input
+                    value={folderFilter}
+                    onChange={(event) => setFolderFilter(event.target.value)}
+                    placeholder="Ordner finden …"
+                    aria-label="Ordner finden"
+                  />
+                  {folderFilter && (
+                    <button
+                      onClick={() => setFolderFilter("")}
+                      aria-label="Ordnerfilter löschen"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              )}
+              <nav className="folder-list">
+                {visibleFolders.map(({ node, depth }) => {
+                  const item = node.folder;
+                  const meta = folderMeta(item || node),
+                    Icon = meta.icon;
+                  return (
+                    <div
+                      key={node.path}
+                      className={`folder-row ${folder === node.path ? "current" : ""}`}
+                      style={{
+                        paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
+                      }}
+                    >
+                      <button
+                        className="folder-item"
+                        onClick={() =>
+                          item
+                            ? selectFolder(node.path)
+                            : toggleFolder(node.path)
+                        }
+                        title={node.path}
+                      >
+                        <Icon size={17} />
+                        <span>{meta.label}</span>
+                        {item?.unseen > 0 && <b>{item.unseen}</b>}
+                      </button>
+                      {node.children.length > 0 && (
+                        <button
+                          className="folder-toggle"
+                          onClick={() => toggleFolder(node.path)}
+                          title={
+                            collapsedFolders.has(node.path)
+                              ? "Unterordner anzeigen"
+                              : "Unterordner ausblenden"
+                          }
+                          aria-label={`${node.path}: Unterordner ${collapsedFolders.has(node.path) ? "anzeigen" : "ausblenden"}`}
+                        >
+                          <ChevronDown
+                            size={15}
+                            className={
+                              collapsedFolders.has(node.path) && !folderFilter
+                                ? "collapsed"
+                                : ""
+                            }
+                          />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {folderFilter && !visibleFolders.length && (
+                  <p className="folder-no-results">Kein passender Ordner.</p>
+                )}
+              </nav>
+            </>
+          )}
+        </div>
         <div className="sidebar-bottom">
           <button
             className="sidebar-settings"
@@ -470,10 +664,22 @@ function App() {
           <EmptyAccount onAdd={() => setModal("account")} />
         ) : activeAccount?.needsCredentials ? (
           <div className="reader-empty account-setup-empty">
-            <div className="reader-illustration"><div className="illustration-mail"><LockKeyhole size={42} strokeWidth={1.3} /></div></div>
+            <div className="reader-illustration">
+              <div className="illustration-mail">
+                <LockKeyhole size={42} strokeWidth={1.3} />
+              </div>
+            </div>
             <h2>Postfach vorbereiten</h2>
-            <p>Die Serverdaten für {activeAccount.email} sind eingerichtet. Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.</p>
-            <button className="primary-button" onClick={() => setModal({ type: "edit", account: activeAccount })}>Zugangsdaten ergänzen</button>
+            <p>
+              Die Serverdaten für {activeAccount.email} sind eingerichtet.
+              Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.
+            </p>
+            <button
+              className="primary-button"
+              onClick={() => setModal({ type: "edit", account: activeAccount })}
+            >
+              Zugangsdaten ergänzen
+            </button>
           </div>
         ) : (
           <div className="mail-layout">
@@ -502,13 +708,15 @@ function App() {
               </div>
               <div className="list-toolbar">
                 <span>Alle Nachrichten</span>
-                <span className="toolbar-page">
-                  {total
-                    ? `${page * 40 + 1}–${Math.min(total, page * 40 + 40)} von ${total}`
-                    : "0 von 0"}
-                </span>
+                <PaginationControls
+                  page={page}
+                  total={total}
+                  loading={loading}
+                  onChange={changePage}
+                  compact
+                />
               </div>
-              <div className="message-scroll">
+              <div className="message-scroll" ref={messageScrollRef}>
                 {loading ? (
                   <div className="panel-loading">
                     <LoaderCircle className="spin" size={25} />
@@ -580,25 +788,12 @@ function App() {
                 )}
               </div>
               <div className="pagination">
-                <button
-                  disabled={page === 0}
-                  onClick={() => {
-                    setPage(page - 1);
-                    setSelected(null);
-                  }}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span>Seite {page + 1}</span>
-                <button
-                  disabled={(page + 1) * 40 >= total}
-                  onClick={() => {
-                    setPage(page + 1);
-                    setSelected(null);
-                  }}
-                >
-                  <ChevronRight size={18} />
-                </button>
+                <PaginationControls
+                  page={page}
+                  total={total}
+                  loading={loading}
+                  onChange={changePage}
+                />
               </div>
             </section>
             <section
@@ -977,7 +1172,14 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     setTested(false);
                   }}
                 />{" "}
-                Direktes TLS <small>({form.imap_secure ? `Port ${form.imap_port}: TLS ab Verbindungsbeginn` : `Port ${form.imap_port}: STARTTLS verpflichtend`})</small>
+                Direktes TLS{" "}
+                <small>
+                  (
+                  {form.imap_secure
+                    ? `Port ${form.imap_port}: TLS ab Verbindungsbeginn`
+                    : `Port ${form.imap_port}: STARTTLS verpflichtend`}
+                  )
+                </small>
               </label>
             </div>
             <div className="form-section">
@@ -1015,7 +1217,14 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     field("smtp_port", e.target.checked ? 465 : 587);
                   }}
                 />{" "}
-                Direktes TLS <small>({form.smtp_secure ? `Port ${form.smtp_port}: TLS ab Verbindungsbeginn` : `Port ${form.smtp_port}: STARTTLS verpflichtend`})</small>
+                Direktes TLS{" "}
+                <small>
+                  (
+                  {form.smtp_secure
+                    ? `Port ${form.smtp_port}: TLS ab Verbindungsbeginn`
+                    : `Port ${form.smtp_port}: STARTTLS verpflichtend`}
+                  )
+                </small>
               </label>
               <div className="form-grid">
                 <label>
@@ -1032,7 +1241,9 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     type="password"
                     value={form.smtp_password || ""}
                     onChange={(e) => field("smtp_password", e.target.value)}
-                    placeholder={account ? "Unverändert lassen" : "Wie bei IMAP"}
+                    placeholder={
+                      account ? "Unverändert lassen" : "Wie bei IMAP"
+                    }
                   />
                 </label>
               </div>
