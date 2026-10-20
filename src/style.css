@@ -237,6 +237,17 @@ svg {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.account-unseen {
+  min-width: 20px;
+  height: 20px;
+  padding: 2px 5px;
+  border-radius: 7px;
+  background: #d4defb;
+  color: #4560c4;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
 .add-account-side {
   display: flex;
   align-items: center;
@@ -1289,6 +1300,14 @@ svg {
 .check-line small {
   font-size: 10px;
   color: #a3aec0;
+}
+.interval-field input {
+  max-width: 120px;
+}
+.field-hint {
+  color: #9aa7b9;
+  font-size: 10px;
+  line-height: 1.5;
 }
 .credentials p {
   color: #9aa7b9;

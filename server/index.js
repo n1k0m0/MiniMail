@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
+import { startMailChecks } from "./mailCheck.js";
 import {
   encrypt,
   decrypt,
@@ -241,11 +242,9 @@ app.get("/api/admin/users", adminOnly, (req, res) => {
 app.post("/api/admin/users", adminOnly, (req, res) => {
   const username = String(req.body?.username || "").trim();
   if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username))
-    return res
-      .status(400)
-      .json({
-        error: "Benutzername: 3–40 Zeichen (Buchstaben, Zahlen, . _ -).",
-      });
+    return res.status(400).json({
+      error: "Benutzername: 3–40 Zeichen (Buchstaben, Zahlen, . _ -).",
+    });
   if (db.prepare("SELECT id FROM users WHERE username=?").get(username))
     return res
       .status(409)
@@ -303,6 +302,7 @@ function publicAccount(account) {
     ...rest,
     imap_secure: !!rest.imap_secure,
     smtp_secure: !!rest.smtp_secure,
+    check_failed: !!rest.check_failed,
     smtp_username: rest.smtp_username || "",
     needsCredentials: !decrypt(password_enc),
   };
@@ -344,6 +344,15 @@ function validateAccount(body) {
     (typeof body.smtp_password !== "string" || body.smtp_password.length > 2048)
   )
     throw new AccountInputError("Ungültiges SMTP-Passwort.");
+  if (
+    body.check_interval_minutes !== undefined &&
+    (!Number.isInteger(Number(body.check_interval_minutes)) ||
+      Number(body.check_interval_minutes) < 0 ||
+      Number(body.check_interval_minutes) > 1440)
+  )
+    throw new AccountInputError(
+      "Das Abrufintervall muss zwischen 0 und 1440 Minuten liegen.",
+    );
 }
 app.get("/api/accounts", (req, res) => {
   res.json(
@@ -382,7 +391,7 @@ app.post(
     const b = req.body;
     const result = db
       .prepare(
-        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         req.user.id,
@@ -399,6 +408,9 @@ app.post(
         b.smtp_username?.trim() || null,
         b.smtp_password ? encrypt(b.smtp_password) : null,
         Date.now(),
+        b.check_interval_minutes === undefined
+          ? 5
+          : Number(b.check_interval_minutes),
       );
     res.json(
       publicAccount(
@@ -417,7 +429,7 @@ app.put(
     validateAccount(req.body || {});
     const b = req.body;
     db.prepare(
-      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=? WHERE id=?",
+      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
     ).run(
       b.name.trim(),
       b.email.trim(),
@@ -431,6 +443,9 @@ app.put(
       b.password ? encrypt(b.password) : existing.password_enc,
       b.smtp_username?.trim() || null,
       b.smtp_password ? encrypt(b.smtp_password) : existing.smtp_password_enc,
+      b.check_interval_minutes === undefined
+        ? existing.check_interval_minutes
+        : Number(b.check_interval_minutes),
       existing.id,
     );
     res.json(
@@ -586,10 +601,9 @@ app.use((error, req, res, next) => {
       message.includes("fehlt") || message.includes("ungültig") ? 400 : 500,
     )
     .json({
-      error:
-        error.mailStage
-          ? `${error.mailStage}-Verbindung oder Anmeldung fehlgeschlagen. Bitte Server, Port und Zugangsdaten prüfen.`
-          : process.env.NODE_ENV === "production"
+      error: error.mailStage
+        ? `${error.mailStage}-Verbindung oder Anmeldung fehlgeschlagen. Bitte Server, Port und Zugangsdaten prüfen.`
+        : process.env.NODE_ENV === "production"
           ? "Die Anfrage konnte nicht abgeschlossen werden. Bitte Verbindung und Eingaben prüfen."
           : message,
     });
@@ -597,3 +611,4 @@ app.use((error, req, res, next) => {
 app.listen(port, host, () =>
   console.log(`MiniMail server: http://${host}:${port}`),
 );
+if (process.env.DISABLE_MAIL_CHECKS !== "1") startMailChecks();

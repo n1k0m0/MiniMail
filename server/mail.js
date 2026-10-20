@@ -115,6 +115,22 @@ export async function listFolders(account) {
   });
 }
 
+export async function checkInbox(account) {
+  return withImap(account, async (client) => {
+    const status = await client.status("INBOX", {
+      messages: true,
+      unseen: true,
+      uidNext: true,
+    });
+    if (!status)
+      throw new Error("Der Posteingang konnte nicht geprüft werden.");
+    return {
+      unseen: status.unseen || 0,
+      uidNext: status.uidNext || 0,
+    };
+  });
+}
+
 export async function listMessages(account, folder, query, page = 0) {
   return inFolder(account, folder, async (client) => {
     const criteria = query

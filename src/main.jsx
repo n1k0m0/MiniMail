@@ -267,6 +267,10 @@ function App() {
   const [auth, setAuth] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState(null);
+  const accountsRef = useRef(accounts);
+  const activeAccountIdRef = useRef(accountId);
+  accountsRef.current = accounts;
+  activeAccountIdRef.current = accountId;
   const [folders, setFolders] = useState([]);
   const [folderFilter, setFolderFilter] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState(new Set());
@@ -320,6 +324,7 @@ function App() {
     () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
     [folderTree, collapsedFolders, folderFilter],
   );
+  const activeAccount = accounts.find((item) => item.id === accountId);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
@@ -361,10 +366,55 @@ function App() {
       .catch((err) => setError(err.message));
   }, [auth]);
   useEffect(() => {
-    if (
-      !accountId ||
-      accounts.find((item) => item.id === accountId)?.needsCredentials
-    ) {
+    if (!auth?.user?.twoFactorEnabled || auth.user.mustChangePassword) return;
+    let cancelled = false;
+    let polling = false;
+    async function pollAccounts() {
+      if (polling || document.hidden) return;
+      polling = true;
+      try {
+        const data = await api("/accounts");
+        if (
+          cancelled ||
+          JSON.stringify(data) === JSON.stringify(accountsRef.current)
+        )
+          return;
+        const before = accountsRef.current.find(
+          (item) => item.id === activeAccountIdRef.current,
+        );
+        const after = data.find(
+          (item) => item.id === activeAccountIdRef.current,
+        );
+        accountsRef.current = data;
+        setAccounts(data);
+        if (
+          before &&
+          after?.last_checked_at !== before.last_checked_at &&
+          !after.check_failed
+        )
+          setRefreshKey((value) => value + 1);
+      } catch (err) {
+        if (!cancelled && err.message === "Bitte anmelden.")
+          api("/auth/me")
+            .then(setAuth)
+            .catch(() => {});
+      } finally {
+        polling = false;
+      }
+    }
+    const timer = setInterval(pollAccounts, 15000);
+    const onVisible = () => {
+      if (!document.hidden) pollAccounts();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [auth]);
+  useEffect(() => {
+    if (!accountId || activeAccount?.needsCredentials) {
       setFolders([]);
       return;
     }
@@ -380,12 +430,9 @@ function App() {
         );
       })
       .catch((err) => setError(err.message));
-  }, [accountId, accounts, refreshKey]);
+  }, [accountId, activeAccount?.needsCredentials, refreshKey]);
   useEffect(() => {
-    if (
-      !accountId ||
-      accounts.find((item) => item.id === accountId)?.needsCredentials
-    ) {
+    if (!accountId || activeAccount?.needsCredentials) {
       setMessages([]);
       setTotal(0);
       setLoading(false);
@@ -411,7 +458,14 @@ function App() {
     return () => {
       active = false;
     };
-  }, [accountId, accounts, folder, search, page, refreshKey]);
+  }, [
+    accountId,
+    activeAccount?.needsCredentials,
+    folder,
+    search,
+    page,
+    refreshKey,
+  ]);
   useEffect(() => {
     if (!accountId || !selected) {
       setDetail(null);
@@ -442,7 +496,6 @@ function App() {
       active = false;
     };
   }, [accountId, folder, selected]);
-  const activeAccount = accounts.find((item) => item.id === accountId);
   const activeFolder = folders.find((item) => item.path === folder);
   function selectFolder(path) {
     setFolder(path);
@@ -613,6 +666,14 @@ function App() {
                         : account.email}
                     </small>
                   </span>
+                  {account.inbox_unseen > 0 && !account.needsCredentials && (
+                    <b
+                      className="account-unseen"
+                      title={`${account.inbox_unseen} ungelesene Nachrichten im Posteingang`}
+                    >
+                      {account.inbox_unseen > 99 ? "99+" : account.inbox_unseen}
+                    </b>
+                  )}
                   {account.id === accountId && <ChevronDown size={15} />}
                 </button>
               ))}
@@ -1194,6 +1255,7 @@ const blankAccount = {
   smtp_password: "",
   username: "",
   password: "",
+  check_interval_minutes: 5,
 };
 function AccountModal({ account, onClose, onSaved, setError }) {
   const [form, setForm] = useState(
@@ -1422,6 +1484,29 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 IMAP/SMTP.
               </p>
             </div>
+            <div className="form-section">
+              <div className="form-section-title">
+                <RefreshCw size={18} /> Automatischer Abruf
+              </div>
+              <label className="interval-field">
+                Alle wie viele Minuten prüfen?
+                <input
+                  type="number"
+                  min="0"
+                  max="1440"
+                  step="1"
+                  required
+                  value={form.check_interval_minutes ?? 5}
+                  onChange={(e) =>
+                    field("check_interval_minutes", Number(e.target.value))
+                  }
+                />
+              </label>
+              <p className="field-hint">
+                Standard: 5 Minuten. Mit 0 ist der automatische Abruf für dieses
+                Postfach aus.
+              </p>
+            </div>
           </div>
           <div className="modal-footer">
             <button
@@ -1508,6 +1593,11 @@ function SettingsModal({
               <div>
                 <strong>{account.name}</strong>
                 <span>{account.email}</span>
+                <span>
+                  {account.check_interval_minutes === 0
+                    ? "Automatischer Abruf aus"
+                    : `Alle ${account.check_interval_minutes} Minuten · ${account.check_failed ? "Prüfung fehlgeschlagen" : account.last_checked_at ? `zuletzt ${new Date(account.last_checked_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : "noch nicht geprüft"}`}
+                </span>
               </div>
               <button onClick={() => onEdit(account)}>Bearbeiten</button>
               <button

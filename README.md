@@ -39,6 +39,8 @@ Viele Provider mit eigener Zwei-Faktor-Anmeldung verlangen für IMAP/SMTP ein Ap
 
 Wenn der SMTP-Benutzername oder das SMTP-Passwort vom IMAP-Zugang abweicht, kannst du beide Angaben im Postfachdialog separat eintragen. Leere SMTP-Felder verwenden die IMAP-Zugangsdaten.
 
+Der Server prüft den Posteingang jedes verbundenen Postfachs standardmäßig alle fünf Minuten, auch wenn kein Browser geöffnet ist. Unter **Einstellungen → Postfach bearbeiten → Automatischer Abruf** lässt sich das Intervall pro Postfach auf 1 bis 1440 Minuten setzen oder mit `0` abschalten. Bei geöffneter Oberfläche werden neue Zähler und Nachrichten automatisch übernommen.
+
 ## Umfang und Grenzen
 
 - Postfächer und Ordner lesen; serverseitig in Betreff, Absender, Empfänger und Text suchen.

@@ -22,6 +22,9 @@ db.exec(`
     smtp_host TEXT NOT NULL, smtp_port INTEGER NOT NULL, smtp_secure INTEGER NOT NULL,
     username TEXT NOT NULL, password_enc TEXT NOT NULL,
     smtp_username TEXT, smtp_password_enc TEXT, created_at INTEGER NOT NULL,
+    check_interval_minutes INTEGER NOT NULL DEFAULT 5,
+    last_checked_at INTEGER, inbox_unseen INTEGER, inbox_uid_next INTEGER,
+    check_failed INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 `);
@@ -38,12 +41,29 @@ if (!userColumns.has("must_change_password"))
     "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
   );
 const accountColumns = new Set(
-  db.prepare("PRAGMA table_info(accounts)").all().map((column) => column.name),
+  db
+    .prepare("PRAGMA table_info(accounts)")
+    .all()
+    .map((column) => column.name),
 );
 if (!accountColumns.has("smtp_username"))
   db.exec("ALTER TABLE accounts ADD COLUMN smtp_username TEXT");
 if (!accountColumns.has("smtp_password_enc"))
   db.exec("ALTER TABLE accounts ADD COLUMN smtp_password_enc TEXT");
+if (!accountColumns.has("check_interval_minutes"))
+  db.exec(
+    "ALTER TABLE accounts ADD COLUMN check_interval_minutes INTEGER NOT NULL DEFAULT 5",
+  );
+if (!accountColumns.has("last_checked_at"))
+  db.exec("ALTER TABLE accounts ADD COLUMN last_checked_at INTEGER");
+if (!accountColumns.has("inbox_unseen"))
+  db.exec("ALTER TABLE accounts ADD COLUMN inbox_unseen INTEGER");
+if (!accountColumns.has("inbox_uid_next"))
+  db.exec("ALTER TABLE accounts ADD COLUMN inbox_uid_next INTEGER");
+if (!accountColumns.has("check_failed"))
+  db.exec(
+    "ALTER TABLE accounts ADD COLUMN check_failed INTEGER NOT NULL DEFAULT 0",
+  );
 // Existing single-user installations keep their owner as administrator.
 if (
   !db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get() &&

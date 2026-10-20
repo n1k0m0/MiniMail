@@ -68,6 +68,7 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       HOST: "127.0.0.1",
       PORT: String(port),
       APP_ENCRYPTION_KEY: encryptionKey,
+      DISABLE_MAIL_CHECKS: "1",
     },
     stdio: "ignore",
   });
@@ -155,14 +156,40 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(ownerAccount.data.smtp_username, "owner-smtp");
     assert.equal(ownerAccount.data.smtp_password_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
-    const accountsDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
+    assert.equal(ownerAccount.data.check_interval_minutes, 5);
+    assert.equal(ownerAccount.data.last_checked_at, null);
+    const accountsDb = new DatabaseSync(
+      path.join(cwd, "data", "minimail.sqlite"),
+    );
     const storedAccount = accountsDb
-      .prepare("SELECT smtp_username,smtp_password_enc FROM accounts WHERE id=?")
+      .prepare(
+        "SELECT smtp_username,smtp_password_enc FROM accounts WHERE id=?",
+      )
       .get(ownerAccount.data.id);
     accountsDb.close();
     assert.equal(storedAccount.smtp_username, "owner-smtp");
     assert.ok(storedAccount.smtp_password_enc);
-    assert.ok(!storedAccount.smtp_password_enc.includes("separate-smtp-password"));
+    assert.ok(
+      !storedAccount.smtp_password_enc.includes("separate-smtp-password"),
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          check_interval_minutes: 0,
+        })
+      ).data.check_interval_minutes,
+      0,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          check_interval_minutes: 2.5,
+        })
+      ).status,
+      400,
+    );
 
     assert.equal(
       (
@@ -233,24 +260,43 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       iv,
     );
     cipher.final();
-    const emptyPassword = Buffer.concat([iv, cipher.getAuthTag()]).toString("base64");
+    const emptyPassword = Buffer.concat([iv, cipher.getAuthTag()]).toString(
+      "base64",
+    );
     const draftDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
-    draftDb.prepare(
-      "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-    ).run(1, "Draft", "draft@example.test", "imap.example.test", 993, 1,
-      "smtp.example.test", 465, 1, "draft@example.test", emptyPassword, Date.now());
+    draftDb
+      .prepare(
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        1,
+        "Draft",
+        "draft@example.test",
+        "imap.example.test",
+        993,
+        1,
+        "smtp.example.test",
+        465,
+        1,
+        "draft@example.test",
+        emptyPassword,
+        Date.now(),
+      );
     draftDb.close();
     const drafts = (await admin("/accounts")).data;
     const draft = drafts.find((item) => item.email === "draft@example.test");
     assert.equal(draft.needsCredentials, true);
+    assert.equal(draft.check_interval_minutes, 5);
     assert.equal(draft.smtp_username, "");
     const configured = await admin(`/accounts/${draft.id}`, "PUT", {
       ...draft,
       smtp_username: null,
       password: "draft-mail-password",
+      check_interval_minutes: 10,
     });
     assert.equal(configured.status, 200);
     assert.equal(configured.data.needsCredentials, false);
+    assert.equal(configured.data.check_interval_minutes, 10);
   } finally {
     child.kill();
     if (child.exitCode === null)
