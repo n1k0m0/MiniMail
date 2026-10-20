@@ -433,6 +433,16 @@ svg {
 .sidebar-settings:hover {
   background: #edf0f8;
 }
+.sidebar-logout {
+  color: #a45b69;
+}
+.sidebar-logout:hover {
+  background: #f6eaee;
+}
+.sidebar-logout:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .workspace {
   min-width: 0;
   min-height: 0;
@@ -1776,6 +1786,12 @@ svg {
 }
 [data-theme="dark"] .empty-trash-button:hover {
   background: #683b49;
+}
+[data-theme="dark"] .sidebar-logout {
+  color: #e2a0ad;
+}
+[data-theme="dark"] .sidebar-logout:hover {
+  background: #503344;
 }
 [data-theme="dark"] .confirm-copy {
   color: #a9b7ce;

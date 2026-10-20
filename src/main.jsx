@@ -21,6 +21,7 @@ import {
   Inbox,
   LoaderCircle,
   LockKeyhole,
+  LogOut,
   Mail,
   MailOpen,
   Menu,
@@ -319,6 +320,7 @@ function App() {
   const [draggingUid, setDraggingUid] = useState(null);
   const [dropFolder, setDropFolder] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [theme, setTheme] = useState(
     localStorage.getItem("minimail-theme") || "light",
   );
@@ -390,6 +392,18 @@ function App() {
       setError("");
     }
     setAuth(next);
+  }
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await api("/auth/logout", { method: "POST" });
+      applyAuth({ user: null, adminSetupRequired: false });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoggingOut(false);
+    }
   }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1057,6 +1071,13 @@ function App() {
           >
             <Settings size={17} /> Einstellungen
           </button>
+          <button
+            className="sidebar-settings sidebar-logout"
+            onClick={logout}
+            disabled={loggingOut}
+          >
+            <LogOut size={17} /> {loggingOut ? "Abmelden …" : "Abmelden"}
+          </button>
         </div>
         <ResizeHandle
           label="Breite der Ordnerleiste"
@@ -1645,10 +1666,7 @@ function App() {
           onClose={() => setModal(null)}
           onEdit={(account) => setModal({ type: "edit", account })}
           onAdd={() => setModal("account")}
-          onLogout={async () => {
-            await api("/auth/logout", { method: "POST" });
-            applyAuth(await api("/auth/me"));
-          }}
+          onLogout={logout}
           setTheme={setTheme}
           theme={theme}
           setError={setError}
