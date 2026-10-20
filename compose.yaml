@@ -1,0 +1,15 @@
+services:
+  minimail:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Set APP_ENCRYPTION_KEY in .env}
+    ports:
+      - "127.0.0.1:3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - minimail-data:/app/data
+
+volumes:
+  minimail-data:

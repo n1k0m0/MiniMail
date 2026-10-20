@@ -1,0 +1,33 @@
+{
+  "name": "minimail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 127.0.0.1\"",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "admin:create": "node server/create-admin.js",
+    "test": "node --test tests/*.test.js",
+    "format": "prettier --write src server tests vite.config.js"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "express": "^5.1.0",
+    "imapflow": "^1.0.195",
+    "lucide-react": "^0.468.0",
+    "mailparser": "^3.9.0",
+    "nodemailer": "^10.1.7",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sanitize-html": "^2.17.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.10",
+    "vite": "^7.0.0"
+  }
+}

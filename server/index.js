@@ -1,0 +1,575 @@
+import express from "express";
+import fs from "node:fs";
+import path from "node:path";
+import QRCode from "qrcode";
+import { db } from "./db.js";
+import {
+  encrypt,
+  decrypt,
+  hashPassword,
+  verifyPassword,
+  randomToken,
+  tokenHash,
+  newTotpSecret,
+  verifyTotp,
+} from "./security.js";
+import {
+  testAccount,
+  listFolders,
+  listMessages,
+  getMessage,
+  getAttachment,
+  updateFlags,
+  moveMessage,
+  deleteMessage,
+  sendMessage,
+} from "./mail.js";
+
+const app = express();
+const port = Number(process.env.PORT || 3000);
+const host = process.env.HOST || "127.0.0.1";
+app.disable("x-powered-by");
+app.use(express.json({ limit: "15mb" }));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+  );
+  if (
+    req.path.startsWith("/api/") &&
+    !["GET", "HEAD", "OPTIONS"].includes(req.method)
+  ) {
+    const origin = req.get("origin");
+    if (origin) {
+      try {
+        if (new URL(origin).host !== req.get("host"))
+          return res.status(403).json({ error: "Ungültiger Ursprung." });
+      } catch {
+        return res.status(403).json({ error: "Ungültiger Ursprung." });
+      }
+    }
+  }
+  next();
+});
+const asyncRoute = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res)).catch(next);
+function cookie(req, name) {
+  return (req.headers.cookie || "")
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+function sessionCookie(res, token, clear = false) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `minimail_session=${clear ? "" : token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${clear ? 0 : 60 * 60 * 24 * 14}${secure}`,
+  );
+}
+function issueSession(res, userId) {
+  const token = randomToken();
+  db.prepare(
+    "INSERT INTO sessions (token_hash,user_id,expires_at) VALUES (?,?,?)",
+  ).run(tokenHash(token), userId, Date.now() + 14 * 86400000);
+  sessionCookie(res, token);
+}
+app.use("/api", (req, res, next) => {
+  const token = cookie(req, "minimail_session");
+  if (token)
+    req.user = db
+      .prepare(
+        "SELECT users.* FROM users JOIN sessions ON sessions.user_id=users.id WHERE sessions.token_hash=? AND sessions.expires_at>?",
+      )
+      .get(tokenHash(token), Date.now());
+  next();
+});
+function authenticated(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: "Bitte anmelden." });
+  next();
+}
+function ready(req, res, next) {
+  if (req.user?.must_change_password)
+    return res.status(403).json({ error: "Bitte zuerst das Passwort ändern." });
+  if (!req.user?.totp_secret)
+    return res
+      .status(403)
+      .json({ error: "Zwei-Faktor-Anmeldung zuerst einrichten." });
+  next();
+}
+function adminOnly(req, res, next) {
+  if (req.user?.role !== "admin")
+    return res.status(403).json({ error: "Nur für Admins verfügbar." });
+  next();
+}
+const loginAttempts = new Map();
+function canAttempt(key) {
+  const data = loginAttempts.get(key);
+  return !data || data.until < Date.now() || data.count < 8;
+}
+function failedAttempt(key) {
+  const data = loginAttempts.get(key);
+  loginAttempts.set(
+    key,
+    data?.until > Date.now()
+      ? { count: data.count + 1, until: data.until }
+      : { count: 1, until: Date.now() + 15 * 60000 },
+  );
+}
+app.get("/api/auth/me", (req, res) => {
+  const exists = !!db.prepare("SELECT id FROM users LIMIT 1").get();
+  res.json({
+    adminSetupRequired: !exists,
+    user: req.user
+      ? {
+          username: req.user.username,
+          role: req.user.role,
+          mustChangePassword: !!req.user.must_change_password,
+          twoFactorEnabled: !!req.user.totp_secret,
+        }
+      : null,
+  });
+});
+app.post(
+  "/api/auth/login",
+  asyncRoute(async (req, res) => {
+    const key = req.ip;
+    if (!canAttempt(key))
+      return res
+        .status(429)
+        .json({ error: "Zu viele Versuche. Bitte später erneut versuchen." });
+    const { username, password, code } = req.body || {};
+    const user = db
+      .prepare("SELECT * FROM users WHERE username=?")
+      .get(String(username || ""));
+    if (
+      !user ||
+      !verifyPassword(String(password || ""), user.password_hash) ||
+      (user.totp_secret && !verifyTotp(decrypt(user.totp_secret), code))
+    ) {
+      failedAttempt(key);
+      return res
+        .status(401)
+        .json({ error: "Anmeldedaten oder 2FA-Code stimmen nicht." });
+    }
+    loginAttempts.delete(key);
+    issueSession(res, user.id);
+    res.json({ ok: true });
+  }),
+);
+app.post("/api/auth/logout", authenticated, (req, res) => {
+  const token = cookie(req, "minimail_session");
+  if (token)
+    db.prepare("DELETE FROM sessions WHERE token_hash=?").run(tokenHash(token));
+  sessionCookie(res, "", true);
+  res.json({ ok: true });
+});
+app.post("/api/auth/change-password", authenticated, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (
+    !verifyPassword(String(currentPassword || ""), req.user.password_hash) ||
+    typeof newPassword !== "string" ||
+    newPassword.length < 12 ||
+    newPassword.length > 1024
+  )
+    return res.status(400).json({
+      error:
+        "Aktuelles Passwort prüfen und ein neues mit mindestens 12 Zeichen wählen.",
+    });
+  db.prepare(
+    "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
+  ).run(hashPassword(newPassword), req.user.id);
+  const currentToken = cookie(req, "minimail_session");
+  db.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").run(
+    req.user.id,
+    tokenHash(currentToken),
+  );
+  res.json({ ok: true });
+});
+app.post(
+  "/api/auth/2fa/start",
+  authenticated,
+  asyncRoute(async (req, res) => {
+    if (req.user.must_change_password)
+      return res
+        .status(403)
+        .json({ error: "Bitte zuerst das Passwort ändern." });
+    if (req.user.totp_secret)
+      return res.status(409).json({ error: "2FA ist bereits aktiv." });
+    const secret = newTotpSecret();
+    db.prepare("UPDATE users SET pending_totp_secret=? WHERE id=?").run(
+      encrypt(secret),
+      req.user.id,
+    );
+    const uri = `otpauth://totp/MiniMail:${encodeURIComponent(req.user.username)}?secret=${secret}&issuer=MiniMail&algorithm=SHA1&digits=6&period=30`;
+    res.json({
+      secret,
+      qr: await QRCode.toDataURL(uri, { margin: 1, width: 220 }),
+    });
+  }),
+);
+app.post("/api/auth/2fa/verify", authenticated, (req, res) => {
+  const user = db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id);
+  if (
+    !user.pending_totp_secret ||
+    !verifyTotp(decrypt(user.pending_totp_secret), req.body?.code)
+  )
+    return res.status(400).json({ error: "Der Code ist ungültig." });
+  db.prepare(
+    "UPDATE users SET totp_secret=pending_totp_secret,pending_totp_secret=NULL WHERE id=?",
+  ).run(user.id);
+  res.json({ ok: true });
+});
+app.use("/api", authenticated, ready);
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    twoFactorEnabled: !!user.totp_secret,
+    mustChangePassword: !!user.must_change_password,
+    createdAt: user.created_at,
+  };
+}
+app.get("/api/admin/users", adminOnly, (req, res) => {
+  res.json(db.prepare("SELECT * FROM users ORDER BY id").all().map(publicUser));
+});
+app.post("/api/admin/users", adminOnly, (req, res) => {
+  const username = String(req.body?.username || "").trim();
+  if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username))
+    return res
+      .status(400)
+      .json({
+        error: "Benutzername: 3–40 Zeichen (Buchstaben, Zahlen, . _ -).",
+      });
+  if (db.prepare("SELECT id FROM users WHERE username=?").get(username))
+    return res
+      .status(409)
+      .json({ error: "Benutzername ist bereits vergeben." });
+  const temporaryPassword = randomToken();
+  const result = db
+    .prepare(
+      "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'user',1)",
+    )
+    .run(username, hashPassword(temporaryPassword), Date.now());
+  res.status(201).json({
+    user: publicUser(
+      db
+        .prepare("SELECT * FROM users WHERE id=?")
+        .get(Number(result.lastInsertRowid)),
+    ),
+    temporaryPassword,
+  });
+});
+app.post("/api/admin/users/:id/reset-password", adminOnly, (req, res) => {
+  const user = db
+    .prepare("SELECT * FROM users WHERE id=?")
+    .get(Number(req.params.id));
+  if (!user) return res.status(404).json({ error: "Benutzer nicht gefunden." });
+  if (user.id === req.user.id)
+    return res
+      .status(400)
+      .json({ error: "Eigenes Passwort über das Profil ändern." });
+  const temporaryPassword = randomToken();
+  db.prepare(
+    "UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?",
+  ).run(hashPassword(temporaryPassword), user.id);
+  db.prepare("DELETE FROM sessions WHERE user_id=?").run(user.id);
+  res.json({ temporaryPassword });
+});
+app.post("/api/admin/users/:id/reset-2fa", adminOnly, (req, res) => {
+  const user = db
+    .prepare("SELECT * FROM users WHERE id=?")
+    .get(Number(req.params.id));
+  if (!user) return res.status(404).json({ error: "Benutzer nicht gefunden." });
+  if (user.id === req.user.id)
+    return res
+      .status(400)
+      .json({ error: "Eigene 2FA kann hier nicht zurückgesetzt werden." });
+  db.prepare(
+    "UPDATE users SET totp_secret=NULL,pending_totp_secret=NULL WHERE id=?",
+  ).run(user.id);
+  db.prepare("DELETE FROM sessions WHERE user_id=?").run(user.id);
+  res.json({ ok: true });
+});
+
+function publicAccount(account) {
+  const { password_enc, user_id, ...rest } = account;
+  return {
+    ...rest,
+    imap_secure: !!rest.imap_secure,
+    smtp_secure: !!rest.smtp_secure,
+  };
+}
+function accountFor(req, res) {
+  const account = db
+    .prepare("SELECT * FROM accounts WHERE id=? AND user_id=?")
+    .get(Number(req.params.id), req.user.id);
+  if (!account) res.status(404).json({ error: "Postfach nicht gefunden." });
+  return account;
+}
+function validateAccount(body) {
+  const fields = ["name", "email", "imap_host", "smtp_host", "username"];
+  for (const field of fields)
+    if (typeof body[field] !== "string" || !body[field].trim())
+      throw new Error(`${field} fehlt.`);
+  if (!/^\S+@\S+\.\S+$/.test(body.email))
+    throw new Error("Ungültige E-Mail-Adresse.");
+  for (const field of ["imap_port", "smtp_port"])
+    if (
+      !Number.isInteger(Number(body[field])) ||
+      Number(body[field]) < 1 ||
+      Number(body[field]) > 65535
+    )
+      throw new Error(`${field} ist ungültig.`);
+  if (
+    body.password !== undefined &&
+    (typeof body.password !== "string" || body.password.length > 2048)
+  )
+    throw new Error("Ungültiges Postfach-Passwort.");
+}
+app.get("/api/accounts", (req, res) => {
+  res.json(
+    db
+      .prepare("SELECT * FROM accounts WHERE user_id=? ORDER BY id")
+      .all(req.user.id)
+      .map(publicAccount),
+  );
+});
+app.post(
+  "/api/accounts/test",
+  asyncRoute(async (req, res) => {
+    validateAccount(req.body || {});
+    const existing = req.body.id
+      ? db
+          .prepare("SELECT * FROM accounts WHERE id=? AND user_id=?")
+          .get(Number(req.body.id), req.user.id)
+      : null;
+    const password =
+      req.body.password || (existing && decrypt(existing.password_enc));
+    if (!password)
+      return res.status(400).json({ error: "Postfach-Passwort fehlt." });
+    await testAccount({ ...req.body, password });
+    res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/accounts",
+  asyncRoute(async (req, res) => {
+    validateAccount(req.body || {});
+    if (!req.body.password)
+      return res.status(400).json({ error: "Postfach-Passwort fehlt." });
+    const b = req.body;
+    const result = db
+      .prepare(
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        req.user.id,
+        b.name.trim(),
+        b.email.trim(),
+        b.imap_host.trim(),
+        Number(b.imap_port),
+        b.imap_secure ? 1 : 0,
+        b.smtp_host.trim(),
+        Number(b.smtp_port),
+        b.smtp_secure ? 1 : 0,
+        b.username.trim(),
+        encrypt(b.password),
+        Date.now(),
+      );
+    res.json(
+      publicAccount(
+        db
+          .prepare("SELECT * FROM accounts WHERE id=?")
+          .get(Number(result.lastInsertRowid)),
+      ),
+    );
+  }),
+);
+app.put(
+  "/api/accounts/:id",
+  asyncRoute(async (req, res) => {
+    const existing = accountFor(req, res);
+    if (!existing) return;
+    validateAccount(req.body || {});
+    const b = req.body;
+    db.prepare(
+      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=? WHERE id=?",
+    ).run(
+      b.name.trim(),
+      b.email.trim(),
+      b.imap_host.trim(),
+      Number(b.imap_port),
+      b.imap_secure ? 1 : 0,
+      b.smtp_host.trim(),
+      Number(b.smtp_port),
+      b.smtp_secure ? 1 : 0,
+      b.username.trim(),
+      b.password ? encrypt(b.password) : existing.password_enc,
+      existing.id,
+    );
+    res.json(
+      publicAccount(
+        db.prepare("SELECT * FROM accounts WHERE id=?").get(existing.id),
+      ),
+    );
+  }),
+);
+app.delete("/api/accounts/:id", (req, res) => {
+  const account = accountFor(req, res);
+  if (!account) return;
+  db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
+  res.json({ ok: true });
+});
+app.get(
+  "/api/accounts/:id/folders",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    res.json(await listFolders(account));
+  }),
+);
+function folder(req) {
+  return String(req.query.folder || req.body?.folder || "INBOX");
+}
+app.get(
+  "/api/accounts/:id/messages",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    res.json(
+      await listMessages(
+        account,
+        folder(req),
+        String(req.query.q || "").slice(0, 200),
+        Math.max(0, Number(req.query.page) || 0),
+      ),
+    );
+  }),
+);
+app.get(
+  "/api/accounts/:id/messages/:uid",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const message = await getMessage(
+      account,
+      folder(req),
+      Number(req.params.uid),
+    );
+    if (!message)
+      return res.status(404).json({ error: "Nachricht nicht gefunden." });
+    res.json(message);
+  }),
+);
+app.get(
+  "/api/accounts/:id/messages/:uid/attachments/:index",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const attachment = await getAttachment(
+      account,
+      folder(req),
+      Number(req.params.uid),
+      Number(req.params.index),
+    );
+    if (!attachment)
+      return res.status(404).json({ error: "Anhang nicht gefunden." });
+    res.type("application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(attachment.filename || "anhang")}`,
+    );
+    res.send(attachment.content);
+  }),
+);
+app.patch(
+  "/api/accounts/:id/messages/:uid/flags",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    await updateFlags(
+      account,
+      folder(req),
+      Number(req.params.uid),
+      req.body?.flags || {},
+    );
+    res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/accounts/:id/messages/:uid/move",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    if (!req.body?.destination)
+      return res.status(400).json({ error: "Zielordner fehlt." });
+    await moveMessage(
+      account,
+      folder(req),
+      Number(req.params.uid),
+      req.body.destination,
+    );
+    res.json({ ok: true });
+  }),
+);
+app.delete(
+  "/api/accounts/:id/messages/:uid",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    await deleteMessage(account, folder(req), Number(req.params.uid));
+    res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/accounts/:id/send",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const b = req.body || {};
+    if (
+      typeof b.to !== "string" ||
+      !b.to.trim() ||
+      typeof b.text !== "string" ||
+      b.text.length > 500000 ||
+      (b.attachments || []).length > 8
+    )
+      return res
+        .status(400)
+        .json({ error: "Empfänger, Nachricht oder Anhänge sind ungültig." });
+    res.json(await sendMessage(account, b));
+  }),
+);
+
+const dist = path.resolve("dist");
+if (fs.existsSync(dist)) {
+  app.use(express.static(dist));
+  app.use((req, res, next) =>
+    req.path.startsWith("/api/")
+      ? next()
+      : res.sendFile(path.join(dist, "index.html")),
+  );
+}
+app.use((error, req, res, next) => {
+  console.error(error);
+  const message = error.message || "Ein Fehler ist aufgetreten.";
+  res
+    .status(
+      message.includes("fehlt") || message.includes("ungültig") ? 400 : 500,
+    )
+    .json({
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Die Anfrage konnte nicht abgeschlossen werden. Bitte Verbindung und Eingaben prüfen."
+          : message,
+    });
+});
+app.listen(port, host, () =>
+  console.log(`MiniMail server: http://${host}:${port}`),
+);
