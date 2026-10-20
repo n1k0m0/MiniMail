@@ -21,6 +21,7 @@ import {
   getMessage,
   getAttachment,
   updateFlags,
+  markFolderRead,
   moveMessage,
   deleteMessage,
   sendMessage,
@@ -493,6 +494,22 @@ app.get(
     const account = accountFor(req, res);
     if (!account) return;
     res.json(await listFolders(account));
+  }),
+);
+app.patch(
+  "/api/accounts/:id/folders/mark-read",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const path = req.body?.folder;
+    if (typeof path !== "string" || !path.trim() || path.length > 1024)
+      return res.status(400).json({ error: "Ordner fehlt." });
+    await markFolderRead(account, path);
+    if (path.toUpperCase() === "INBOX")
+      db.prepare("UPDATE accounts SET inbox_unseen=0 WHERE id=?").run(
+        account.id,
+      );
+    res.json({ ok: true });
   }),
 );
 function folder(req) {

@@ -255,6 +255,11 @@ export async function updateFlags(account, folder, uid, flags) {
     }
   });
 }
+export async function markFolderRead(account, folder) {
+  return inFolder(account, folder, (client) =>
+    client.messageFlagsAdd({ seen: false }, ["\\Seen"]),
+  );
+}
 export async function moveMessage(account, folder, uid, destination) {
   return inFolder(account, folder, (client) =>
     client.messageMove(uid, destination, { uid: true }),

@@ -297,6 +297,8 @@ function App() {
   const [folderFilter, setFolderFilter] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState(new Set());
   const [folder, setFolder] = useState("INBOX");
+  const activeFolderRef = useRef(folder);
+  activeFolderRef.current = folder;
   const [messages, setMessages] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -311,6 +313,9 @@ function App() {
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
   const contextTriggerRef = useRef(null);
+  const draggedMessageRef = useRef(null);
+  const [draggingUid, setDraggingUid] = useState(null);
+  const [dropFolder, setDropFolder] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [theme, setTheme] = useState(
     localStorage.getItem("minimail-theme") || "light",
@@ -344,7 +349,7 @@ function App() {
     Math.max(260, messagePreference ?? defaultMessageWidth),
   );
   const messageScrollRef = useRef(null);
-  const contextMessage = contextMenu
+  const contextMessage = contextMenu?.type === "message"
     ? messages.find((item) => item.uid === contextMenu.uid)
     : null;
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
@@ -373,6 +378,10 @@ function App() {
       setLoading(false);
       setDetailLoading(false);
       setModal(null);
+      setContextMenu(null);
+      draggedMessageRef.current = null;
+      setDraggingUid(null);
+      setDropFolder(null);
       setMobileSidebar(false);
       setRefreshKey(0);
       setError("");
@@ -642,6 +651,29 @@ function App() {
         ),
       );
   }
+  async function markFolderAsRead(path) {
+    const currentAccountId = accountId;
+    const success = await withAction(() =>
+      api(`/accounts/${currentAccountId}/folders/mark-read`, {
+        method: "PATCH",
+        body: { folder: path },
+      }),
+    );
+    if (!success || activeAccountIdRef.current !== currentAccountId) return;
+    setFolders((current) =>
+      current.map((item) =>
+        item.path === path ? { ...item, unseen: 0 } : item,
+      ),
+    );
+    if (path === folder)
+      setMessages((current) => current.map((item) => ({ ...item, seen: true })));
+    if (path.toUpperCase() === "INBOX")
+      setAccounts((current) =>
+        current.map((item) =>
+          item.id === currentAccountId ? { ...item, inbox_unseen: 0 } : item,
+        ),
+      );
+  }
   async function remove(uid = selected) {
     if (!uid) return;
     const success = await withAction(() =>
@@ -655,6 +687,24 @@ function App() {
       setMessages((current) => current.filter((item) => item.uid !== uid));
     }
   }
+  async function move(uid, destination, sourceFolder = folder) {
+    if (!uid || !destination || destination === sourceFolder) return;
+    const currentAccountId = accountId;
+    const success = await withAction(() =>
+      api(`/accounts/${currentAccountId}/messages/${uid}/move`, {
+        method: "POST",
+        body: { folder: sourceFolder, destination },
+      }),
+    );
+    if (
+      success &&
+      activeAccountIdRef.current === currentAccountId &&
+      activeFolderRef.current === sourceFolder
+    ) {
+      setSelected((current) => (current === uid ? null : current));
+      setMessages((current) => current.filter((item) => item.uid !== uid));
+    }
+  }
   async function archive(uid = selected) {
     const target = folders.find(
       (item) =>
@@ -664,23 +714,26 @@ function App() {
       setError("Kein Archivordner auf diesem Postfach gefunden.");
       return;
     }
-    const success = await withAction(() =>
-      api(`/accounts/${accountId}/messages/${uid}/move`, {
-        method: "POST",
-        body: { folder, destination: target.path },
-      }),
-    );
-    if (success) {
-      setSelected((current) => (current === uid ? null : current));
-      setMessages((current) => current.filter((item) => item.uid !== uid));
-    }
+    await move(uid, target.path);
   }
   function openContextMenu(event, uid) {
     event.preventDefault();
     contextTriggerRef.current = event.currentTarget;
     const bounds = event.currentTarget.getBoundingClientRect();
     setContextMenu({
+      type: "message",
       uid,
+      x: event.type === "contextmenu" ? event.clientX : bounds.left + 24,
+      y: event.type === "contextmenu" ? event.clientY : bounds.top + 24,
+    });
+  }
+  function openFolderContextMenu(event, path) {
+    event.preventDefault();
+    contextTriggerRef.current = event.currentTarget;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setContextMenu({
+      type: "folder",
+      path,
       x: event.type === "contextmenu" ? event.clientX : bounds.left + 24,
       y: event.type === "contextmenu" ? event.clientY : bounds.top + 24,
     });
@@ -856,9 +909,52 @@ function App() {
                   return (
                     <div
                       key={node.path}
-                      className={`folder-row ${folder === node.path ? "current" : ""}`}
+                      className={`folder-row ${folder === node.path ? "current" : ""} ${dropFolder === node.path ? "drop-target" : ""}`}
                       style={{
                         paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
+                      }}
+                      onContextMenu={(event) => {
+                        if (item) openFolderContextMenu(event, node.path);
+                      }}
+                      onDragOver={(event) => {
+                        const dragged = draggedMessageRef.current;
+                        if (
+                          !item ||
+                          !dragged ||
+                          dragged.accountId !== accountId ||
+                          dragged.sourceFolder === node.path
+                        )
+                          return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                        if (dropFolder !== node.path) setDropFolder(node.path);
+                      }}
+                      onDragLeave={(event) => {
+                        const bounds = event.currentTarget.getBoundingClientRect();
+                        if (
+                          event.clientX < bounds.left ||
+                          event.clientX >= bounds.right ||
+                          event.clientY < bounds.top ||
+                          event.clientY >= bounds.bottom
+                        )
+                          setDropFolder((current) =>
+                            current === node.path ? null : current,
+                          );
+                      }}
+                      onDrop={(event) => {
+                        const dragged = draggedMessageRef.current;
+                        if (
+                          !item ||
+                          !dragged ||
+                          dragged.accountId !== accountId ||
+                          dragged.sourceFolder === node.path
+                        )
+                          return;
+                        event.preventDefault();
+                        draggedMessageRef.current = null;
+                        setDraggingUid(null);
+                        setDropFolder(null);
+                        move(dragged.uid, node.path, dragged.sourceFolder);
                       }}
                     >
                       <button
@@ -869,6 +965,14 @@ function App() {
                             : toggleFolder(node.path)
                         }
                         title={node.path}
+                        onKeyDown={(event) => {
+                          if (
+                            item &&
+                            (event.key === "ContextMenu" ||
+                              (event.shiftKey && event.key === "F10"))
+                          )
+                            openFolderContextMenu(event, node.path);
+                        }}
                       >
                         <Icon size={17} />
                         <span>{meta.label}</span>
@@ -1051,7 +1155,27 @@ function App() {
                   messages.map((item) => (
                     <div
                       key={item.uid}
-                      className={`message-row ${selected === item.uid ? "selected" : ""} ${!item.seen ? "unread" : ""}`}
+                      className={`message-row ${selected === item.uid ? "selected" : ""} ${!item.seen ? "unread" : ""} ${draggingUid === item.uid ? "dragging" : ""}`}
+                      draggable
+                      onDragStart={(event) => {
+                        draggedMessageRef.current = {
+                          uid: item.uid,
+                          sourceFolder: folder,
+                          accountId,
+                        };
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(
+                          "application/x-minimail-message",
+                          String(item.uid),
+                        );
+                        setDraggingUid(item.uid);
+                        setContextMenu(null);
+                      }}
+                      onDragEnd={() => {
+                        draggedMessageRef.current = null;
+                        setDraggingUid(null);
+                        setDropFolder(null);
+                      }}
                       onClick={() => setSelected(item.uid)}
                       onContextMenu={(event) =>
                         openContextMenu(event, item.uid)
@@ -1294,6 +1418,38 @@ function App() {
           </div>
         )}
       </main>
+      {contextMenu?.type === "folder" &&
+        folders.some((item) => item.path === contextMenu.path) && (
+          <div
+            ref={contextMenuRef}
+            className="message-context-menu folder-context-menu"
+            role="menu"
+            aria-label="Aktionen für Ordner"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget))
+                setContextMenu(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setContextMenu(null);
+                contextTriggerRef.current?.focus();
+              }
+            }}
+          >
+            <button
+              role="menuitem"
+              onClick={() => {
+                const path = contextMenu.path;
+                setContextMenu(null);
+                markFolderAsRead(path);
+              }}
+            >
+              <MailOpen size={16} /> Alle Nachrichten als gelesen markieren
+            </button>
+          </div>
+        )}
       {contextMenu && contextMessage && (
         <div
           ref={contextMenuRef}

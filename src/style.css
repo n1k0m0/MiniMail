@@ -320,6 +320,12 @@ svg {
   background: #e4eafd;
   color: #3452c2;
 }
+.folder-row.drop-target,
+.folder-row.current.drop-target {
+  background: #dce7ff;
+  outline: 2px solid #5470dc;
+  outline-offset: -2px;
+}
 .folder-item {
   display: flex;
   align-items: center;
@@ -655,6 +661,9 @@ svg {
 .message-row:hover {
   background: #f8faff;
 }
+.message-row.dragging {
+  opacity: 0.45;
+}
 .message-row.selected {
   background: #eef2ff;
   border-left: 3px solid #5470dc;
@@ -770,6 +779,9 @@ svg {
   border-radius: 11px;
   background: #fff;
   box-shadow: 0 16px 44px #1d2b4b30;
+}
+.folder-context-menu {
+  width: 285px;
 }
 .message-context-menu button {
   width: 100%;
@@ -1653,6 +1665,11 @@ svg {
 [data-theme="dark"] .folder-row.current,
 [data-theme="dark"] .folder-row:hover {
   background: #273450;
+}
+[data-theme="dark"] .folder-row.drop-target,
+[data-theme="dark"] .folder-row.current.drop-target {
+  background: #344a76;
+  outline-color: #91a9ff;
 }
 [data-theme="dark"] .message-context-menu {
   background: #202b3e;

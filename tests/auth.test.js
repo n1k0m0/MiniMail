@@ -217,6 +217,16 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(ownerAccount.data.last_checked_at, null);
     assert.equal(
       (
+        await admin(
+          `/accounts/${ownerAccount.data.id}/folders/mark-read`,
+          "PATCH",
+          {},
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test",
           text: "hello",
