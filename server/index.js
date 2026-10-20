@@ -30,19 +30,24 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 app.disable("x-powered-by");
-app.use(express.json({ limit: "15mb" }));
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-Frame-Options", "DENY");
+  if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   );
   if (
     req.path.startsWith("/api/") &&
     !["GET", "HEAD", "OPTIONS"].includes(req.method)
   ) {
+    if (
+      req.get("x-minimail-request") !== "1" ||
+      (req.get("sec-fetch-site") && req.get("sec-fetch-site") !== "same-origin")
+    )
+      return res.status(403).json({ error: "Ungültiger Ursprung." });
     const origin = req.get("origin");
     if (origin) {
       try {
@@ -55,6 +60,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use("/api/accounts/:id/send", express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "64kb" }));
 const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res)).catch(next);
 function cookie(req, name) {
@@ -64,11 +71,15 @@ function cookie(req, name) {
     .find((value) => value.startsWith(`${name}=`))
     ?.slice(name.length + 1);
 }
+const sessionCookieName =
+  process.env.NODE_ENV === "production"
+    ? "__Host-minimail_session"
+    : "minimail_session";
 function sessionCookie(res, token, clear = false) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `minimail_session=${clear ? "" : token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${clear ? 0 : 60 * 60 * 24 * 14}${secure}`,
+    `${sessionCookieName}=${clear ? "" : token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${clear ? 0 : 60 * 60 * 24 * 14}${secure}`,
   );
 }
 function issueSession(res, userId) {
@@ -78,8 +89,12 @@ function issueSession(res, userId) {
   ).run(tokenHash(token), userId, Date.now() + 14 * 86400000);
   sessionCookie(res, token);
 }
+function rotateSessions(res, userId) {
+  db.prepare("DELETE FROM sessions WHERE user_id=?").run(userId);
+  issueSession(res, userId);
+}
 app.use("/api", (req, res, next) => {
-  const token = cookie(req, "minimail_session");
+  const token = cookie(req, sessionCookieName);
   if (token)
     req.user = db
       .prepare(
@@ -109,7 +124,11 @@ function adminOnly(req, res, next) {
 const loginAttempts = new Map();
 function canAttempt(key) {
   const data = loginAttempts.get(key);
-  return !data || data.until < Date.now() || data.count < 8;
+  if (data?.until < Date.now()) {
+    loginAttempts.delete(key);
+    return true;
+  }
+  return !data || data.count < 8;
 }
 function failedAttempt(key) {
   const data = loginAttempts.get(key);
@@ -137,18 +156,20 @@ app.get("/api/auth/me", (req, res) => {
 app.post(
   "/api/auth/login",
   asyncRoute(async (req, res) => {
-    const key = req.ip;
+    const { username, password, code } = req.body || {};
+    const user = db
+      .prepare("SELECT * FROM users WHERE username=?")
+      .get(typeof username === "string" ? username : "");
+    const key = user ? `user:${user.id}` : `unknown:${req.ip}`;
     if (!canAttempt(key))
       return res
         .status(429)
         .json({ error: "Zu viele Versuche. Bitte später erneut versuchen." });
-    const { username, password, code } = req.body || {};
-    const user = db
-      .prepare("SELECT * FROM users WHERE username=?")
-      .get(String(username || ""));
     if (
       !user ||
-      !verifyPassword(String(password || ""), user.password_hash) ||
+      typeof password !== "string" ||
+      password.length > 1024 ||
+      !verifyPassword(password, user.password_hash) ||
       (user.totp_secret && !verifyTotp(decrypt(user.totp_secret), code))
     ) {
       failedAttempt(key);
@@ -162,7 +183,7 @@ app.post(
   }),
 );
 app.post("/api/auth/logout", authenticated, (req, res) => {
-  const token = cookie(req, "minimail_session");
+  const token = cookie(req, sessionCookieName);
   if (token)
     db.prepare("DELETE FROM sessions WHERE token_hash=?").run(tokenHash(token));
   sessionCookie(res, "", true);
@@ -183,11 +204,7 @@ app.post("/api/auth/change-password", authenticated, (req, res) => {
   db.prepare(
     "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
   ).run(hashPassword(newPassword), req.user.id);
-  const currentToken = cookie(req, "minimail_session");
-  db.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").run(
-    req.user.id,
-    tokenHash(currentToken),
-  );
+  rotateSessions(res, req.user.id);
   res.json({ ok: true });
 });
 app.post(
@@ -222,6 +239,7 @@ app.post("/api/auth/2fa/verify", authenticated, (req, res) => {
   db.prepare(
     "UPDATE users SET totp_secret=pending_totp_secret,pending_totp_secret=NULL WHERE id=?",
   ).run(user.id);
+  rotateSessions(res, user.id);
   res.json({ ok: true });
 });
 app.use("/api", authenticated, ready);
@@ -562,19 +580,65 @@ app.delete(
     res.json({ ok: true });
   }),
 );
+const maxAttachmentBytes = 8 * 1024 * 1024;
+function validOutgoingMail(mail) {
+  if (
+    typeof mail.to !== "string" ||
+    !mail.to.trim() ||
+    mail.to.length > 4096 ||
+    /[\r\n]/.test(mail.to) ||
+    (mail.cc !== undefined &&
+      (typeof mail.cc !== "string" ||
+        mail.cc.length > 4096 ||
+        /[\r\n]/.test(mail.cc))) ||
+    (mail.subject !== undefined &&
+      (typeof mail.subject !== "string" ||
+        mail.subject.length > 998 ||
+        /[\r\n]/.test(mail.subject))) ||
+    typeof mail.text !== "string" ||
+    mail.text.length > 500000 ||
+    (mail.attachments !== undefined && !Array.isArray(mail.attachments))
+  )
+    return false;
+  const attachments = mail.attachments || [];
+  if (attachments.length > 8) return false;
+  let totalBytes = 0;
+  for (const file of attachments) {
+    const data = file?.data;
+    const padding =
+      typeof data === "string"
+        ? data.endsWith("==")
+          ? 2
+          : data.endsWith("=")
+            ? 1
+            : 0
+        : 0;
+    const content = padding ? data.slice(0, -padding) : data;
+    if (
+      !file ||
+      typeof file.name !== "string" ||
+      !file.name ||
+      file.name.length > 255 ||
+      /[\u0000-\u001f\u007f]/.test(file.name) ||
+      typeof data !== "string" ||
+      data.length > Math.ceil((maxAttachmentBytes * 4) / 3) + 4 ||
+      data.length % 4 !== 0 ||
+      content.includes("=") ||
+      /[^A-Za-z0-9+/]/.test(content)
+    )
+      return false;
+    totalBytes += (data.length / 4) * 3 - padding;
+    if (totalBytes > maxAttachmentBytes) return false;
+  }
+  return true;
+}
 app.post(
   "/api/accounts/:id/send",
   asyncRoute(async (req, res) => {
     const account = accountFor(req, res);
     if (!account) return;
     const b = req.body || {};
-    if (
-      typeof b.to !== "string" ||
-      !b.to.trim() ||
-      typeof b.text !== "string" ||
-      b.text.length > 500000 ||
-      (b.attachments || []).length > 8
-    )
+    if (!validOutgoingMail(b))
       return res
         .status(400)
         .json({ error: "Empfänger, Nachricht oder Anhänge sind ungültig." });
@@ -594,7 +658,18 @@ if (fs.existsSync(dist)) {
 app.use((error, req, res, next) => {
   if (error instanceof AccountInputError)
     return res.status(400).json({ error: error.message });
-  console.error(error);
+  if (error.type === "entity.too.large")
+    return res.status(413).json({ error: "Die Anfrage ist zu groß." });
+  if (error.type === "entity.parse.failed")
+    return res.status(400).json({ error: "Ungültiges JSON." });
+  if (process.env.NODE_ENV === "production")
+    console.error("MiniMail request failed", {
+      method: req.method,
+      path: req.path,
+      code: error.code || null,
+      stage: error.mailStage || null,
+    });
+  else console.error(error);
   const message = error.message || "Ein Fehler ist aufgetreten.";
   res
     .status(

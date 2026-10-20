@@ -51,6 +51,8 @@ Der Server prüft den Posteingang jedes verbundenen Postfachs standardmäßig al
 
 Für öffentlich erreichbare Installationen solltest du Updates regelmäßig einspielen und den Reverse Proxy sowie den Server aktuell halten. Die Anwendung hat noch keine OAuth-Provideranbindung, keine Maildir/mbox-Importfunktion und keine vollständigen Kalender-/Adressbuchfunktionen.
 
-Technik: React/Vite, Express, ImapFlow, Nodemailer, SQLite (`node:sqlite`). Passwörter werden mit scrypt gehasht, Postfachdaten und TOTP-Secrets mit AES-256-GCM verschlüsselt. Session-Cookies sind HttpOnly und in Produktion Secure/SameSite=Strict.
+Technik: React/Vite, Express, ImapFlow, Nodemailer, SQLite (`node:sqlite`). Passwörter werden mit scrypt gehasht, Postfachdaten und TOTP-Secrets mit AES-256-GCM verschlüsselt. Session-Cookies sind HttpOnly und in Produktion Secure/SameSite=Strict mit `__Host-`-Präfix. Schreibende API-Anfragen verlangen einen eigenen Request-Header und prüfen Origin/Fetch-Metadata; API-Antworten werden nicht zwischengespeichert. Das Docker-Image läuft ohne Root-Rechte, und Compose startet es mit schreibgeschütztem Dateisystem und ohne Linux-Capabilities.
+
+**Vertrauensgrenze:** Benutzer mit einem MiniMail-Zugang können IMAP- und SMTP-Ziele frei eintragen. Gib Zugänge nur vertrauenswürdigen Personen; falls Benutzer keine Dienste im internen Servernetz erreichen sollen, begrenze den ausgehenden Netzwerkzugriff des Containers zusätzlich auf die erlaubten Mailserver. Eine reine Prüfung von Hostnamen vor der Verbindung reicht wegen möglicher DNS-Änderungen nicht aus.
 
 Bestehende Installationen werden beim Start automatisch migriert: Der bisherige einzelne Benutzer erhält die Admin-Rolle. Postfächer und Zugangsdaten bleiben dem jeweiligen Benutzer zugeordnet.

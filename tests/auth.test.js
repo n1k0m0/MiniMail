@@ -80,17 +80,24 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
         method,
         headers: {
           "Content-Type": "application/json",
+          "X-MiniMail-Request": "1",
           ...(cookie ? { Cookie: cookie } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       });
       const setCookie = response.headers.get("set-cookie");
       if (setCookie) cookie = setCookie.split(";")[0];
-      return { status: response.status, data: await response.json() };
+      return {
+        status: response.status,
+        setCookie,
+        data: await response.json(),
+      };
     };
   }
   const admin = client(),
-    member = client();
+    adminOther = client(),
+    member = client(),
+    memberOther = client();
   try {
     let ready = false;
     for (let i = 0; i < 60; i++) {
@@ -104,6 +111,34 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     }
     assert.ok(ready, "server started");
     assert.equal((await admin("/auth/me")).data.adminSetupRequired, true);
+    const uncached = await fetch(base + "/auth/me");
+    assert.equal(uncached.headers.get("cache-control"), "no-store");
+    const forged = await fetch(base + "/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", password: "wrong" }),
+    });
+    assert.equal(forged.status, 403);
+    const crossSite = await fetch(base + "/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MiniMail-Request": "1",
+        "Sec-Fetch-Site": "cross-site",
+      },
+      body: JSON.stringify({ username: "owner", password: "wrong" }),
+    });
+    assert.equal(crossSite.status, 403);
+    const wrongOrigin = await fetch(base + "/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MiniMail-Request": "1",
+        Origin: "https://other.example.test",
+      },
+      body: JSON.stringify({ username: "owner", password: "wrong" }),
+    });
+    assert.equal(wrongOrigin.status, 403);
     assert.notEqual(
       (
         await admin("/auth/setup", "POST", {
@@ -121,9 +156,18 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     ).run("owner", storedPassword("long-admin-password"), Date.now());
     db.close();
 
+    const adminLogin = await admin("/auth/login", "POST", {
+      username: "owner",
+      password: "long-admin-password",
+    });
+    assert.equal(adminLogin.status, 200);
+    assert.match(
+      adminLogin.setCookie,
+      /^__Host-minimail_session=.*; HttpOnly; SameSite=Strict; Path=\/;.*; Secure$/,
+    );
     assert.equal(
       (
-        await admin("/auth/login", "POST", {
+        await adminOther("/auth/login", "POST", {
           username: "owner",
           password: "long-admin-password",
         })
@@ -141,6 +185,8 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       ).status,
       200,
     );
+    assert.equal((await adminOther("/accounts")).status, 401);
+    assert.equal((await admin("/accounts")).status, 200);
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
 
     const created = await admin("/admin/users", "POST", { username: "member" });
@@ -158,6 +204,40 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(ownerAccount.data.needsCredentials, false);
     assert.equal(ownerAccount.data.check_interval_minutes, 5);
     assert.equal(ownerAccount.data.last_checked_at, null);
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "receiver@example.test",
+          text: "hello",
+          attachments: { name: "not-an-array" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "receiver@example.test\r\nBcc: other@example.test",
+          text: "hello",
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "receiver@example.test",
+          text: "hello",
+          attachments: [
+            {
+              name: "large.bin",
+              data: Buffer.alloc(8 * 1024 * 1024 + 1).toString("base64"),
+            },
+          ],
+        })
+      ).status,
+      400,
+    );
     const accountsDb = new DatabaseSync(
       path.join(cwd, "data", "minimail.sqlite"),
     );
@@ -191,9 +271,37 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       400,
     );
 
+    for (let i = 0; i < 8; i++)
+      assert.equal(
+        (
+          await admin("/auth/login", "POST", {
+            username: "unknown-user",
+            password: "wrong",
+          })
+        ).status,
+        401,
+      );
+    assert.equal(
+      (
+        await admin("/auth/login", "POST", {
+          username: "unknown-user",
+          password: "wrong",
+        })
+      ).status,
+      429,
+    );
     assert.equal(
       (
         await member("/auth/login", "POST", {
+          username: "member",
+          password: created.data.temporaryPassword,
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await memberOther("/auth/login", "POST", {
           username: "member",
           password: created.data.temporaryPassword,
         })
@@ -211,6 +319,7 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       ).status,
       200,
     );
+    assert.equal((await memberOther("/auth/me")).data.user, null);
     const member2fa = await member("/auth/2fa/start", "POST");
     assert.equal(member2fa.status, 200);
     assert.equal(

@@ -170,6 +170,16 @@ export async function listMessages(account, folder, query, page = 0) {
 }
 
 async function parsedMessage(client, uid) {
+  const metadata = await client.fetchOne(
+    uid,
+    { uid: true, size: true },
+    { uid: true },
+  );
+  if (!metadata) return null;
+  if (metadata.size > 25 * 1024 * 1024)
+    throw new Error(
+      "Diese Nachricht ist für die Webansicht zu groß (über 25 MB).",
+    );
   const item = await client.fetchOne(
     uid,
     { uid: true, source: true, flags: true },
@@ -188,7 +198,6 @@ export async function getMessage(account, folder, uid) {
     const result = await parsedMessage(client, uid);
     if (!result) return null;
     const { item, parsed } = result;
-    await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
     return {
       uid: item.uid,
       subject: parsed.subject || "(Kein Betreff)",
@@ -276,6 +285,9 @@ export async function sendMessage(account, mail) {
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
     auth: { user: a.smtp_username, pass: a.smtp_password },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
     disableFileAccess: true,
     disableUrlAccess: true,
   });
@@ -290,8 +302,12 @@ export async function sendMessage(account, mail) {
       content: Buffer.from(file.data, "base64"),
     })),
   };
-  const info = await transporter.sendMail(outgoing);
-  transporter.close();
+  let info;
+  try {
+    info = await transporter.sendMail(outgoing);
+  } finally {
+    transporter.close();
+  }
   try {
     await withImap(account, async (client) => {
       const folders = await client.list();

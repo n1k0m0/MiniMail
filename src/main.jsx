@@ -129,7 +129,7 @@ function ResizeHandle({
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-MiniMail-Request": "1" },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -286,6 +286,7 @@ function PaginationControls({
 
 function App() {
   const [auth, setAuth] = useState(null);
+  const authIdentityRef = useRef(null);
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState(null);
   const accountsRef = useRef(accounts);
@@ -352,6 +353,32 @@ function App() {
     [folderTree, collapsedFolders, folderFilter],
   );
   const activeAccount = accounts.find((item) => item.id === accountId);
+  function applyAuth(next) {
+    const identity = next?.user?.username || null;
+    if (authIdentityRef.current !== identity) {
+      authIdentityRef.current = identity;
+      setAccounts([]);
+      setAccountId(null);
+      setFolders([]);
+      setFolderFilter("");
+      setCollapsedFolders(new Set());
+      setFolder("INBOX");
+      setMessages([]);
+      setTotal(0);
+      setPage(0);
+      setQuery("");
+      setSearch("");
+      setSelected(null);
+      setDetail(null);
+      setLoading(false);
+      setDetailLoading(false);
+      setModal(null);
+      setMobileSidebar(false);
+      setRefreshKey(0);
+      setError("");
+    }
+    setAuth(next);
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
@@ -392,13 +419,13 @@ function App() {
     async function load(attempt = 0) {
       try {
         const result = await api("/auth/me");
-        if (!cancelled) setAuth(result);
+        if (!cancelled) applyAuth(result);
       } catch (err) {
         if (cancelled) return;
         if (attempt < 5) retry = setTimeout(() => load(attempt + 1), 600);
         else {
+          applyAuth({ user: null, adminSetupRequired: false });
           setError(err.message);
-          setAuth({ user: null, adminSetupRequired: false });
         }
       }
     }
@@ -410,15 +437,25 @@ function App() {
   }, []);
   useEffect(() => {
     if (!auth?.user?.twoFactorEnabled || auth.user.mustChangePassword) return;
+    const identity = auth.user.username;
+    let active = true;
     api("/accounts")
       .then((data) => {
+        if (!active || authIdentityRef.current !== identity) return;
         setAccounts(data);
         setAccountId((current) => current ?? data[0]?.id ?? null);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (active && authIdentityRef.current === identity)
+          setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
   }, [auth]);
   useEffect(() => {
     if (!auth?.user?.twoFactorEnabled || auth.user.mustChangePassword) return;
+    const identity = auth.user.username;
     let cancelled = false;
     let polling = false;
     async function pollAccounts() {
@@ -428,6 +465,7 @@ function App() {
         const data = await api("/accounts");
         if (
           cancelled ||
+          authIdentityRef.current !== identity ||
           JSON.stringify(data) === JSON.stringify(accountsRef.current)
         )
           return;
@@ -446,9 +484,13 @@ function App() {
         )
           setRefreshKey((value) => value + 1);
       } catch (err) {
-        if (!cancelled && err.message === "Bitte anmelden.")
+        if (
+          !cancelled &&
+          authIdentityRef.current === identity &&
+          err.message === "Bitte anmelden."
+        )
           api("/auth/me")
-            .then(setAuth)
+            .then(applyAuth)
             .catch(() => {});
       } finally {
         polling = false;
@@ -470,8 +512,10 @@ function App() {
       setFolders([]);
       return;
     }
+    let active = true;
     api(`/accounts/${accountId}/folders`)
       .then((data) => {
+        if (!active) return;
         setFolders(data);
         setFolder((current) =>
           data.some((item) => item.path === current)
@@ -481,7 +525,12 @@ function App() {
               "INBOX",
         );
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
   }, [accountId, activeAccount?.needsCredentials, refreshKey]);
   useEffect(() => {
     if (!accountId || activeAccount?.needsCredentials) {
@@ -531,11 +580,8 @@ function App() {
       .then((data) => {
         if (active) {
           setDetail(data);
-          setMessages((current) =>
-            current.map((item) =>
-              item.uid === selected ? { ...item, seen: true } : item,
-            ),
-          );
+          if (messages.some((item) => item.uid === selected && !item.seen))
+            flag(selected, "seen", true);
         }
       })
       .catch((err) => {
@@ -648,11 +694,8 @@ function App() {
           : await api(
               `/accounts/${accountId}/messages/${uid}?folder=${encodeURIComponent(folder)}`,
             );
-      setMessages((current) =>
-        current.map((item) =>
-          item.uid === uid ? { ...item, seen: true } : item,
-        ),
-      );
+      if (messages.some((item) => item.uid === uid && !item.seen))
+        await flag(uid, "seen", true);
       setModal({ type, message });
     } catch (err) {
       setError(err.message);
@@ -669,7 +712,7 @@ function App() {
     return (
       <LoginScreen
         auth={auth}
-        onDone={() => api("/auth/me").then(setAuth)}
+        onDone={() => api("/auth/me").then(applyAuth)}
         request={api}
         theme={theme}
         setTheme={setTheme}
@@ -1372,7 +1415,7 @@ function App() {
           onAdd={() => setModal("account")}
           onLogout={async () => {
             await api("/auth/logout", { method: "POST" });
-            setAuth(await api("/auth/me"));
+            applyAuth(await api("/auth/me"));
           }}
           setTheme={setTheme}
           theme={theme}
