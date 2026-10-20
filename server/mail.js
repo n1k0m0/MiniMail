@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { decrypt } from "./security.js";
+import { isTrashFolder } from "./folderTypes.js";
 
 function settings(account) {
   const password = account.password_enc
@@ -277,6 +278,22 @@ export async function deleteMessage(account, folder, uid) {
       if (trash && trash !== folder)
         await client.messageMove(uid, trash, { uid: true });
       else await client.messageDelete(uid, { uid: true });
+    } finally {
+      lock.release();
+    }
+  });
+}
+export async function emptyTrash(account, folder) {
+  return withImap(account, async (client) => {
+    const target = (await client.list()).find((item) => item.path === folder);
+    if (!target || target.flags?.has("\\Noselect") || !isTrashFolder(target))
+      return null;
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const count = client.mailbox.exists || 0;
+      if (count && !(await client.messageDelete({ all: true })))
+        throw new Error("Der Papierkorb konnte nicht geleert werden.");
+      return count;
     } finally {
       lock.release();
     }

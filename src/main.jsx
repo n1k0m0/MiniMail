@@ -175,6 +175,12 @@ function dateLabel(value) {
     year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
   }).format(date);
 }
+function isTrashFolder(folder) {
+  if (folder?.specialUse) return folder.specialUse === "\\Trash";
+  return /^(papierkorb|trash|deleted items|deleted messages|gelöscht|gelöschte elemente)$/i.test(
+    folder?.name || "",
+  );
+}
 function folderMeta(folder) {
   const name = folder?.name || folder?.path || "Posteingang";
   const type = folder?.specialUse || "";
@@ -182,11 +188,7 @@ function folderMeta(folder) {
     return { icon: Send, label: "Gesendet" };
   if (type === "\\Drafts" || /^(entwürfe|entwurf|drafts?)$/i.test(name))
     return { icon: FileText, label: "Entwürfe" };
-  if (
-    type === "\\Trash" ||
-    /^(papierkorb|trash|deleted items|gelöscht)$/i.test(name)
-  )
-    return { icon: Trash2, label: "Papierkorb" };
+  if (isTrashFolder(folder)) return { icon: Trash2, label: "Papierkorb" };
   if (type === "\\Archive" || /^(archiv|archive)$/i.test(name))
     return { icon: Archive, label: "Archiv" };
   if (folder?.path?.toUpperCase() === "INBOX")
@@ -349,9 +351,10 @@ function App() {
     Math.max(260, messagePreference ?? defaultMessageWidth),
   );
   const messageScrollRef = useRef(null);
-  const contextMessage = contextMenu?.type === "message"
-    ? messages.find((item) => item.uid === contextMenu.uid)
-    : null;
+  const contextMessage =
+    contextMenu?.type === "message"
+      ? messages.find((item) => item.uid === contextMenu.uid)
+      : null;
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
   const visibleFolders = useMemo(
     () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
@@ -666,13 +669,35 @@ function App() {
       ),
     );
     if (path === folder)
-      setMessages((current) => current.map((item) => ({ ...item, seen: true })));
+      setMessages((current) =>
+        current.map((item) => ({ ...item, seen: true })),
+      );
     if (path.toUpperCase() === "INBOX")
       setAccounts((current) =>
         current.map((item) =>
           item.id === currentAccountId ? { ...item, inbox_unseen: 0 } : item,
         ),
       );
+  }
+  async function emptyTrashFolder(path) {
+    const currentAccountId = accountId;
+    const success = await withAction(() =>
+      api(`/accounts/${currentAccountId}/trash/empty`, {
+        method: "POST",
+        body: { folder: path },
+      }),
+    );
+    if (!success) return;
+    setModal(null);
+    if (
+      activeAccountIdRef.current === currentAccountId &&
+      activeFolderRef.current === path
+    ) {
+      setSelected(null);
+      setMessages([]);
+      setTotal(0);
+      setPage(0);
+    }
   }
   async function remove(uid = selected) {
     if (!uid) return;
@@ -930,7 +955,8 @@ function App() {
                         if (dropFolder !== node.path) setDropFolder(node.path);
                       }}
                       onDragLeave={(event) => {
-                        const bounds = event.currentTarget.getBoundingClientRect();
+                        const bounds =
+                          event.currentTarget.getBoundingClientRect();
                         if (
                           event.clientX < bounds.left ||
                           event.clientX >= bounds.right ||
@@ -1127,13 +1153,30 @@ function App() {
                       : `${total} ${total === 1 ? "Nachricht" : "Nachrichten"}${search ? ` für „${search}“` : ""}`}
                   </p>
                 </div>
-                <button
-                  className="list-menu"
-                  title="Aktualisieren"
-                  onClick={refresh}
-                >
-                  <RefreshCw size={18} />
-                </button>
+                <div className="list-header-actions">
+                  {isTrashFolder(activeFolder) && (
+                    <button
+                      className="empty-trash-button"
+                      aria-label="Papierkorb leeren"
+                      title="Papierkorb leeren"
+                      onClick={() =>
+                        setModal({ type: "empty-trash", path: folder })
+                      }
+                    >
+                      <Trash2 size={15} />
+                      <span className="empty-trash-label">
+                        Papierkorb leeren
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    className="list-menu"
+                    title="Aktualisieren"
+                    onClick={refresh}
+                  >
+                    <RefreshCw size={18} />
+                  </button>
+                </div>
               </div>
               <div className="list-toolbar">
                 <span>Alle Nachrichten</span>
@@ -1448,6 +1491,24 @@ function App() {
             >
               <MailOpen size={16} /> Alle Nachrichten als gelesen markieren
             </button>
+            {isTrashFolder(
+              folders.find((item) => item.path === contextMenu.path),
+            ) && (
+              <>
+                <div className="context-menu-separator" role="separator" />
+                <button
+                  role="menuitem"
+                  className="context-menu-danger"
+                  onClick={() => {
+                    const path = contextMenu.path;
+                    setContextMenu(null);
+                    setModal({ type: "empty-trash", path });
+                  }}
+                >
+                  <Trash2 size={16} /> Papierkorb leeren
+                </button>
+              </>
+            )}
           </div>
         )}
       {contextMenu && contextMessage && (
@@ -1595,6 +1656,13 @@ function App() {
           setError={setError}
         />
       )}
+      {modal?.type === "empty-trash" && (
+        <EmptyTrashModal
+          path={modal.path}
+          onClose={() => setModal(null)}
+          onConfirm={() => emptyTrashFolder(modal.path)}
+        />
+      )}
       {(modal === "compose" ||
         modal?.type === "reply" ||
         modal?.type === "reply-all" ||
@@ -1610,6 +1678,68 @@ function App() {
           setError={setError}
         />
       )}
+    </div>
+  );
+}
+
+function EmptyTrashModal({ path, onClose, onConfirm }) {
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (!busy && event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (!busy && event.key === "Escape") onClose();
+      }}
+    >
+      <div
+        className="modal confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="empty-trash-title"
+      >
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">PAPIERKORB</div>
+            <h2 id="empty-trash-title">Papierkorb leeren?</h2>
+          </div>
+        </div>
+        <p className="confirm-copy">
+          Alle Nachrichten in <strong>{path}</strong> werden dauerhaft gelöscht.
+          Das lässt sich nicht rückgängig machen.
+        </p>
+        <div className="modal-footer">
+          <div>
+            <button
+              className="text-button"
+              onClick={onClose}
+              disabled={busy}
+              autoFocus
+            >
+              Abbrechen
+            </button>
+            <button className="danger-button" onClick={confirm} disabled={busy}>
+              {busy ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <Trash2 size={16} />
+              )}
+              Dauerhaft löschen
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

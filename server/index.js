@@ -24,6 +24,7 @@ import {
   markFolderRead,
   moveMessage,
   deleteMessage,
+  emptyTrash,
   sendMessage,
 } from "./mail.js";
 
@@ -603,6 +604,20 @@ app.delete(
     if (!account) return;
     await deleteMessage(account, folder(req), Number(req.params.uid));
     res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/accounts/:id/trash/empty",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const path = req.body?.folder;
+    if (typeof path !== "string" || !path.trim() || path.length > 1024)
+      return res.status(400).json({ error: "Papierkorb fehlt." });
+    const deleted = await emptyTrash(account, path);
+    if (deleted === null)
+      return res.status(400).json({ error: "Kein Papierkorb-Ordner." });
+    res.json({ ok: true, deleted });
   }),
 );
 const maxAttachmentBytes = 8 * 1024 * 1024;

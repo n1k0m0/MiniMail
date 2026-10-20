@@ -226,6 +226,11 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       400,
     );
     assert.equal(
+      (await admin(`/accounts/${ownerAccount.data.id}/trash/empty`, "POST", {}))
+        .status,
+      400,
+    );
+    assert.equal(
       (
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test",

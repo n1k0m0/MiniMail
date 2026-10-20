@@ -573,11 +573,32 @@ svg {
   color: #a2adbe;
   margin: 0;
 }
+.list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 21px;
+}
+.empty-trash-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: #fff0f1;
+  color: #b84450;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.empty-trash-button:hover {
+  background: #fbe1e4;
+}
 .list-menu {
   background: transparent;
   color: #8b99b0;
   padding: 7px;
-  margin-top: 25px;
 }
 .list-toolbar {
   height: 37px;
@@ -1256,6 +1277,43 @@ svg {
 .account-modal {
   width: min(640px, 100%);
 }
+.confirm-modal {
+  width: min(430px, 100%);
+}
+.confirm-copy {
+  margin: 0;
+  padding: 22px 28px;
+  color: #65728b;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.confirm-copy strong {
+  color: #263754;
+}
+.confirm-modal .modal-footer {
+  justify-content: flex-end;
+}
+.danger-button {
+  min-height: 37px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 13px;
+  border-radius: 7px;
+  background: #c44350;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.danger-button:hover {
+  background: #a93040;
+}
+.danger-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -1692,6 +1750,19 @@ svg {
   background: #503140;
   color: #ffd8da;
 }
+[data-theme="dark"] .empty-trash-button {
+  background: #503140;
+  color: #f6a7ad;
+}
+[data-theme="dark"] .empty-trash-button:hover {
+  background: #683b49;
+}
+[data-theme="dark"] .confirm-copy {
+  color: #a9b7ce;
+}
+[data-theme="dark"] .confirm-copy strong {
+  color: #e4e9f5;
+}
 [data-theme="dark"] .context-menu-separator {
   background: #39475d;
 }
@@ -1763,6 +1834,9 @@ svg {
   }
 }
 @media (max-width: 760px) {
+  .empty-trash-label {
+    display: none;
+  }
   .app-shell {
     display: block;
     min-height: 0;
