@@ -140,7 +140,7 @@ function App() {
       .catch((err) => setError(err.message));
   }, [auth]);
   useEffect(() => {
-    if (!accountId) {
+    if (!accountId || accounts.find((item) => item.id === accountId)?.needsCredentials) {
       setFolders([]);
       return;
     }
@@ -156,11 +156,12 @@ function App() {
         );
       })
       .catch((err) => setError(err.message));
-  }, [accountId, refreshKey]);
+  }, [accountId, accounts, refreshKey]);
   useEffect(() => {
-    if (!accountId) {
+    if (!accountId || accounts.find((item) => item.id === accountId)?.needsCredentials) {
       setMessages([]);
       setTotal(0);
+      setLoading(false);
       return;
     }
     let active = true;
@@ -183,7 +184,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [accountId, folder, search, page, refreshKey]);
+  }, [accountId, accounts, folder, search, page, refreshKey]);
   useEffect(() => {
     if (!accountId || !selected) {
       setDetail(null);
@@ -355,7 +356,7 @@ function App() {
                 </div>
                 <span className="account-text">
                   <strong>{account.name}</strong>
-                  <small>{account.email}</small>
+                  <small>{account.needsCredentials ? "Passwort ergänzen" : account.email}</small>
                 </span>
                 {account.id === accountId && <ChevronDown size={15} />}
               </button>
@@ -467,6 +468,13 @@ function App() {
         </header>
         {accounts.length === 0 ? (
           <EmptyAccount onAdd={() => setModal("account")} />
+        ) : activeAccount?.needsCredentials ? (
+          <div className="reader-empty account-setup-empty">
+            <div className="reader-illustration"><div className="illustration-mail"><LockKeyhole size={42} strokeWidth={1.3} /></div></div>
+            <h2>Postfach vorbereiten</h2>
+            <p>Die Serverdaten für {activeAccount.email} sind eingerichtet. Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.</p>
+            <button className="primary-button" onClick={() => setModal({ type: "edit", account: activeAccount })}>Zugangsdaten ergänzen</button>
+          </div>
         ) : (
           <div className="mail-layout">
             <section
@@ -845,12 +853,14 @@ const blankAccount = {
   smtp_host: "",
   smtp_port: 465,
   smtp_secure: true,
+  smtp_username: "",
+  smtp_password: "",
   username: "",
   password: "",
 };
 function AccountModal({ account, onClose, onSaved, setError }) {
   const [form, setForm] = useState(
-    account ? { ...account, password: "" } : blankAccount,
+    account ? { ...account, password: "", smtp_password: "" } : blankAccount,
   );
   const [busy, setBusy] = useState(false);
   const [tested, setTested] = useState(false);
@@ -1000,6 +1010,25 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 />{" "}
                 SSL/TLS verwenden <small>(aus: STARTTLS auf Port 587)</small>
               </label>
+              <div className="form-grid">
+                <label>
+                  SMTP-Benutzername <small>(optional)</small>
+                  <input
+                    value={form.smtp_username || ""}
+                    onChange={(e) => field("smtp_username", e.target.value)}
+                    placeholder="Wie bei IMAP"
+                  />
+                </label>
+                <label>
+                  SMTP-Passwort <small>(optional)</small>
+                  <input
+                    type="password"
+                    value={form.smtp_password || ""}
+                    onChange={(e) => field("smtp_password", e.target.value)}
+                    placeholder={account ? "Unverändert lassen" : "Wie bei IMAP"}
+                  />
+                </label>
+              </div>
             </div>
             <div className="form-section credentials">
               <div className="form-section-title">
@@ -1018,7 +1047,7 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 <label>
                   Passwort / App-Passwort
                   <input
-                    required={!account}
+                    required={!account || account.needsCredentials}
                     type="password"
                     value={form.password}
                     onChange={(e) => field("password", e.target.value)}

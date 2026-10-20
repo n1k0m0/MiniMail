@@ -20,7 +20,8 @@ db.exec(`
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL,
     imap_host TEXT NOT NULL, imap_port INTEGER NOT NULL, imap_secure INTEGER NOT NULL,
     smtp_host TEXT NOT NULL, smtp_port INTEGER NOT NULL, smtp_secure INTEGER NOT NULL,
-    username TEXT NOT NULL, password_enc TEXT NOT NULL, created_at INTEGER NOT NULL,
+    username TEXT NOT NULL, password_enc TEXT NOT NULL,
+    smtp_username TEXT, smtp_password_enc TEXT, created_at INTEGER NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 `);
@@ -36,6 +37,13 @@ if (!userColumns.has("must_change_password"))
   db.exec(
     "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
   );
+const accountColumns = new Set(
+  db.prepare("PRAGMA table_info(accounts)").all().map((column) => column.name),
+);
+if (!accountColumns.has("smtp_username"))
+  db.exec("ALTER TABLE accounts ADD COLUMN smtp_username TEXT");
+if (!accountColumns.has("smtp_password_enc"))
+  db.exec("ALTER TABLE accounts ADD COLUMN smtp_password_enc TEXT");
 // Existing single-user installations keep their owner as administrator.
 if (
   !db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get() &&

@@ -298,11 +298,12 @@ app.post("/api/admin/users/:id/reset-2fa", adminOnly, (req, res) => {
 });
 
 function publicAccount(account) {
-  const { password_enc, user_id, ...rest } = account;
+  const { password_enc, smtp_password_enc, user_id, ...rest } = account;
   return {
     ...rest,
     imap_secure: !!rest.imap_secure,
     smtp_secure: !!rest.smtp_secure,
+    needsCredentials: !decrypt(password_enc),
   };
 }
 function accountFor(req, res) {
@@ -331,6 +332,16 @@ function validateAccount(body) {
     (typeof body.password !== "string" || body.password.length > 2048)
   )
     throw new Error("Ungültiges Postfach-Passwort.");
+  if (
+    body.smtp_username !== undefined &&
+    (typeof body.smtp_username !== "string" || body.smtp_username.length > 256)
+  )
+    throw new Error("Ungültiger SMTP-Benutzername.");
+  if (
+    body.smtp_password !== undefined &&
+    (typeof body.smtp_password !== "string" || body.smtp_password.length > 2048)
+  )
+    throw new Error("Ungültiges SMTP-Passwort.");
 }
 app.get("/api/accounts", (req, res) => {
   res.json(
@@ -351,9 +362,12 @@ app.post(
       : null;
     const password =
       req.body.password || (existing && decrypt(existing.password_enc));
+    const smtp_password =
+      req.body.smtp_password ||
+      (existing?.smtp_password_enc && decrypt(existing.smtp_password_enc));
     if (!password)
       return res.status(400).json({ error: "Postfach-Passwort fehlt." });
-    await testAccount({ ...req.body, password });
+    await testAccount({ ...req.body, password, smtp_password });
     res.json({ ok: true });
   }),
 );
@@ -366,7 +380,7 @@ app.post(
     const b = req.body;
     const result = db
       .prepare(
-        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         req.user.id,
@@ -380,6 +394,8 @@ app.post(
         b.smtp_secure ? 1 : 0,
         b.username.trim(),
         encrypt(b.password),
+        b.smtp_username?.trim() || null,
+        b.smtp_password ? encrypt(b.smtp_password) : null,
         Date.now(),
       );
     res.json(
@@ -399,7 +415,7 @@ app.put(
     validateAccount(req.body || {});
     const b = req.body;
     db.prepare(
-      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=? WHERE id=?",
+      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=? WHERE id=?",
     ).run(
       b.name.trim(),
       b.email.trim(),
@@ -411,6 +427,8 @@ app.put(
       b.smtp_secure ? 1 : 0,
       b.username.trim(),
       b.password ? encrypt(b.password) : existing.password_enc,
+      b.smtp_username?.trim() || null,
+      b.smtp_password ? encrypt(b.smtp_password) : existing.smtp_password_enc,
       existing.id,
     );
     res.json(

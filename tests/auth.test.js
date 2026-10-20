@@ -59,6 +59,7 @@ const account = (name) => ({
 test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind getrennt", async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimail-test-"));
   const port = await freePort();
+  const encryptionKey = crypto.randomBytes(32).toString("hex");
   const child = spawn(process.execPath, [serverPath], {
     cwd,
     env: {
@@ -66,7 +67,7 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       NODE_ENV: "production",
       HOST: "127.0.0.1",
       PORT: String(port),
-      APP_ENCRYPTION_KEY: crypto.randomBytes(32).toString("hex"),
+      APP_ENCRYPTION_KEY: encryptionKey,
     },
     stdio: "ignore",
   });
@@ -145,10 +146,23 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
     assert.equal(created.status, 201);
     assert.match(created.data.temporaryPassword, /^[A-Za-z0-9_-]{40,}$/);
     assert.equal(created.data.user.role, "user");
-    assert.equal(
-      (await admin("/accounts", "POST", account("owner"))).status,
-      200,
-    );
+    const ownerAccount = await admin("/accounts", "POST", {
+      ...account("owner"),
+      smtp_username: "owner-smtp",
+      smtp_password: "separate-smtp-password",
+    });
+    assert.equal(ownerAccount.status, 200);
+    assert.equal(ownerAccount.data.smtp_username, "owner-smtp");
+    assert.equal(ownerAccount.data.smtp_password_enc, undefined);
+    assert.equal(ownerAccount.data.needsCredentials, false);
+    const accountsDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
+    const storedAccount = accountsDb
+      .prepare("SELECT smtp_username,smtp_password_enc FROM accounts WHERE id=?")
+      .get(ownerAccount.data.id);
+    accountsDb.close();
+    assert.equal(storedAccount.smtp_username, "owner-smtp");
+    assert.ok(storedAccount.smtp_password_enc);
+    assert.ok(!storedAccount.smtp_password_enc.includes("separate-smtp-password"));
 
     assert.equal(
       (
@@ -211,6 +225,23 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       200,
     );
     assert.equal((await member("/auth/me")).data.user.mustChangePassword, true);
+
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(
+      "aes-256-gcm",
+      Buffer.from(encryptionKey, "hex"),
+      iv,
+    );
+    cipher.final();
+    const emptyPassword = Buffer.concat([iv, cipher.getAuthTag()]).toString("base64");
+    const draftDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
+    draftDb.prepare(
+      "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+    ).run(1, "Draft", "draft@example.test", "imap.example.test", 993, 1,
+      "smtp.example.test", 465, 1, "draft@example.test", emptyPassword, Date.now());
+    draftDb.close();
+    const drafts = (await admin("/accounts")).data;
+    assert.equal(drafts.find((item) => item.email === "draft@example.test").needsCredentials, true);
   } finally {
     child.kill();
     if (child.exitCode === null)

@@ -37,6 +37,8 @@ MiniMail verbindet IMAP und SMTP über TLS: Port 993/465 mit direktem TLS oder P
 
 Viele Provider mit eigener Zwei-Faktor-Anmeldung verlangen für IMAP/SMTP ein App-Passwort. Der TOTP-Code von MiniMail schützt den Web-Zugang und ersetzt diesen Provider-Schritt nicht. OAuth-Anmeldungen sind derzeit nicht implementiert.
 
+Wenn der SMTP-Benutzername oder das SMTP-Passwort vom IMAP-Zugang abweicht, kannst du beide Angaben im Postfachdialog separat eintragen. Leere SMTP-Felder verwenden die IMAP-Zugangsdaten.
+
 ## Umfang und Grenzen
 
 - Postfächer und Ordner lesen; serverseitig in Betreff, Absender, Empfänger und Text suchen.

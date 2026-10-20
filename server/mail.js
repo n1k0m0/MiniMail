@@ -5,11 +5,16 @@ import sanitizeHtml from "sanitize-html";
 import { decrypt } from "./security.js";
 
 function settings(account) {
+  const password = account.password_enc
+    ? decrypt(account.password_enc)
+    : account.password;
   return {
     ...account,
-    password: account.password_enc
-      ? decrypt(account.password_enc)
-      : account.password,
+    password,
+    smtp_username: account.smtp_username || account.username,
+    smtp_password: account.smtp_password_enc
+      ? decrypt(account.smtp_password_enc)
+      : account.smtp_password || password,
   };
 }
 function imapClient(account) {
@@ -72,7 +77,7 @@ export async function testAccount(account) {
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
-    auth: { user: a.username, pass: a.password },
+    auth: { user: a.smtp_username, pass: a.smtp_password },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 30000,
@@ -241,7 +246,7 @@ export async function sendMessage(account, mail) {
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
-    auth: { user: a.username, pass: a.password },
+    auth: { user: a.smtp_username, pass: a.smtp_password },
     disableFileAccess: true,
     disableUrlAccess: true,
   });
