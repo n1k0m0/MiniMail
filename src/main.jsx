@@ -968,9 +968,16 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 <input
                   type="checkbox"
                   checked={form.imap_secure}
-                  onChange={(e) => field("imap_secure", e.target.checked)}
+                  onChange={(e) => {
+                    setForm((current) => ({
+                      ...current,
+                      imap_secure: e.target.checked,
+                      imap_port: e.target.checked ? 993 : 143,
+                    }));
+                    setTested(false);
+                  }}
                 />{" "}
-                SSL/TLS verwenden
+                Direktes TLS <small>({form.imap_secure ? `Port ${form.imap_port}: TLS ab Verbindungsbeginn` : `Port ${form.imap_port}: STARTTLS verpflichtend`})</small>
               </label>
             </div>
             <div className="form-section">
@@ -1008,7 +1015,7 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     field("smtp_port", e.target.checked ? 465 : 587);
                   }}
                 />{" "}
-                SSL/TLS verwenden <small>(aus: STARTTLS auf Port 587)</small>
+                Direktes TLS <small>({form.smtp_secure ? `Port ${form.smtp_port}: TLS ab Verbindungsbeginn` : `Port ${form.smtp_port}: STARTTLS verpflichtend`})</small>
               </label>
               <div className="form-grid">
                 <label>

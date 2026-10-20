@@ -303,6 +303,7 @@ function publicAccount(account) {
     ...rest,
     imap_secure: !!rest.imap_secure,
     smtp_secure: !!rest.smtp_secure,
+    smtp_username: rest.smtp_username || "",
     needsCredentials: !decrypt(password_enc),
   };
 }
@@ -313,35 +314,36 @@ function accountFor(req, res) {
   if (!account) res.status(404).json({ error: "Postfach nicht gefunden." });
   return account;
 }
+class AccountInputError extends Error {}
 function validateAccount(body) {
   const fields = ["name", "email", "imap_host", "smtp_host", "username"];
   for (const field of fields)
     if (typeof body[field] !== "string" || !body[field].trim())
-      throw new Error(`${field} fehlt.`);
+      throw new AccountInputError(`${field} fehlt.`);
   if (!/^\S+@\S+\.\S+$/.test(body.email))
-    throw new Error("Ungültige E-Mail-Adresse.");
+    throw new AccountInputError("Ungültige E-Mail-Adresse.");
   for (const field of ["imap_port", "smtp_port"])
     if (
       !Number.isInteger(Number(body[field])) ||
       Number(body[field]) < 1 ||
       Number(body[field]) > 65535
     )
-      throw new Error(`${field} ist ungültig.`);
+      throw new AccountInputError(`${field} ist ungültig.`);
   if (
     body.password !== undefined &&
     (typeof body.password !== "string" || body.password.length > 2048)
   )
-    throw new Error("Ungültiges Postfach-Passwort.");
+    throw new AccountInputError("Ungültiges Postfach-Passwort.");
   if (
-    body.smtp_username !== undefined &&
+    body.smtp_username != null &&
     (typeof body.smtp_username !== "string" || body.smtp_username.length > 256)
   )
-    throw new Error("Ungültiger SMTP-Benutzername.");
+    throw new AccountInputError("Ungültiger SMTP-Benutzername.");
   if (
-    body.smtp_password !== undefined &&
+    body.smtp_password != null &&
     (typeof body.smtp_password !== "string" || body.smtp_password.length > 2048)
   )
-    throw new Error("Ungültiges SMTP-Passwort.");
+    throw new AccountInputError("Ungültiges SMTP-Passwort.");
 }
 app.get("/api/accounts", (req, res) => {
   res.json(
@@ -575,6 +577,8 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error instanceof AccountInputError)
+    return res.status(400).json({ error: error.message });
   console.error(error);
   const message = error.message || "Ein Fehler ist aufgetreten.";
   res
@@ -583,7 +587,9 @@ app.use((error, req, res, next) => {
     )
     .json({
       error:
-        process.env.NODE_ENV === "production"
+        error.mailStage
+          ? `${error.mailStage}-Verbindung oder Anmeldung fehlgeschlagen. Bitte Server, Port und Zugangsdaten prüfen.`
+          : process.env.NODE_ENV === "production"
           ? "Die Anfrage konnte nicht abgeschlossen werden. Bitte Verbindung und Eingaben prüfen."
           : message,
     });

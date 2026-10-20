@@ -241,7 +241,16 @@ test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind ge
       "smtp.example.test", 465, 1, "draft@example.test", emptyPassword, Date.now());
     draftDb.close();
     const drafts = (await admin("/accounts")).data;
-    assert.equal(drafts.find((item) => item.email === "draft@example.test").needsCredentials, true);
+    const draft = drafts.find((item) => item.email === "draft@example.test");
+    assert.equal(draft.needsCredentials, true);
+    assert.equal(draft.smtp_username, "");
+    const configured = await admin(`/accounts/${draft.id}`, "PUT", {
+      ...draft,
+      smtp_username: null,
+      password: "draft-mail-password",
+    });
+    assert.equal(configured.status, 200);
+    assert.equal(configured.data.needsCredentials, false);
   } finally {
     child.kill();
     if (child.exitCode === null)

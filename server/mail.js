@@ -70,7 +70,12 @@ const summary = (item) => ({
 });
 
 export async function testAccount(account) {
-  await withImap(account, async (client) => client.list());
+  try {
+    await withImap(account, async (client) => client.list());
+  } catch (error) {
+    error.mailStage = "IMAP";
+    throw error;
+  }
   const a = settings(account);
   const transporter = nodemailer.createTransport({
     host: a.smtp_host,
@@ -82,8 +87,14 @@ export async function testAccount(account) {
     greetingTimeout: 15000,
     socketTimeout: 30000,
   });
-  await transporter.verify();
-  transporter.close();
+  try {
+    await transporter.verify();
+  } catch (error) {
+    error.mailStage = "SMTP";
+    throw error;
+  } finally {
+    transporter.close();
+  }
 }
 
 export async function listFolders(account) {
