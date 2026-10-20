@@ -36,7 +36,7 @@ import {
 import "./style.css";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 60;
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
 
@@ -940,10 +940,9 @@ function App() {
                           <strong>{fmtAddress(item.from)}</strong>
                           <time>{dateLabel(item.date)}</time>
                         </div>
-                        <div className="row-subject">{item.subject}</div>
-                        <div className="row-extras">
-                          <span>{item.to?.[0]?.address || ""}</span>
-                          {item.hasAttachments && <Paperclip size={14} />}
+                        <div className="row-subject" title={item.subject}>
+                          <span>{item.subject}</span>
+                          {item.hasAttachments && <Paperclip size={13} aria-label="Mit Anhang" />}
                         </div>
                       </div>
                       <button

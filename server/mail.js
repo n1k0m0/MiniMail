@@ -145,7 +145,8 @@ export async function listMessages(account, folder, query, page = 0) {
       : { all: true };
     const matches = (await client.search(criteria, { uid: true })) || [];
     const sorted = [...matches].sort((a, b) => b - a);
-    const uids = sorted.slice(page * 40, page * 40 + 40);
+    const pageSize = 60;
+    const uids = sorted.slice(page * pageSize, (page + 1) * pageSize);
     if (!uids.length) return { messages: [], total: sorted.length, page };
     const messages = await client.fetchAll(
       uids,

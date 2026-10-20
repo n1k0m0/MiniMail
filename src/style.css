@@ -541,9 +541,9 @@ svg {
   outline-offset: -2px;
 }
 .list-header {
-  height: 137px;
+  height: 112px;
   flex: none;
-  padding: 25px 23px 15px;
+  padding: 19px 23px 12px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -643,11 +643,11 @@ svg {
   flex: 1;
 }
 .message-row {
-  min-height: 97px;
+  min-height: 62px;
   display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 18px 16px 14px 20px;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 37px 9px 18px;
   border-bottom: 1px solid #f1f3f7;
   cursor: pointer;
   position: relative;
@@ -658,13 +658,14 @@ svg {
 .message-row.selected {
   background: #eef2ff;
   border-left: 3px solid #5470dc;
-  padding-left: 17px;
+  padding-left: 15px;
 }
 .message-row.unread:before {
   content: "";
   position: absolute;
   left: 6px;
-  top: 29px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -682,6 +683,12 @@ svg {
   font-family: Manrope;
   font-size: 13px;
   font-weight: 800;
+}
+.message-row .row-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 11px;
 }
 .message-row:nth-child(4n + 2) .row-avatar {
   background: #def0e9;
@@ -725,29 +732,26 @@ svg {
 .row-subject {
   color: #47526b;
   font-size: 11px;
-  margin-top: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 600;
-}
-.row-extras {
+  margin-top: 3px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-  color: #a0aaba;
-  font-size: 10px;
+  gap: 5px;
+  font-weight: 600;
 }
-.row-extras span {
+.row-subject span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.row-subject svg {
+  color: #a0aaba;
 }
 .star-button {
   position: absolute;
-  right: 17px;
-  bottom: 16px;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   color: #bbc3cf;
   background: transparent;
   padding: 0;
