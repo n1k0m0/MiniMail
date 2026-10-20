@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const dbModule = fileURLToPath(new URL("../server/db.js", import.meta.url));
 
-test("bestehende Postfächer erhalten je Benutzer ein Primärpostfach", async () => {
+test("existing mailboxes get one primary mailbox per user", async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimail-migration-"));
   await fs.mkdir(path.join(cwd, "data"));
   const databasePath = path.join(cwd, "data", "minimail.sqlite");

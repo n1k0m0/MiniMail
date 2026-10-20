@@ -7,6 +7,7 @@ import {
   RefreshCw,
   ShieldOff,
 } from "lucide-react";
+import { choose, t } from "./i18n.js";
 
 export default function UserManagement({ request, currentUsername, setError }) {
   const [users, setUsers] = useState([]);
@@ -48,7 +49,10 @@ export default function UserManagement({ request, currentUsername, setError }) {
   async function resetPassword(user) {
     if (
       !window.confirm(
-        `Passwort für „${user.username}“ zurücksetzen? Die Person wird sofort abgemeldet.`,
+        choose(
+          `Passwort für „${user.username}“ zurücksetzen? Die Person wird sofort abgemeldet.`,
+          `Reset the password for “${user.username}”? This will sign them out immediately.`,
+        ),
       )
     )
       return;
@@ -72,7 +76,10 @@ export default function UserManagement({ request, currentUsername, setError }) {
   async function resetTwoFactor(user) {
     if (
       !window.confirm(
-        `2FA für „${user.username}“ zurücksetzen? Die Person wird sofort abgemeldet und muss 2FA erneut einrichten.`,
+        choose(
+          `2FA für „${user.username}“ zurücksetzen? Die Person wird sofort abgemeldet und muss 2FA erneut einrichten.`,
+          `Reset 2FA for “${user.username}”? This will sign them out immediately and require them to set up 2FA again.`,
+        ),
       )
     )
       return;
@@ -91,41 +98,51 @@ export default function UserManagement({ request, currentUsername, setError }) {
       await navigator.clipboard.writeText(temporary.password);
       setCopied(true);
     } catch {
-      setError("Kopieren nicht möglich. Bitte das Passwort manuell markieren.");
+      setError(
+        t("Kopieren nicht möglich. Bitte das Passwort manuell markieren."),
+      );
     }
   }
   return (
     <section className="user-management">
-      <h3>Benutzerverwaltung</h3>
+      <h3>{t("Benutzerverwaltung")}</h3>
       <p>
-        Nur Admins können Benutzerkonten anlegen. Jeder Benutzer verwaltet
-        eigene Postfächer.
+        {t(
+          "\n        Nur Admins können Benutzerkonten anlegen. Jeder Benutzer verwaltet\n        eigene Postfächer.\n      ",
+        )}
       </p>
       <form className="new-user-form" onSubmit={create}>
         <label>
-          Neuer Benutzername
+          {t("\n          Neuer Benutzername\n          ")}
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             pattern="[a-zA-Z0-9_.-]{3,40}"
-            title="3–40 Zeichen: Buchstaben, Zahlen, Punkt, Unterstrich oder Bindestrich"
+            title={t(
+              "3–40 Zeichen: Buchstaben, Zahlen, Punkt, Unterstrich oder Bindestrich",
+            )}
             required
           />
         </label>
         <button className="primary-button" disabled={busy}>
-          <Plus size={16} /> Anlegen
+          <Plus size={16} />
+          {t(" Anlegen\n        ")}
         </button>
       </form>
       {temporary && (
         <div className="temporary-password" role="status">
-          <strong>Einmaliges Startpasswort für {temporary.username}</strong>
+          <strong>
+            {t("Einmaliges Startpasswort für ")}
+            {temporary.username}
+          </strong>
           <p>
-            Jetzt sicher an die Person weitergeben. Es wird danach nicht erneut
-            angezeigt. Beim ersten Login muss sie es ändern und 2FA einrichten.
+            {t(
+              "\n            Jetzt sicher an die Person weitergeben. Es wird danach nicht erneut\n            angezeigt. Beim ersten Login muss sie es ändern und 2FA einrichten.\n          ",
+            )}
           </p>
           <div>
             <code>{temporary.password}</code>
-            <button onClick={copyPassword} title="Passwort kopieren">
+            <button onClick={copyPassword} title={t("Passwort kopieren")}>
               {copied ? <Check size={17} /> : <Copy size={17} />}
             </button>
           </div>
@@ -140,15 +157,15 @@ export default function UserManagement({ request, currentUsername, setError }) {
             <div className="user-info">
               <strong>
                 {user.username}
-                {user.username === currentUsername ? " (du)" : ""}
+                {user.username === currentUsername ? t(" (du)") : ""}
               </strong>
               <span>
-                {user.role === "admin" ? "Admin" : "Benutzer"} ·{" "}
+                {user.role === "admin" ? "Admin" : t("Benutzer")} ·{" "}
                 {user.mustChangePassword
-                  ? "Passwortwechsel ausstehend"
+                  ? t("Passwortwechsel ausstehend")
                   : user.twoFactorEnabled
-                    ? "2FA aktiv"
-                    : "2FA noch nicht eingerichtet"}
+                    ? t("2FA aktiv")
+                    : t("2FA noch nicht eingerichtet")}
               </span>
             </div>
             {user.username !== currentUsername && (
@@ -156,14 +173,14 @@ export default function UserManagement({ request, currentUsername, setError }) {
                 <button
                   disabled={busy}
                   onClick={() => resetPassword(user)}
-                  title="Passwort zurücksetzen"
+                  title={t("Passwort zurücksetzen")}
                 >
                   <KeyRound size={16} />
                 </button>
                 <button
                   disabled={busy || !user.twoFactorEnabled}
                   onClick={() => resetTwoFactor(user)}
-                  title="2FA zurücksetzen"
+                  title={t("2FA zurücksetzen")}
                 >
                   <ShieldOff size={16} />
                 </button>

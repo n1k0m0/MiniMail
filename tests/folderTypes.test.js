@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isTrashFolder } from "../server/folderTypes.js";
 
-test("nur Papierkorb-Ordner werden als solche erkannt", () => {
+test("only trash folders are recognized as trash", () => {
   assert.equal(isTrashFolder({ name: "Bin", specialUse: "\\Trash" }), true);
   assert.equal(isTrashFolder({ name: "Papierkorb" }), true);
   assert.equal(isTrashFolder({ name: "Deleted Items" }), true);

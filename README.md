@@ -1,60 +1,62 @@
 # MiniMail
 
-Ein selbst hostbarer Web-Mail-Client mit IMAP, SMTP, mehreren Postfächern, Suche, Lesebereich, Anhängen, Verfassen sowie hellem und dunklem Design. Der Web-Zugang nutzt Benutzername, Passwort und TOTP-Zwei-Faktor-Anmeldung.
+MiniMail is a self-hosted webmail client with IMAP, SMTP, multiple mailboxes, search, a reading pane, attachments, and message composition. The interface supports light and dark themes and can be switched between German and English. Web access requires a username, password, and TOTP two-factor authentication.
 
-## Lokal starten
+## Run locally
 
-Voraussetzung: Node.js 24 oder neuer.
+Requires Node.js 24 or newer.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Die Oberfläche ist unter `http://127.0.0.1:5173` erreichbar. Beim ersten Start werden `data/minimail.sqlite` und `data/secret.key` angelegt. Diese Dateien sind lokal und werden nicht in Git aufgenommen. `npm run build` erstellt die Produktionsdateien; `npm start` startet anschließend Frontend und API zusammen auf Port 3000. Für einen Produktionsstart ist `APP_ENCRYPTION_KEY` erforderlich.
+Open `http://127.0.0.1:5173`. On first launch, MiniMail creates `data/minimail.sqlite` and `data/secret.key`. These local files are excluded from Git. `npm run build` produces the frontend assets; `npm start` serves the frontend and API together on port 3000. Production requires `APP_ENCRYPTION_KEY`.
 
-Lege vor dem ersten Login den Admin im Terminal an:
+Create the first administrator from an interactive terminal before signing in:
 
 ```bash
 npm run admin:create -- admin
 ```
 
-Das Skript fragt das Passwort verdeckt ab. Lade die Seite danach neu. Eine Kontoerstellung im Browser gibt es nicht. Beim ersten Login richtet der Admin TOTP-2FA ein. Danach kann er unter **Einstellungen → Benutzerverwaltung** weitere Benutzer anlegen. Für jeden neuen Benutzer wird ein einmaliges Startpasswort angezeigt; beim ersten Login muss er es ändern und eigene 2FA einrichten. Jeder Benutzer sieht nur die eigenen Postfächer.
+The script accepts the password without echoing it. Reload the page afterward. There is no public registration. On first sign-in, the administrator sets up TOTP. Administrators can then create other users in **Settings → User management**. Each new user receives a one-time temporary password and must change it and set up their own 2FA on first sign-in. Users can access only their own mailboxes.
 
-## Auf dem eigenen Server
+## Deploy on a server
 
-1. Erstelle eine `.env` auf Basis von `.env.example`. `APP_ENCRYPTION_KEY` muss aus genau 64 zufälligen Hex-Zeichen bestehen, zum Beispiel erzeugt mit `openssl rand -hex 32`.
-2. Baue das Image und lege den Admin interaktiv an: `docker compose build` und `docker compose run --rm -it minimail node server/create-admin.js admin`.
-3. Starte mit `docker compose up -d`. Der Container ist nur auf `127.0.0.1:3000` des Servers erreichbar.
-4. Richte einen Reverse Proxy mit HTTPS für deine Domain ein, der an `http://127.0.0.1:3000` weiterleitet und den ursprünglichen `Host`-Header erhält. Leite HTTP auf HTTPS um. Setze nach Möglichkeit HSTS am Proxy.
-5. Öffne die Domain, melde dich als Admin an und aktiviere TOTP mit einer Authenticator-App. Verbinde danach dein erstes Postfach.
+1. Create `.env` from `.env.example`. `APP_ENCRYPTION_KEY` must be exactly 64 random hexadecimal characters, for example from `openssl rand -hex 32`.
+2. Build the image and create the administrator interactively: `docker compose build` and `docker compose run --rm -it minimail node server/create-admin.js admin`.
+3. Start the service with `docker compose up -d`. The container is exposed only on the server's `127.0.0.1:3000`.
+4. Configure an HTTPS reverse proxy for your domain that forwards to `http://127.0.0.1:3000` and preserves the original `Host` header. Redirect HTTP to HTTPS and enable HSTS where possible.
+5. Open the domain, sign in as administrator, set up TOTP in an authenticator app, and connect a mailbox.
 
-**Backup:** Sichere das Docker-Volume `minimail-data` und bewahre `APP_ENCRYPTION_KEY` separat auf. Ohne diesen Schlüssel lassen sich gespeicherte Postfach-Passwörter und der TOTP-Schlüssel nicht entschlüsseln. Die E-Mails selbst verbleiben auf dem jeweiligen Mailserver.
+**Backups:** Back up the `minimail-data` Docker volume and store `APP_ENCRYPTION_KEY` separately. Without the key, saved mailbox passwords and TOTP secrets cannot be decrypted. Email messages remain on their respective mail servers.
 
-## Postfächer
+## Mailboxes
 
-MiniMail verbindet IMAP und SMTP über TLS: Port 993/465 mit direktem TLS oder Port 143/587 mit verpflichtendem STARTTLS. Ein lokaler Mailserver ist bei direktem Node-Start über `localhost` erreichbar. Im Docker-Container verwende `host.docker.internal` für einen Mailserver auf dem Host, sofern dieser Verbindungen aus dem Container zulässt. **Maildir- oder mbox-Dateien werden nicht direkt gelesen.**
+MiniMail connects to IMAP and SMTP over TLS: direct TLS on ports 993/465, or required STARTTLS on ports 143/587. When running Node directly, a local mail server is reachable through `localhost`. From Docker, use `host.docker.internal` for a mail server on the host if it accepts connections from the container. **MiniMail does not read Maildir or mbox files directly.**
 
-Viele Provider mit eigener Zwei-Faktor-Anmeldung verlangen für IMAP/SMTP ein App-Passwort. Der TOTP-Code von MiniMail schützt den Web-Zugang und ersetzt diesen Provider-Schritt nicht. OAuth-Anmeldungen sind derzeit nicht implementiert.
+Many providers with their own two-factor authentication require an app password for IMAP/SMTP. MiniMail's TOTP code protects the web sign-in and does not replace the provider's app password. OAuth sign-in is not implemented.
 
-Wenn der SMTP-Benutzername oder das SMTP-Passwort vom IMAP-Zugang abweicht, kannst du beide Angaben im Postfachdialog separat eintragen. Leere SMTP-Felder verwenden die IMAP-Zugangsdaten.
+If SMTP uses a different username or password from IMAP, enter those values separately in the mailbox dialog. Empty SMTP credential fields use the IMAP credentials.
 
-Unter **Einstellungen → Verbundene Postfächer** kannst du ein Primärpostfach festlegen. Dessen Posteingang öffnet MiniMail nach der Anmeldung automatisch; während einer Sitzung kannst du jederzeit ein anderes Postfach wählen.
+Set a primary mailbox under **Settings → Connected mailboxes**. MiniMail opens its inbox automatically after sign-in; you can switch mailboxes at any time.
 
-Der Server prüft den Posteingang jedes verbundenen Postfachs standardmäßig alle fünf Minuten, auch wenn kein Browser geöffnet ist. Unter **Einstellungen → Postfach bearbeiten → Automatischer Abruf** lässt sich das Intervall pro Postfach auf 1 bis 1440 Minuten setzen oder mit `0` abschalten. Bei geöffneter Oberfläche werden neue Zähler und Nachrichten automatisch übernommen.
+By default, the server checks each connected inbox every five minutes, even when no browser is open. Set an interval of 1–1440 minutes for each mailbox under **Settings → Edit mailbox → Automatic check**, or enter `0` to disable it. Open browsers update message and unread counts automatically.
 
-## Umfang und Grenzen
+Choose German or English in **Settings → Appearance → Language**. The choice is stored in your browser.
 
-- Postfächer und Ordner lesen; serverseitig in Betreff, Absender, Empfänger und Text suchen.
-- Nachrichten lesen, Anhänge herunterladen, als gelesen/ungelesen oder markiert setzen, archivieren und löschen.
-- Nachrichten mit bis zu acht Anhängen (zusammen maximal 8 MB) senden; Kopie im Gesendet-Ordner, sofern der Server APPEND erlaubt.
-- Mehrere Web-Benutzer mit getrennten Postfächern. Neue Benutzer können nur Admins anlegen; Admins können Startpasswörter und 2FA für andere zurücksetzen.
-- Nachrichten über 25 MB werden in der Webansicht nicht geladen. Externe Bilder in HTML-Mails werden aus Datenschutzgründen entfernt.
+## Features and limitations
 
-Für öffentlich erreichbare Installationen solltest du Updates regelmäßig einspielen und den Reverse Proxy sowie den Server aktuell halten. Die Anwendung hat noch keine OAuth-Provideranbindung, keine Maildir/mbox-Importfunktion und keine vollständigen Kalender-/Adressbuchfunktionen.
+- Read mailboxes and folders; search subject, sender, recipients, and message text on the mail server.
+- Read messages and download attachments; mark messages read, unread, or starred; archive and delete messages.
+- Send messages with up to eight attachments totaling 8 MB. MiniMail saves a copy in Sent when the server allows IMAP APPEND.
+- Keep multiple web users and their mailboxes separate. Only administrators can create users or reset another user's temporary password or 2FA.
+- Messages larger than 25 MB are not loaded in the web viewer. External images in HTML mail are removed for privacy.
 
-Technik: React/Vite, Express, ImapFlow, Nodemailer, SQLite (`node:sqlite`). Passwörter werden mit scrypt gehasht, Postfachdaten und TOTP-Secrets mit AES-256-GCM verschlüsselt. Session-Cookies sind HttpOnly und in Produktion Secure/SameSite=Strict mit `__Host-`-Präfix. Schreibende API-Anfragen verlangen einen eigenen Request-Header und prüfen Origin/Fetch-Metadata; API-Antworten werden nicht zwischengespeichert. Das Docker-Image läuft ohne Root-Rechte, und Compose startet es mit schreibgeschütztem Dateisystem und ohne Linux-Capabilities.
+Keep public installations, the reverse proxy, and the host operating system updated. MiniMail does not yet provide OAuth provider integration, Maildir/mbox import, or full calendar and address-book features.
 
-**Vertrauensgrenze:** Benutzer mit einem MiniMail-Zugang können IMAP- und SMTP-Ziele frei eintragen. Gib Zugänge nur vertrauenswürdigen Personen; falls Benutzer keine Dienste im internen Servernetz erreichen sollen, begrenze den ausgehenden Netzwerkzugriff des Containers zusätzlich auf die erlaubten Mailserver. Eine reine Prüfung von Hostnamen vor der Verbindung reicht wegen möglicher DNS-Änderungen nicht aus.
+The stack is React/Vite, Express, ImapFlow, Nodemailer, and SQLite (`node:sqlite`). User passwords are hashed with scrypt. Mailbox credentials and TOTP secrets are encrypted with AES-256-GCM. Production session cookies are HttpOnly, Secure, SameSite=Strict, and use the `__Host-` prefix. State-changing API requests require a custom request header and check Origin/Fetch Metadata; API responses are not cached. The Docker container runs as a non-root user with a read-only filesystem and no Linux capabilities.
 
-Bestehende Installationen werden beim Start automatisch migriert: Der bisherige einzelne Benutzer erhält die Admin-Rolle. Postfächer und Zugangsdaten bleiben dem jeweiligen Benutzer zugeordnet.
+**Trust boundary:** Authenticated users can freely choose IMAP and SMTP destinations. Give accounts only to trusted people. If users should not reach services on the server's internal network, restrict the container's outbound traffic to approved mail servers. Hostname checks alone are insufficient because DNS answers can change before a connection is established.
+
+Existing single-user installations are migrated automatically: the original user becomes an administrator, and their mailboxes and credentials remain assigned to them.

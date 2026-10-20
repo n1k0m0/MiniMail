@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Sun,
 } from "lucide-react";
+import { t } from "./i18n.js";
 
 export default function LoginScreen({
   auth,
@@ -15,6 +16,8 @@ export default function LoginScreen({
   request,
   theme,
   setTheme,
+  language,
+  onLanguageChange,
   error,
   setError,
 }) {
@@ -43,7 +46,7 @@ export default function LoginScreen({
     try {
       if (changePassword) {
         if (newPassword !== confirmation)
-          throw new Error("Die neuen Passwörter stimmen nicht überein.");
+          throw new Error(t("Die neuen Passwörter stimmen nicht überein."));
         await request("/auth/change-password", {
           method: "POST",
           body: { currentPassword: password, newPassword },
@@ -71,12 +74,21 @@ export default function LoginScreen({
           <span className="login-mark">
             <Mail size={19} />
           </span>
-          MiniMail
+          {t("\n          MiniMail\n        ")}
         </div>
+        <select
+          className="language-select login-language"
+          aria-label="Language / Sprache"
+          value={language}
+          onChange={(event) => onLanguageChange(event.target.value)}
+        >
+          <option value="de">Deutsch</option>
+          <option value="en">English</option>
+        </select>
         <button
           className="auth-theme"
           onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-          title="Design wechseln"
+          title={t("Design wechseln")}
         >
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
         </button>
@@ -91,23 +103,25 @@ export default function LoginScreen({
         </div>
         <h1>
           {changePassword
-            ? "Passwort ändern"
+            ? t("Passwort ändern")
             : setUpTwoFactor
-              ? "2FA einrichten"
-              : "Anmelden"}
+              ? t("2FA einrichten")
+              : t("Anmelden")}
         </h1>
         <p className="auth-description">
           {changePassword
-            ? "Lege für deinen neuen Zugang ein eigenes Passwort fest."
+            ? t("Lege für deinen neuen Zugang ein eigenes Passwort fest.")
             : setUpTwoFactor
-              ? "Scanne den QR-Code mit deiner Authenticator-App und bestätige den angezeigten Code."
-              : "Melde dich mit deinem Benutzerkonto an."}
+              ? t(
+                  "Scanne den QR-Code mit deiner Authenticator-App und bestätige den angezeigten Code.",
+                )
+              : t("Melde dich mit deinem Benutzerkonto an.")}
         </p>
         {auth.adminSetupRequired && (
           <div className="setup-hint">
-            <strong>Admin-Zugang noch nicht eingerichtet.</strong>
-            <span>Lege ihn auf dem Server im Terminal an:</span>
-            <code>npm run admin:create -- admin</code>
+            <strong>{t("Admin-Zugang noch nicht eingerichtet.")}</strong>
+            <span>{t("Lege ihn auf dem Server im Terminal an:")}</span>
+            <code>{t("npm run admin:create -- admin")}</code>
           </div>
         )}
         {error && (
@@ -121,16 +135,19 @@ export default function LoginScreen({
               <>
                 <div className="qr-wrap">
                   {qr ? (
-                    <img src={qr.qr} alt="QR-Code für Authenticator-App" />
+                    <img src={qr.qr} alt={t("QR-Code für Authenticator-App")} />
                   ) : (
                     <LoaderCircle className="spin" />
                   )}
                 </div>
                 <div className="secret-line">
-                  Schlüssel: <code>{qr?.secret || "…"}</code>
+                  {t("\n                  Schlüssel: ")}
+                  <code>{qr?.secret || "…"}</code>
                 </div>
                 <label>
-                  Bestätigungscode
+                  {t(
+                    "\n                  Bestätigungscode\n                  ",
+                  )}
                   <input
                     value={code}
                     onChange={(e) =>
@@ -138,7 +155,7 @@ export default function LoginScreen({
                     }
                     inputMode="numeric"
                     autoComplete="one-time-code"
-                    placeholder="000000"
+                    placeholder={t("000000")}
                     required
                   />
                 </label>
@@ -146,7 +163,9 @@ export default function LoginScreen({
             ) : changePassword ? (
               <>
                 <label>
-                  Aktuelles Passwort
+                  {t(
+                    "\n                  Aktuelles Passwort\n                  ",
+                  )}
                   <input
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -156,19 +175,21 @@ export default function LoginScreen({
                   />
                 </label>
                 <label>
-                  Neues Passwort
+                  {t("\n                  Neues Passwort\n                  ")}
                   <input
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     type="password"
                     autoComplete="new-password"
                     minLength={12}
-                    placeholder="Mindestens 12 Zeichen"
+                    placeholder={t("Mindestens 12 Zeichen")}
                     required
                   />
                 </label>
                 <label>
-                  Neues Passwort wiederholen
+                  {t(
+                    "\n                  Neues Passwort wiederholen\n                  ",
+                  )}
                   <input
                     value={confirmation}
                     onChange={(e) => setConfirmation(e.target.value)}
@@ -181,7 +202,7 @@ export default function LoginScreen({
             ) : (
               <>
                 <label>
-                  Benutzername
+                  {t("\n                  Benutzername\n                  ")}
                   <input
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -190,7 +211,7 @@ export default function LoginScreen({
                   />
                 </label>
                 <label>
-                  Passwort
+                  {t("\n                  Passwort\n                  ")}
                   <input
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -200,7 +221,8 @@ export default function LoginScreen({
                   />
                 </label>
                 <label>
-                  2FA-Code <small>(falls bereits eingerichtet)</small>
+                  {t("\n                  2FA-Code ")}
+                  <small>{t("(falls bereits eingerichtet)")}</small>
                   <input
                     value={code}
                     onChange={(e) =>
@@ -208,7 +230,7 @@ export default function LoginScreen({
                     }
                     inputMode="numeric"
                     autoComplete="one-time-code"
-                    placeholder="000000"
+                    placeholder={t("000000")}
                   />
                 </label>
               </>
@@ -217,11 +239,11 @@ export default function LoginScreen({
               {busy ? (
                 <LoaderCircle className="spin" size={18} />
               ) : changePassword ? (
-                "Passwort speichern"
+                t("Passwort speichern")
               ) : setUpTwoFactor ? (
-                "2FA aktivieren"
+                t("2FA aktivieren")
               ) : (
-                "Anmelden"
+                t("Anmelden")
               )}
               <ArrowRight size={17} />
             </button>
@@ -235,7 +257,7 @@ export default function LoginScreen({
               await onDone();
             }}
           >
-            Anderen Benutzer anmelden
+            {t("\n            Anderen Benutzer anmelden\n          ")}
           </button>
         )}
       </main>

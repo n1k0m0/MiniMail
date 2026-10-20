@@ -1546,6 +1546,21 @@ svg {
   background: transparent;
   color: #bd7c83;
 }
+.language-select {
+  border: 1px solid #d9e1ef;
+  border-radius: 7px;
+  background: #eef2fb;
+  color: #405a9b;
+  padding: 7px 9px;
+  font:
+    700 11px "DM Sans",
+    sans-serif;
+  cursor: pointer;
+}
+.language-select:focus-visible {
+  outline: 2px solid #7188e8;
+  outline-offset: 2px;
+}
 .settings-account button.primary-account-button.is-primary {
   background: #fff1cf;
   color: #a67c25;
@@ -1812,6 +1827,11 @@ svg {
   background: #253147;
   border-color: #374259;
 }
+[data-theme="dark"] .language-select {
+  background: #253147;
+  border-color: #374259;
+  color: #dce5f5;
+}
 [data-theme="dark"] .search-box input,
 [data-theme="dark"] .folder-search,
 [data-theme="dark"] .folder-search input,
@@ -2072,6 +2092,10 @@ svg {
   place-items: center;
   background: #f1f4fa;
   color: #7180a2;
+}
+.login-language {
+  margin-left: auto;
+  margin-right: 12px;
 }
 .login-card {
   width: min(420px, calc(100% - 36px));

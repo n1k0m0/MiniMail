@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFolderTree, visibleFolderNodes } from "../src/folderTree.js";
 
-test("Ordnerbaum zeigt verschachtelte und nur auswählbare Ordner richtig an", () => {
+test("folder tree shows nested and selectable folders correctly", () => {
   const folders = [
     { path: "INBOX/Projekte/Alt", name: "Alt", delimiter: "/" },
     { path: "INBOX", name: "INBOX", delimiter: "/" },

@@ -56,7 +56,7 @@ const account = (name) => ({
   password: "example-app-password",
 });
 
-test("nur Admins legen Benutzer an; Passwortwechsel, 2FA und Postfächer sind getrennt", async () => {
+test("only admins create users; password changes, 2FA, and mailboxes stay separate", async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimail-test-"));
   const port = await freePort();
   const encryptionKey = crypto.randomBytes(32).toString("hex");

@@ -42,6 +42,13 @@ import {
 } from "lucide-react";
 import "./style.css";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
+import {
+  choose,
+  dateLocale,
+  getLanguage,
+  setLanguage as updateLanguage,
+  t,
+} from "./i18n.js";
 
 const PAGE_SIZE = 60;
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
@@ -80,7 +87,7 @@ function ResizeHandle({
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
-      title="Breite ziehen · Doppelklick setzt zurück"
+      title={t("Breite ziehen · Doppelklick setzt zurück")}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.preventDefault();
@@ -135,11 +142,12 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  if (!response.ok)
+    throw new Error(t(payload.error || `HTTP ${response.status}`));
   return payload;
 }
 const fmtAddress = (list) =>
-  list?.map((item) => item.name || item.address).join(", ") || "Unbekannt";
+  list?.map((item) => item.name || item.address).join(", ") || t("Unbekannt");
 const fullAddress = (list) =>
   list
     ?.map((item) =>
@@ -166,11 +174,11 @@ function dateLabel(value) {
   const date = new Date(value),
     today = new Date();
   if (date.toDateString() === today.toDateString())
-    return new Intl.DateTimeFormat("de-DE", {
+    return new Intl.DateTimeFormat(dateLocale(), {
       hour: "2-digit",
       minute: "2-digit",
     }).format(date);
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat(dateLocale(), {
     day: "2-digit",
     month: "short",
     year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
@@ -183,17 +191,17 @@ function isTrashFolder(folder) {
   );
 }
 function folderMeta(folder) {
-  const name = folder?.name || folder?.path || "Posteingang";
+  const name = folder?.name || folder?.path || t("Posteingang");
   const type = folder?.specialUse || "";
   if (type === "\\Sent" || /^(gesendet|sent|sent items|sent mail)$/i.test(name))
-    return { icon: Send, label: "Gesendet" };
+    return { icon: Send, label: t("Gesendet") };
   if (type === "\\Drafts" || /^(entwürfe|entwurf|drafts?)$/i.test(name))
-    return { icon: FileText, label: "Entwürfe" };
-  if (isTrashFolder(folder)) return { icon: Trash2, label: "Papierkorb" };
+    return { icon: FileText, label: t("Entwürfe") };
+  if (isTrashFolder(folder)) return { icon: Trash2, label: t("Papierkorb") };
   if (type === "\\Archive" || /^(archiv|archive)$/i.test(name))
-    return { icon: Archive, label: "Archiv" };
+    return { icon: Archive, label: t("Archiv") };
   if (folder?.path?.toUpperCase() === "INBOX")
-    return { icon: Inbox, label: "Posteingang" };
+    return { icon: Inbox, label: t("Posteingang") };
   return { icon: Mail, label: name };
 }
 
@@ -216,13 +224,13 @@ function PaginationControls({
   return (
     <div
       className={`page-controls ${compact ? "page-controls-compact" : ""}`}
-      aria-label="Nachrichtenseiten"
+      aria-label={t("Nachrichtenseiten")}
     >
       {!compact && (
         <button
           type="button"
-          title="Erste Seite"
-          aria-label="Erste Seite"
+          title={t("Erste Seite")}
+          aria-label={t("Erste Seite")}
           disabled={loading || page === 0}
           onClick={() => onChange(0)}
         >
@@ -231,8 +239,8 @@ function PaginationControls({
       )}
       <button
         type="button"
-        title="Neuere Nachrichten"
-        aria-label="Neuere Nachrichten"
+        title={t("Neuere Nachrichten")}
+        aria-label={t("Neuere Nachrichten")}
         disabled={loading || page === 0}
         onClick={() => onChange(page - 1)}
       >
@@ -249,7 +257,7 @@ function PaginationControls({
             jump();
           }}
         >
-          <label htmlFor="mail-page">Seite</label>
+          <label htmlFor="mail-page">{t("Seite")}</label>
           <input
             id="mail-page"
             type="number"
@@ -258,15 +266,18 @@ function PaginationControls({
             value={entry}
             onChange={(event) => setEntry(event.target.value)}
             onBlur={jump}
-            aria-label="Seitennummer"
+            aria-label={t("Seitennummer")}
           />
-          <span>von {pages}</span>
+          <span>
+            {t("von ")}
+            {pages}
+          </span>
         </form>
       )}
       <button
         type="button"
-        title="Ältere Nachrichten"
-        aria-label="Ältere Nachrichten"
+        title={t("Ältere Nachrichten")}
+        aria-label={t("Ältere Nachrichten")}
         disabled={loading || page >= pages - 1}
         onClick={() => onChange(page + 1)}
       >
@@ -275,8 +286,8 @@ function PaginationControls({
       {!compact && (
         <button
           type="button"
-          title="Letzte Seite"
-          aria-label="Letzte Seite"
+          title={t("Letzte Seite")}
+          aria-label={t("Letzte Seite")}
           disabled={loading || page >= pages - 1}
           onClick={() => onChange(pages - 1)}
         >
@@ -321,6 +332,7 @@ function App() {
   const [dropFolder, setDropFolder] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [language, setLanguageState] = useState(getLanguage);
   const [theme, setTheme] = useState(
     localStorage.getItem("minimail-theme") || "light",
   );
@@ -404,6 +416,10 @@ function App() {
     } finally {
       setLoggingOut(false);
     }
+  }
+  function selectLanguage(next) {
+    updateLanguage(next);
+    setLanguageState(next);
   }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -519,7 +535,7 @@ function App() {
         if (
           !cancelled &&
           authIdentityRef.current === identity &&
-          err.message === "Bitte anmelden."
+          err.message === t("Bitte anmelden.")
         )
           api("/auth/me")
             .then(applyAuth)
@@ -756,7 +772,7 @@ function App() {
         item.specialUse === "\\Archive" || /archiv|archive/i.test(item.name),
     );
     if (!target || !uid) {
-      setError("Kein Archivordner auf diesem Postfach gefunden.");
+      setError(t("Kein Archivordner auf diesem Postfach gefunden."));
       return;
     }
     await move(uid, target.path);
@@ -803,7 +819,7 @@ function App() {
     return (
       <div className="boot">
         <LoaderCircle className="spin" size={32} />
-        <span>MiniMail startet …</span>
+        <span>{t("MiniMail startet …")}</span>
       </div>
     );
   if (!auth.user || auth.user.mustChangePassword || !auth.user.twoFactorEnabled)
@@ -814,6 +830,8 @@ function App() {
         request={api}
         theme={theme}
         setTheme={setTheme}
+        language={language}
+        onLanguageChange={selectLanguage}
         error={error}
         setError={setError}
       />
@@ -830,21 +848,21 @@ function App() {
         <div className="brand-mark">
           <Mail size={22} strokeWidth={2.5} />
         </div>
-        <button className="rail-icon active" title="E-Mail">
+        <button className="rail-icon active" title={t("E-Mail")}>
           <Mail size={21} />
         </button>
         <div className="rail-spacer" />
         <button
           className="rail-icon"
           onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-          title="Design wechseln"
+          title={t("Design wechseln")}
         >
           {theme === "light" ? <Moon size={21} /> : <Sun size={21} />}
         </button>
         <button
           className="rail-icon"
           onClick={() => setModal("settings")}
-          title="Einstellungen"
+          title={t("Einstellungen")}
         >
           <Settings size={21} />
         </button>
@@ -855,7 +873,8 @@ function App() {
       <aside className={`sidebar ${mobileSidebar ? "sidebar-open" : ""}`}>
         <div className="sidebar-top">
           <div className="logo-word">
-            minimail<span className="logo-dot">.</span>
+            {t("\n            minimail")}
+            <span className="logo-dot">.</span>
           </div>
           <button
             className="icon-button close-mobile"
@@ -866,11 +885,11 @@ function App() {
         </div>
         <button className="compose-button" onClick={() => setModal("compose")}>
           <PenLine size={18} />
-          <span>Neue Nachricht</span>
+          <span>{t("Neue Nachricht")}</span>
           <Plus size={17} className="compose-plus" />
         </button>
         <div className="sidebar-content">
-          <div className="section-label">POSTFÄCHER</div>
+          <div className="section-label">{t("POSTFÄCHER")}</div>
           {accounts.length ? (
             <div className="account-list">
               {accounts.map((account) => (
@@ -896,20 +915,23 @@ function App() {
                         <Star
                           size={12}
                           fill="currentColor"
-                          aria-label="Primärpostfach"
+                          aria-label={t("Primärpostfach")}
                         />
                       )}
                     </span>
                     <small>
                       {account.needsCredentials
-                        ? "Passwort ergänzen"
+                        ? t("Passwort ergänzen")
                         : account.email}
                     </small>
                   </span>
                   {account.inbox_unseen > 0 && !account.needsCredentials && (
                     <b
                       className="account-unseen"
-                      title={`${account.inbox_unseen} ungelesene Nachrichten im Posteingang`}
+                      title={choose(
+                        `${account.inbox_unseen} ungelesene Nachrichten im Posteingang`,
+                        `${account.inbox_unseen} unread messages in the inbox`,
+                      )}
                     >
                       {account.inbox_unseen > 99 ? "99+" : account.inbox_unseen}
                     </b>
@@ -923,16 +945,18 @@ function App() {
               className="add-account-side"
               onClick={() => setModal("account")}
             >
-              <Plus size={16} /> Postfach verbinden
+              <Plus size={16} />
+              {t(" Postfach verbinden\n            ")}
             </button>
           )}
           {accountId && (
             <>
               <div className="section-label folder-heading">
                 <span>
-                  ORDNER <small>{folders.length}</small>
+                  {t("\n                  ORDNER ")}
+                  <small>{folders.length}</small>
                 </span>
-                <button onClick={refresh} title="Ordner aktualisieren">
+                <button onClick={refresh} title={t("Ordner aktualisieren")}>
                   <RefreshCw size={14} />
                 </button>
               </div>
@@ -942,13 +966,13 @@ function App() {
                   <input
                     value={folderFilter}
                     onChange={(event) => setFolderFilter(event.target.value)}
-                    placeholder="Ordner finden …"
-                    aria-label="Ordner finden"
+                    placeholder={t("Ordner finden …")}
+                    aria-label={t("Ordner finden")}
                   />
                   {folderFilter && (
                     <button
                       onClick={() => setFolderFilter("")}
-                      aria-label="Ordnerfilter löschen"
+                      aria-label={t("Ordnerfilter löschen")}
                     >
                       <X size={14} />
                     </button>
@@ -1039,10 +1063,13 @@ function App() {
                           onClick={() => toggleFolder(node.path)}
                           title={
                             collapsedFolders.has(node.path)
-                              ? "Unterordner anzeigen"
-                              : "Unterordner ausblenden"
+                              ? t("Unterordner anzeigen")
+                              : t("Unterordner ausblenden")
                           }
-                          aria-label={`${node.path}: Unterordner ${collapsedFolders.has(node.path) ? "anzeigen" : "ausblenden"}`}
+                          aria-label={choose(
+                            `${node.path}: Unterordner ${collapsedFolders.has(node.path) ? "anzeigen" : "ausblenden"}`,
+                            `${node.path}: ${collapsedFolders.has(node.path) ? "show" : "hide"} subfolders`,
+                          )}
                         >
                           <ChevronDown
                             size={15}
@@ -1058,7 +1085,9 @@ function App() {
                   );
                 })}
                 {folderFilter && !visibleFolders.length && (
-                  <p className="folder-no-results">Kein passender Ordner.</p>
+                  <p className="folder-no-results">
+                    {t("Kein passender Ordner.")}
+                  </p>
                 )}
               </nav>
             </>
@@ -1069,18 +1098,19 @@ function App() {
             className="sidebar-settings"
             onClick={() => setModal("settings")}
           >
-            <Settings size={17} /> Einstellungen
+            <Settings size={17} />
+            {t(" Einstellungen\n          ")}
           </button>
           <button
             className="sidebar-settings sidebar-logout"
             onClick={logout}
             disabled={loggingOut}
           >
-            <LogOut size={17} /> {loggingOut ? "Abmelden …" : "Abmelden"}
+            <LogOut size={17} /> {loggingOut ? t("Abmelden …") : t("Abmelden")}
           </button>
         </div>
         <ResizeHandle
-          label="Breite der Ordnerleiste"
+          label={t("Breite der Ordnerleiste")}
           value={sidebarWidth}
           min={180}
           max={sidebarMax}
@@ -1100,7 +1130,7 @@ function App() {
             <Menu size={21} />
           </button>
           <div className="breadcrumb">
-            <span>Mail</span>
+            <span>{t("Mail")}</span>
             <ChevronRight size={16} />
             <strong>{folderMeta(activeFolder).label}</strong>
           </div>
@@ -1117,8 +1147,8 @@ function App() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="E-Mails durchsuchen …"
-              aria-label="E-Mails durchsuchen"
+              placeholder={t("E-Mails durchsuchen …")}
+              aria-label={t("E-Mails durchsuchen")}
             />
             {query && (
               <button
@@ -1138,14 +1168,14 @@ function App() {
             <button
               className="icon-button"
               onClick={refresh}
-              title="Aktualisieren"
+              title={t("Aktualisieren")}
             >
               <RefreshCw size={19} />
             </button>
             <button
               className="icon-button"
               onClick={() => setModal("settings")}
-              title="Einstellungen"
+              title={t("Einstellungen")}
             >
               <Settings size={19} />
             </button>
@@ -1160,16 +1190,19 @@ function App() {
                 <LockKeyhole size={42} strokeWidth={1.3} />
               </div>
             </div>
-            <h2>Postfach vorbereiten</h2>
+            <h2>{t("Postfach vorbereiten")}</h2>
             <p>
-              Die Serverdaten für {activeAccount.email} sind eingerichtet.
-              Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.
+              {t("\n              Die Serverdaten für ")}
+              {activeAccount.email}
+              {t(
+                " sind eingerichtet.\n              Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.\n            ",
+              )}
             </p>
             <button
               className="primary-button"
               onClick={() => setModal({ type: "edit", account: activeAccount })}
             >
-              Zugangsdaten ergänzen
+              {t("\n              Zugangsdaten ergänzen\n            ")}
             </button>
           </div>
         ) : (
@@ -1181,33 +1214,37 @@ function App() {
                 <div>
                   <div className="eyebrow">{activeAccount?.email}</div>
                   <h1>
-                    {search ? "Suchergebnisse" : folderMeta(activeFolder).label}
+                    {search
+                      ? t("Suchergebnisse")
+                      : folderMeta(activeFolder).label}
                   </h1>
                   <p>
                     {loading
-                      ? "Lade Nachrichten …"
-                      : `${total} ${total === 1 ? "Nachricht" : "Nachrichten"}${search ? ` für „${search}“` : ""}`}
+                      ? t("Lade Nachrichten …")
+                      : `${total} ${total === 1 ? t("Nachricht") : t("Nachrichten")}${search ? choose(` für „${search}“`, ` for “${search}”`) : ""}`}
                   </p>
                 </div>
                 <div className="list-header-actions">
                   {isTrashFolder(activeFolder) && (
                     <button
                       className="empty-trash-button"
-                      aria-label="Papierkorb leeren"
-                      title="Papierkorb leeren"
+                      aria-label={t("Papierkorb leeren")}
+                      title={t("Papierkorb leeren")}
                       onClick={() =>
                         setModal({ type: "empty-trash", path: folder })
                       }
                     >
                       <Trash2 size={15} />
                       <span className="empty-trash-label">
-                        Papierkorb leeren
+                        {t(
+                          "\n                        Papierkorb leeren\n                      ",
+                        )}
                       </span>
                     </button>
                   )}
                   <button
                     className="list-menu"
-                    title="Aktualisieren"
+                    title={t("Aktualisieren")}
                     onClick={refresh}
                   >
                     <RefreshCw size={18} />
@@ -1215,7 +1252,7 @@ function App() {
                 </div>
               </div>
               <div className="list-toolbar">
-                <span>Alle Nachrichten</span>
+                <span>{t("Alle Nachrichten")}</span>
                 <PaginationControls
                   page={page}
                   total={total}
@@ -1228,7 +1265,7 @@ function App() {
                 {loading ? (
                   <div className="panel-loading">
                     <LoaderCircle className="spin" size={25} />
-                    <span>Postfach wird geladen</span>
+                    <span>{t("Postfach wird geladen")}</span>
                   </div>
                 ) : messages.length ? (
                   messages.map((item) => (
@@ -1287,13 +1324,13 @@ function App() {
                         <div className="row-subject" title={item.subject}>
                           <span>{item.subject}</span>
                           {item.hasAttachments && (
-                            <Paperclip size={13} aria-label="Mit Anhang" />
+                            <Paperclip size={13} aria-label={t("Mit Anhang")} />
                           )}
                         </div>
                       </div>
                       <button
                         className={`star-button ${item.flagged ? "starred" : ""}`}
-                        title="Markierung"
+                        title={t("Markierung")}
                         onClick={(event) => {
                           event.stopPropagation();
                           flag(item.uid, "flagged", !item.flagged);
@@ -1313,13 +1350,13 @@ function App() {
                     </div>
                     <h3>
                       {search
-                        ? "Keine Treffer gefunden"
-                        : "Hier ist alles erledigt"}
+                        ? t("Keine Treffer gefunden")
+                        : t("Hier ist alles erledigt")}
                     </h3>
                     <p>
                       {search
-                        ? "Versuche einen anderen Suchbegriff."
-                        : "In diesem Ordner liegen noch keine Nachrichten."}
+                        ? t("Versuche einen anderen Suchbegriff.")
+                        : t("In diesem Ordner liegen noch keine Nachrichten.")}
                     </p>
                   </div>
                 )}
@@ -1333,7 +1370,7 @@ function App() {
                 />
               </div>
               <ResizeHandle
-                label="Breite der Nachrichtenliste"
+                label={t("Breite der Nachrichtenliste")}
                 value={messageWidth}
                 min={260}
                 max={messageMax}
@@ -1358,24 +1395,27 @@ function App() {
                       <button
                         className="icon-button back-mobile"
                         onClick={() => setSelected(null)}
-                        title="Zurück"
+                        title={t("Zurück")}
                       >
                         <ArrowLeft size={20} />
                       </button>
                       <div className="reader-tool-group">
                         <button
-                          title="Antworten"
+                          title={t("Antworten")}
                           onClick={() =>
                             setModal({ type: "reply", message: detail })
                           }
                         >
                           <Reply size={19} />
                         </button>
-                        <button title="Archivieren" onClick={() => archive()}>
+                        <button
+                          title={t("Archivieren")}
+                          onClick={() => archive()}
+                        >
                           <Archive size={19} />
                         </button>
                         <button
-                          title="Als ungelesen markieren"
+                          title={t("Als ungelesen markieren")}
                           onClick={() => {
                             flag(selected, "seen", false);
                             setSelected(null);
@@ -1383,19 +1423,20 @@ function App() {
                         >
                           <Mail size={19} />
                         </button>
-                        <button title="Löschen" onClick={() => remove()}>
+                        <button title={t("Löschen")} onClick={() => remove()}>
                           <Trash2 size={19} />
                         </button>
                       </div>
                       <span className="reader-position">
                         {messages.findIndex((item) => item.uid === selected) +
                           1}{" "}
-                        von {total}
+                        {t("\n                        von ")}
+                        {total}
                       </span>
                     </div>
                     <div className="reader-scroll">
                       <div className="reader-content">
-                        <div className="message-kicker">NACHRICHT</div>
+                        <div className="message-kicker">{t("NACHRICHT")}</div>
                         <h2>{detail.subject}</h2>
                         <div className="reader-meta">
                           <div className="reader-avatar">
@@ -1409,11 +1450,14 @@ function App() {
                           </div>
                           <div className="sender-details">
                             <strong>{fmtAddress(detail.from)}</strong>
-                            <span>an {fullAddress(detail.to)}</span>
+                            <span>
+                              {t("an ")}
+                              {fullAddress(detail.to)}
+                            </span>
                           </div>
                           <time>
                             {detail.date
-                              ? new Intl.DateTimeFormat("de-DE", {
+                              ? new Intl.DateTimeFormat(dateLocale(), {
                                   dateStyle: "medium",
                                   timeStyle: "short",
                                 }).format(new Date(detail.date))
@@ -1429,14 +1473,17 @@ function App() {
                           ) : (
                             <div className="plain-text">
                               {detail.text ||
-                                "Diese Nachricht enthält keinen lesbaren Text."}
+                                t(
+                                  "Diese Nachricht enthält keinen lesbaren Text.",
+                                )}
                             </div>
                           )}
                         </div>
                         {detail.attachments?.length > 0 && (
                           <div className="attachments">
                             <h3>
-                              <Paperclip size={17} /> Anhänge{" "}
+                              <Paperclip size={17} />
+                              {t(" Anhänge")}{" "}
                               <span>{detail.attachments.length}</span>
                             </h3>
                             <div className="attachment-list">
@@ -1451,7 +1498,10 @@ function App() {
                                   <span>
                                     <strong>{file.filename}</strong>
                                     <small>
-                                      {Math.round(file.size / 1024)} KB
+                                      {Math.round(file.size / 1024)}
+                                      {t(
+                                        " KB\n                                    ",
+                                      )}
                                     </small>
                                   </span>
                                   <Download size={17} />
@@ -1466,14 +1516,16 @@ function App() {
                               setModal({ type: "reply", message: detail })
                             }
                           >
-                            <Reply size={17} /> Antworten
+                            <Reply size={17} />
+                            {t(" Antworten\n                          ")}
                           </button>
                           <button
                             onClick={() =>
                               setModal({ type: "forward", message: detail })
                             }
                           >
-                            <ArrowRight size={17} /> Weiterleiten
+                            <ArrowRight size={17} />
+                            {t(" Weiterleiten\n                          ")}
                           </button>
                         </div>
                       </div>
@@ -1489,8 +1541,8 @@ function App() {
                     <span className="orbit orbit-one" />
                     <span className="orbit orbit-two" />
                   </div>
-                  <h2>Keine Nachricht ausgewählt</h2>
-                  <p>Wähle eine Nachricht aus, um sie hier zu lesen.</p>
+                  <h2>{t("Keine Nachricht ausgewählt")}</h2>
+                  <p>{t("Wähle eine Nachricht aus, um sie hier zu lesen.")}</p>
                 </div>
               )}
             </section>
@@ -1503,7 +1555,7 @@ function App() {
             ref={contextMenuRef}
             className="message-context-menu folder-context-menu"
             role="menu"
-            aria-label="Aktionen für Ordner"
+            aria-label={t("Aktionen für Ordner")}
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget))
@@ -1525,7 +1577,8 @@ function App() {
                 markFolderAsRead(path);
               }}
             >
-              <MailOpen size={16} /> Alle Nachrichten als gelesen markieren
+              <MailOpen size={16} />
+              {t(" Alle Nachrichten als gelesen markieren\n            ")}
             </button>
             {isTrashFolder(
               folders.find((item) => item.path === contextMenu.path),
@@ -1541,7 +1594,8 @@ function App() {
                     setModal({ type: "empty-trash", path });
                   }}
                 >
-                  <Trash2 size={16} /> Papierkorb leeren
+                  <Trash2 size={16} />
+                  {t(" Papierkorb leeren\n                ")}
                 </button>
               </>
             )}
@@ -1552,7 +1606,7 @@ function App() {
           ref={contextMenuRef}
           className="message-context-menu"
           role="menu"
-          aria-label="Aktionen für Nachricht"
+          aria-label={t("Aktionen für Nachricht")}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget))
@@ -1577,19 +1631,22 @@ function App() {
             role="menuitem"
             onClick={() => composeFromMessage(contextMessage.uid, "reply")}
           >
-            <Reply size={16} /> Antworten
+            <Reply size={16} />
+            {t(" Antworten\n          ")}
           </button>
           <button
             role="menuitem"
             onClick={() => composeFromMessage(contextMessage.uid, "reply-all")}
           >
-            <Reply size={16} /> Allen antworten
+            <Reply size={16} />
+            {t(" Allen antworten\n          ")}
           </button>
           <button
             role="menuitem"
             onClick={() => composeFromMessage(contextMessage.uid, "forward")}
           >
-            <ArrowRight size={16} /> Weiterleiten
+            <ArrowRight size={16} />
+            {t(" Weiterleiten\n          ")}
           </button>
           <div className="context-menu-separator" role="separator" />
           <button
@@ -1601,8 +1658,8 @@ function App() {
           >
             {contextMessage.seen ? <Mail size={16} /> : <MailOpen size={16} />}
             {contextMessage.seen
-              ? "Als ungelesen markieren"
-              : "Als gelesen markieren"}
+              ? t("Als ungelesen markieren")
+              : t("Als gelesen markieren")}
           </button>
           <button
             role="menuitem"
@@ -1615,7 +1672,9 @@ function App() {
               size={16}
               fill={contextMessage.flagged ? "currentColor" : "none"}
             />
-            {contextMessage.flagged ? "Markierung entfernen" : "Markieren"}
+            {contextMessage.flagged
+              ? t("Markierung entfernen")
+              : t("Markieren")}
           </button>
           <button
             role="menuitem"
@@ -1624,7 +1683,8 @@ function App() {
               archive(contextMessage.uid);
             }}
           >
-            <Archive size={16} /> Archivieren
+            <Archive size={16} />
+            {t(" Archivieren\n          ")}
           </button>
           <div className="context-menu-separator" role="separator" />
           <button
@@ -1635,7 +1695,8 @@ function App() {
               remove(contextMessage.uid);
             }}
           >
-            <Trash2 size={16} /> Löschen
+            <Trash2 size={16} />
+            {t(" Löschen\n          ")}
           </button>
         </div>
       )}
@@ -1669,6 +1730,8 @@ function App() {
           onLogout={logout}
           setTheme={setTheme}
           theme={theme}
+          language={language}
+          onLanguageChange={selectLanguage}
           setError={setError}
           onDeleted={async (id) => {
             const data = await api("/accounts");
@@ -1753,13 +1816,16 @@ function EmptyTrashModal({ path, onClose, onConfirm }) {
       >
         <div className="modal-header">
           <div>
-            <div className="eyebrow">PAPIERKORB</div>
-            <h2 id="empty-trash-title">Papierkorb leeren?</h2>
+            <div className="eyebrow">{t("PAPIERKORB")}</div>
+            <h2 id="empty-trash-title">{t("Papierkorb leeren?")}</h2>
           </div>
         </div>
         <p className="confirm-copy">
-          Alle Nachrichten in <strong>{path}</strong> werden dauerhaft gelöscht.
-          Das lässt sich nicht rückgängig machen.
+          {t("\n          Alle Nachrichten in ")}
+          <strong>{path}</strong>
+          {t(
+            " werden dauerhaft gelöscht.\n          Das lässt sich nicht rückgängig machen.\n        ",
+          )}
         </p>
         <div className="modal-footer">
           <div>
@@ -1769,7 +1835,7 @@ function EmptyTrashModal({ path, onClose, onConfirm }) {
               disabled={busy}
               autoFocus
             >
-              Abbrechen
+              {t("\n              Abbrechen\n            ")}
             </button>
             <button className="danger-button" onClick={confirm} disabled={busy}>
               {busy ? (
@@ -1777,7 +1843,7 @@ function EmptyTrashModal({ path, onClose, onConfirm }) {
               ) : (
                 <Trash2 size={16} />
               )}
-              Dauerhaft löschen
+              {t("\n              Dauerhaft löschen\n            ")}
             </button>
           </div>
         </div>
@@ -1796,10 +1862,13 @@ function EmptyAccount({ onAdd }) {
         <div className="art-orb a" />
         <div className="art-orb b" />
       </div>
-      <h1>Noch kein Postfach verbunden</h1>
-      <p>Füge die IMAP- und SMTP-Zugangsdaten deines Mailservers hinzu.</p>
+      <h1>{t("Noch kein Postfach verbunden")}</h1>
+      <p>
+        {t("Füge die IMAP- und SMTP-Zugangsdaten deines Mailservers hinzu.")}
+      </p>
       <button className="primary-button" onClick={onAdd}>
-        <Plus size={19} /> Postfach hinzufügen
+        <Plus size={19} />
+        {t(" Postfach hinzufügen\n      ")}
       </button>
     </div>
   );
@@ -1869,9 +1938,13 @@ function AccountModal({ account, onClose, onSaved, setError }) {
       <div className="modal account-modal">
         <div className="modal-header">
           <div>
-            <div className="eyebrow">POSTFACH-EINSTELLUNGEN</div>
-            <h2>{account ? "Postfach bearbeiten" : "Postfach verbinden"}</h2>
-            <p>Deine Zugangsdaten bleiben verschlüsselt auf deinem Server.</p>
+            <div className="eyebrow">{t("POSTFACH-EINSTELLUNGEN")}</div>
+            <h2>
+              {account ? t("Postfach bearbeiten") : t("Postfach verbinden")}
+            </h2>
+            <p>
+              {t("Deine Zugangsdaten bleiben verschlüsselt auf deinem Server.")}
+            </p>
           </div>
           <button className="icon-button" onClick={onClose}>
             <X size={20} />
@@ -1881,41 +1954,43 @@ function AccountModal({ account, onClose, onSaved, setError }) {
           <div className="modal-scroll">
             <div className="form-grid">
               <label>
-                Anzeigename
+                {t("\n                Anzeigename\n                ")}
                 <input
                   required
                   value={form.name}
                   onChange={(e) => field("name", e.target.value)}
-                  placeholder="Mein Postfach"
+                  placeholder={t("Mein Postfach")}
                 />
               </label>
               <label>
-                E-Mail-Adresse
+                {t("\n                E-Mail-Adresse\n                ")}
                 <input
                   required
                   type="email"
                   value={form.email}
                   onChange={(e) => field("email", e.target.value)}
-                  placeholder="name@beispiel.de"
+                  placeholder={t("name@beispiel.de")}
                 />
               </label>
             </div>
             <div className="form-section">
               <div className="form-section-title">
-                <Inbox size={18} /> Eingangsserver <span>IMAP</span>
+                <Inbox size={18} />
+                {t(" Eingangsserver ")}
+                <span>{t("IMAP")}</span>
               </div>
               <div className="form-grid host-grid">
                 <label>
-                  Server
+                  {t("\n                  Server\n                  ")}
                   <input
                     required
                     value={form.imap_host}
                     onChange={(e) => field("imap_host", e.target.value)}
-                    placeholder="imap.beispiel.de"
+                    placeholder={t("imap.beispiel.de")}
                   />
                 </label>
                 <label>
-                  Port
+                  {t("\n                  Port\n                  ")}
                   <input
                     required
                     type="number"
@@ -1939,7 +2014,7 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     setTested(false);
                   }}
                 />{" "}
-                Direktes TLS{" "}
+                {t("\n                Direktes TLS")}{" "}
                 <small>
                   (
                   {form.imap_secure
@@ -1951,20 +2026,22 @@ function AccountModal({ account, onClose, onSaved, setError }) {
             </div>
             <div className="form-section">
               <div className="form-section-title">
-                <Send size={18} /> Ausgangsserver <span>SMTP</span>
+                <Send size={18} />
+                {t(" Ausgangsserver ")}
+                <span>{t("SMTP")}</span>
               </div>
               <div className="form-grid host-grid">
                 <label>
-                  Server
+                  {t("\n                  Server\n                  ")}
                   <input
                     required
                     value={form.smtp_host}
                     onChange={(e) => field("smtp_host", e.target.value)}
-                    placeholder="smtp.beispiel.de"
+                    placeholder={t("smtp.beispiel.de")}
                   />
                 </label>
                 <label>
-                  Port
+                  {t("\n                  Port\n                  ")}
                   <input
                     required
                     type="number"
@@ -1984,7 +2061,7 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                     field("smtp_port", e.target.checked ? 465 : 587);
                   }}
                 />{" "}
-                Direktes TLS{" "}
+                {t("\n                Direktes TLS")}{" "}
                 <small>
                   (
                   {form.smtp_secure
@@ -1995,21 +2072,23 @@ function AccountModal({ account, onClose, onSaved, setError }) {
               </label>
               <div className="form-grid">
                 <label>
-                  SMTP-Benutzername <small>(optional)</small>
+                  {t("\n                  SMTP-Benutzername ")}
+                  <small>{t("(optional)")}</small>
                   <input
                     value={form.smtp_username || ""}
                     onChange={(e) => field("smtp_username", e.target.value)}
-                    placeholder="Wie bei IMAP"
+                    placeholder={t("Wie bei IMAP")}
                   />
                 </label>
                 <label>
-                  SMTP-Passwort <small>(optional)</small>
+                  {t("\n                  SMTP-Passwort ")}
+                  <small>{t("(optional)")}</small>
                   <input
                     type="password"
                     value={form.smtp_password || ""}
                     onChange={(e) => field("smtp_password", e.target.value)}
                     placeholder={
-                      account ? "Unverändert lassen" : "Wie bei IMAP"
+                      account ? t("Unverändert lassen") : t("Wie bei IMAP")
                     }
                   />
                 </label>
@@ -2017,42 +2096,49 @@ function AccountModal({ account, onClose, onSaved, setError }) {
             </div>
             <div className="form-section credentials">
               <div className="form-section-title">
-                <LockKeyhole size={18} /> Anmeldung
+                <LockKeyhole size={18} />
+                {t(" Anmeldung\n              ")}
               </div>
               <div className="form-grid">
                 <label>
-                  Benutzername
+                  {t("\n                  Benutzername\n                  ")}
                   <input
                     required
                     value={form.username}
                     onChange={(e) => field("username", e.target.value)}
-                    placeholder="name@beispiel.de"
+                    placeholder={t("name@beispiel.de")}
                   />
                 </label>
                 <label>
-                  Passwort / App-Passwort
+                  {t(
+                    "\n                  Passwort / App-Passwort\n                  ",
+                  )}
                   <input
                     required={!account || account.needsCredentials}
                     type="password"
                     value={form.password}
                     onChange={(e) => field("password", e.target.value)}
                     placeholder={
-                      account ? "Unverändert lassen" : "Postfach-Passwort"
+                      account ? t("Unverändert lassen") : t("Postfach-Passwort")
                     }
                   />
                 </label>
               </div>
               <p>
-                Bei Providern mit 2FA benötigst du meistens ein App-Passwort für
-                IMAP/SMTP.
+                {t(
+                  "\n                Bei Providern mit 2FA benötigst du meistens ein App-Passwort für\n                IMAP/SMTP.\n              ",
+                )}
               </p>
             </div>
             <div className="form-section">
               <div className="form-section-title">
-                <RefreshCw size={18} /> Automatischer Abruf
+                <RefreshCw size={18} />
+                {t(" Automatischer Abruf\n              ")}
               </div>
               <label className="interval-field">
-                Alle wie viele Minuten prüfen?
+                {t(
+                  "\n                Alle wie viele Minuten prüfen?\n                ",
+                )}
                 <input
                   type="number"
                   min="0"
@@ -2066,8 +2152,9 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 />
               </label>
               <p className="field-hint">
-                Standard: 5 Minuten. Mit 0 ist der automatische Abruf für dieses
-                Postfach aus.
+                {t(
+                  "\n                Standard: 5 Minuten. Mit 0 ist der automatische Abruf für dieses\n                Postfach aus.\n              ",
+                )}
               </p>
             </div>
           </div>
@@ -2085,14 +2172,14 @@ function AccountModal({ account, onClose, onSaved, setError }) {
               ) : (
                 <RefreshCw size={16} />
               )}{" "}
-              {tested ? "Verbindung erfolgreich" : "Verbindung testen"}
+              {tested ? t("Verbindung erfolgreich") : t("Verbindung testen")}
             </button>
             <div>
               <button type="button" className="text-button" onClick={onClose}>
-                Abbrechen
+                {t("\n                Abbrechen\n              ")}
               </button>
               <button className="primary-button" disabled={busy}>
-                {account ? "Speichern" : "Postfach hinzufügen"}
+                {account ? t("Speichern") : t("Postfach hinzufügen")}
               </button>
             </div>
           </div>
@@ -2111,6 +2198,8 @@ function SettingsModal({
   onLogout,
   setTheme,
   theme,
+  language,
+  onLanguageChange,
   setError,
   onDeleted,
   onPrimary,
@@ -2130,7 +2219,10 @@ function SettingsModal({
   async function remove(account) {
     if (
       !window.confirm(
-        `Postfach „${account.name}“ aus MiniMail entfernen? E-Mails auf dem Server bleiben erhalten.`,
+        choose(
+          `Postfach „${account.name}“ aus MiniMail entfernen? E-Mails auf dem Server bleiben erhalten.`,
+          `Remove mailbox “${account.name}” from MiniMail? Messages on the mail server will remain.`,
+        ),
       )
     )
       return;
@@ -2151,16 +2243,16 @@ function SettingsModal({
       <div className="modal settings-modal">
         <div className="modal-header">
           <div>
-            <div className="eyebrow">MINIMAIL</div>
-            <h2>Einstellungen</h2>
-            <p>Postfächer, Benutzer und Darstellung verwalten.</p>
+            <div className="eyebrow">{t("MINIMAIL")}</div>
+            <h2>{t("Einstellungen")}</h2>
+            <p>{t("Postfächer, Benutzer und Darstellung verwalten.")}</p>
           </div>
           <button className="icon-button" onClick={onClose}>
             <X size={20} />
           </button>
         </div>
         <div className="settings-body">
-          <h3>Verbundene Postfächer</h3>
+          <h3>{t("Verbundene Postfächer")}</h3>
           {accounts.map((account) => (
             <div className="settings-account" key={account.id}>
               <div className="account-badge">
@@ -2171,16 +2263,27 @@ function SettingsModal({
                 <span>{account.email}</span>
                 <span>
                   {account.check_interval_minutes === 0
-                    ? "Automatischer Abruf aus"
-                    : `Alle ${account.check_interval_minutes} Minuten · ${account.check_failed ? "Prüfung fehlgeschlagen" : account.last_checked_at ? `zuletzt ${new Date(account.last_checked_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : "noch nicht geprüft"}`}
+                    ? t("Automatischer Abruf aus")
+                    : choose(
+                        `Alle ${account.check_interval_minutes} Minuten`,
+                        `Every ${account.check_interval_minutes} minutes`,
+                      ) +
+                      ` · ${
+                        account.check_failed
+                          ? t("Prüfung fehlgeschlagen")
+                          : account.last_checked_at
+                            ? choose("zuletzt", "last checked") +
+                              ` ${new Date(account.last_checked_at).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" })}`
+                            : t("noch nicht geprüft")
+                      }`}
                 </span>
               </div>
               <button
                 className={`primary-account-button ${account.is_primary ? "is-primary" : ""}`}
                 title={
                   account.is_primary
-                    ? "Primärpostfach"
-                    : "Als Primärpostfach festlegen"
+                    ? t("Primärpostfach")
+                    : t("Als Primärpostfach festlegen")
                 }
                 onClick={() => makePrimary(account.id)}
                 disabled={account.is_primary || primaryBusy}
@@ -2189,12 +2292,12 @@ function SettingsModal({
                   size={14}
                   fill={account.is_primary ? "currentColor" : "none"}
                 />
-                {account.is_primary ? "Primär" : "Als primär"}
+                {account.is_primary ? t("Primär") : t("Als primär")}
               </button>
-              <button onClick={() => onEdit(account)}>Bearbeiten</button>
+              <button onClick={() => onEdit(account)}>{t("Bearbeiten")}</button>
               <button
                 className="danger-icon"
-                title="Entfernen"
+                title={t("Entfernen")}
                 onClick={() => remove(account)}
               >
                 <Trash2 size={17} />
@@ -2202,7 +2305,8 @@ function SettingsModal({
             </div>
           ))}
           <button className="settings-add" onClick={onAdd}>
-            <Plus size={17} /> Weiteres Postfach verbinden
+            <Plus size={17} />
+            {t(" Weiteres Postfach verbinden\n          ")}
           </button>
           {auth.user.role === "admin" && (
             <UserManagement
@@ -2211,29 +2315,49 @@ function SettingsModal({
               setError={setError}
             />
           )}
-          <h3>Darstellung</h3>
+          <h3>{t("Darstellung")}</h3>
           <div className="settings-row">
             <div>
-              <strong>Farbschema</strong>
-              <span>Wähle deinen bevorzugten Modus.</span>
+              <strong>{t("Farbschema")}</strong>
+              <span>{t("Wähle deinen bevorzugten Modus.")}</span>
             </div>
             <button
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             >
               {theme === "light" ? <Sun size={17} /> : <Moon size={17} />}{" "}
-              {theme === "light" ? "Hell" : "Dunkel"}
+              {theme === "light" ? t("Hell") : t("Dunkel")}
             </button>
           </div>
-          <h3>Sicherheit</h3>
           <div className="settings-row">
             <div>
-              <strong>Zwei-Faktor-Anmeldung</strong>
-              <span>Für {auth.user.username} aktiviert</span>
+              <strong>{t("Sprache")}</strong>
+              <span>{t("Wähle die Sprache der Oberfläche.")}</span>
+            </div>
+            <select
+              className="language-select"
+              aria-label={t("Sprache")}
+              value={language}
+              onChange={(event) => onLanguageChange(event.target.value)}
+            >
+              <option value="de">Deutsch</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <h3>{t("Sicherheit")}</h3>
+          <div className="settings-row">
+            <div>
+              <strong>{t("Zwei-Faktor-Anmeldung")}</strong>
+              <span>
+                {choose(
+                  `Für ${auth.user.username} aktiviert`,
+                  `Enabled for ${auth.user.username}`,
+                )}
+              </span>
             </div>
             <ShieldCheck size={20} className="secure-green" />
           </div>
           <button className="logout-button" onClick={onLogout}>
-            Abmelden
+            {t("\n            Abmelden\n          ")}
           </button>
         </div>
       </div>
@@ -2256,14 +2380,19 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
   );
   const [body, setBody] = useState(
     forward
-      ? `\n\n---------- Weitergeleitete Nachricht ----------\nVon: ${fullAddress(original.from)}\nDatum: ${original.date ? new Date(original.date).toLocaleString("de-DE") : ""}\nBetreff: ${original.subject}\n\n${original.text || ""}`
+      ? choose(
+          `\n\n---------- Weitergeleitete Nachricht ----------\nVon: ${fullAddress(original.from)}\nDatum: ${original.date ? new Date(original.date).toLocaleString(dateLocale()) : ""}\nBetreff: ${original.subject}\n\n${original.text || ""}`,
+          `\n\n---------- Forwarded message ----------\nFrom: ${fullAddress(original.from)}\nDate: ${original.date ? new Date(original.date).toLocaleString(dateLocale()) : ""}\nSubject: ${original.subject}\n\n${original.text || ""}`,
+        )
       : reply
-        ? `\n\nAm ${original.date ? new Date(original.date).toLocaleString("de-DE") : ""} schrieb ${fmtAddress(original.from)}:\n${(
-            original.text || ""
-          )
+        ? choose(
+            `\n\nAm ${original.date ? new Date(original.date).toLocaleString(dateLocale()) : ""} schrieb ${fmtAddress(original.from)}:\n`,
+            `\n\nOn ${original.date ? new Date(original.date).toLocaleString(dateLocale()) : ""}, ${fmtAddress(original.from)} wrote:\n`,
+          ) +
+          (original.text || "")
             .split("\n")
             .map((line) => `> ${line}`)
-            .join("\n")}`
+            .join("\n")
         : "",
   );
   const [files, setFiles] = useState([]);
@@ -2272,7 +2401,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
   async function submit(event) {
     event.preventDefault();
     if (!account) {
-      setError("Bitte zuerst ein Postfach verbinden.");
+      setError(t("Bitte zuerst ein Postfach verbinden."));
       return;
     }
     setBusy(true);
@@ -2310,16 +2439,17 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
         <div className="compose-header">
           <div>
             <div className="eyebrow">
-              VON {account?.email || "KEIN POSTFACH"}
+              {t("\n              VON ")}
+              {account?.email || t("KEIN POSTFACH")}
             </div>
             <h2>
               {reply
                 ? replyAll
-                  ? "Allen antworten"
-                  : "Antworten"
+                  ? t("Allen antworten")
+                  : t("Antworten")
                 : forward
-                  ? "Weiterleiten"
-                  : "Neue Nachricht"}
+                  ? t("Weiterleiten")
+                  : t("Neue Nachricht")}
             </h2>
           </div>
           <button className="icon-button" onClick={onClose}>
@@ -2329,34 +2459,34 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
         <form onSubmit={submit}>
           <div className="compose-fields">
             <div className="compose-field">
-              <span>An</span>
+              <span>{t("An")}</span>
               <input
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                placeholder="Empfänger-Adresse"
+                placeholder={t("Empfänger-Adresse")}
                 required
                 type="text"
               />
               <button type="button" onClick={() => setShowCc(!showCc)}>
-                Cc
+                {t("\n                Cc\n              ")}
               </button>
             </div>
             {showCc && (
               <div className="compose-field">
-                <span>Cc</span>
+                <span>{t("Cc")}</span>
                 <input
                   value={cc}
                   onChange={(e) => setCc(e.target.value)}
-                  placeholder="Kopie an"
+                  placeholder={t("Kopie an")}
                 />
               </div>
             )}
             <div className="compose-field">
-              <span>Betreff</span>
+              <span>{t("Betreff")}</span>
               <input
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Worum geht es?"
+                placeholder={t("Worum geht es?")}
               />
             </div>
           </div>
@@ -2364,7 +2494,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
             className="compose-body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="Schreibe deine Nachricht …"
+            placeholder={t("Schreibe deine Nachricht …")}
             required
           />
           {files.length > 0 && (
@@ -2395,9 +2525,12 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
                 ) : (
                   <Send size={17} />
                 )}{" "}
-                Senden
+                {t("\n                Senden\n              ")}
               </button>
-              <label className="attachment-button" title="Dateien anhängen">
+              <label
+                className="attachment-button"
+                title={t("Dateien anhängen")}
+              >
                 <Paperclip size={19} />
                 <input
                   type="file"
@@ -2410,7 +2543,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
                       8 * 1024 * 1024
                     ) {
                       setError(
-                        "Anhänge dürfen zusammen höchstens 8 MB groß sein.",
+                        t("Anhänge dürfen zusammen höchstens 8 MB groß sein."),
                       );
                       return;
                     }
@@ -2419,7 +2552,10 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
                 />
               </label>
             </div>
-            <span>Gesendet über {account?.name || "MiniMail"}</span>
+            <span>
+              {t("Gesendet über ")}
+              {account?.name || "MiniMail"}
+            </span>
           </div>
         </form>
       </div>
