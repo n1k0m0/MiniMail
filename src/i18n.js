@@ -94,6 +94,23 @@ const translations = {
   "Alle Nachrichten als gelesen markieren": "Mark all messages as read",
   "Aktionen für Nachricht": "Message actions",
   "Allen antworten": "Reply all",
+  "Nur Absender antworten": "Reply to sender",
+  Adressbuch: "Address book",
+  "Kontakte verwalten": "Manage contacts",
+  "Adressen suchen, hinzufügen und bearbeiten.":
+    "Search, add, and edit addresses.",
+  Öffnen: "Open",
+  "Gesendete Empfänger automatisch merken":
+    "Automatically remember sent recipients",
+  "Neue Adressen nach erfolgreichem Senden im Adressbuch speichern.":
+    "Save new addresses to the address book after sending.",
+  "Kontakte suchen …": "Search contacts …",
+  "Keine Kontakte gefunden.": "No contacts found.",
+  "Kontakt bearbeiten": "Edit contact",
+  "Kontakt hinzufügen": "Add contact",
+  Name: "Name",
+  Schließen: "Close",
+  "Blindkopie an": "Bcc recipient",
   "Als gelesen markieren": "Mark as read",
   "Markierung entfernen": "Remove star",
   Markieren: "Star",

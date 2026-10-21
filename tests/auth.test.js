@@ -202,6 +202,52 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await adminOther("/accounts")).status, 401);
     assert.equal((await admin("/accounts")).status, 200);
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
+    assert.equal((await admin("/auth/me")).data.user.collectRecipients, true);
+    assert.deepEqual((await admin("/contacts")).data, []);
+    assert.equal(
+      (
+        await admin("/contacts", "POST", {
+          name: "Bad",
+          email: "bad\r\n@example.test",
+        })
+      ).status,
+      400,
+    );
+    const contact = await admin("/contacts", "POST", {
+      name: "Alice",
+      email: "Alice@example.test",
+    });
+    assert.equal(contact.status, 201);
+    assert.equal(
+      (
+        await admin("/contacts", "POST", {
+          name: "Duplicate",
+          email: "alice@example.test",
+        })
+      ).status,
+      409,
+    );
+    assert.equal((await admin("/contacts?q=alice")).data.length, 1);
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}`, "PUT", {
+          name: "Alice B",
+          email: "alice@example.test",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await admin("/settings/contacts", "PATCH", { collectRecipients: false }))
+        .status,
+      200,
+    );
+    assert.equal((await admin("/auth/me")).data.user.collectRecipients, false);
+    assert.equal(
+      (await admin("/settings/contacts", "PATCH", { collectRecipients: "yes" }))
+        .status,
+      400,
+    );
     assert.deepEqual((await admin("/vpn-profiles")).data, [
       { id: "private", label: "Private mail VPN" },
     ]);
@@ -256,6 +302,16 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test\r\nBcc: other@example.test",
+          text: "hello",
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "",
+          bcc: "hidden@example.test\r\nTo: other@example.test",
           text: "hello",
         })
       ).status,
@@ -405,6 +461,21 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       200,
     );
     assert.equal((await member("/admin/users")).status, 403);
+    assert.deepEqual((await member("/contacts")).data, []);
+    assert.equal(
+      (
+        await member(`/contacts/${contact.data.id}`, "PUT", {
+          name: "Stolen",
+          email: "stolen@example.test",
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await member(`/contacts/${contact.data.id}`, "DELETE")).status,
+      404,
+    );
+    assert.equal((await admin("/contacts")).data[0].name, "Alice B");
     assert.deepEqual((await member("/vpn-profiles")).data, []);
     assert.equal(
       (await member("/admin/users", "POST", { username: "another" })).status,

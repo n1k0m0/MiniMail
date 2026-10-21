@@ -271,8 +271,10 @@ export async function getMessage(account, folder, uid) {
           : [],
       date: parsed.date,
       from: address(parsed.from?.value),
+      replyTo: address(parsed.replyTo?.value),
       to: address(parsed.to?.value),
       cc: address(parsed.cc?.value),
+      bcc: address(parsed.bcc?.value),
       text: parsed.text || "",
       html: parsed.html
         ? sanitizeHtml(parsed.html, {
@@ -385,6 +387,7 @@ export async function sendMessage(account, mail) {
     from: { name: a.sender_name || a.name, address: a.email },
     to: mail.to,
     cc: mail.cc || undefined,
+    bcc: mail.bcc || undefined,
     subject: mail.subject || "",
     inReplyTo: mail.inReplyTo || undefined,
     references: mail.references?.length ? mail.references : undefined,

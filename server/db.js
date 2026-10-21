@@ -10,7 +10,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
     totp_secret TEXT, pending_totp_secret TEXT, created_at INTEGER NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user', must_change_password INTEGER NOT NULL DEFAULT 0
+    role TEXT NOT NULL DEFAULT 'user', must_change_password INTEGER NOT NULL DEFAULT 0,
+    collect_recipients INTEGER NOT NULL DEFAULT 1
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
@@ -31,6 +32,14 @@ db.exec(`
     signature TEXT NOT NULL DEFAULT '',
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
+  CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL,
+    name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL COLLATE NOCASE,
+    source TEXT NOT NULL DEFAULT 'manual', created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(user_id, email), FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+  CREATE INDEX IF NOT EXISTS contacts_user_name ON contacts(user_id, name);
 `);
 const userColumns = new Set(
   db
@@ -43,6 +52,10 @@ if (!userColumns.has("role"))
 if (!userColumns.has("must_change_password"))
   db.exec(
     "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
+  );
+if (!userColumns.has("collect_recipients"))
+  db.exec(
+    "ALTER TABLE users ADD COLUMN collect_recipients INTEGER NOT NULL DEFAULT 1",
   );
 const accountColumns = new Set(
   db

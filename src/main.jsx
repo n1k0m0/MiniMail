@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Contact,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -42,6 +43,7 @@ import {
 } from "lucide-react";
 import "./style.css";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
+import { replyRecipients } from "./replyRecipients.js";
 import {
   choose,
   dateLocale,
@@ -155,21 +157,6 @@ const fullAddress = (list) =>
       item.name ? `${item.name} <${item.address}>` : item.address,
     )
     .join(", ") || "";
-function replyAllCc(message, accountEmail) {
-  const excluded = new Set(
-    [accountEmail, ...(message.from || []).map((item) => item.address)]
-      .filter(Boolean)
-      .map((address) => address.toLowerCase()),
-  );
-  return [...(message.to || []), ...(message.cc || [])]
-    .map((item) => item.address)
-    .filter((address) => {
-      if (!address || excluded.has(address.toLowerCase())) return false;
-      excluded.add(address.toLowerCase());
-      return true;
-    })
-    .join(", ");
-}
 function dateLabel(value) {
   if (!value) return "";
   const date = new Date(value),
@@ -907,6 +894,14 @@ function App() {
         <button className="rail-icon active" title={t("E-Mail")}>
           <Mail size={21} />
         </button>
+        <button
+          className="rail-icon"
+          onClick={() => setModal("contacts")}
+          title={t("Adressbuch")}
+          aria-label={t("Adressbuch")}
+        >
+          <Contact size={21} />
+        </button>
         <div className="rail-spacer" />
         <button
           className="rail-icon"
@@ -1595,9 +1590,9 @@ function App() {
                       </button>
                       <div className="reader-tool-group">
                         <button
-                          title={t("Antworten")}
+                          title={t("Allen antworten")}
                           onClick={() =>
-                            setModal({ type: "reply", message: detail })
+                            setModal({ type: "reply-all", message: detail })
                           }
                         >
                           <Reply size={19} />
@@ -1676,6 +1671,12 @@ function App() {
                               {t("an ")}
                               {fullAddress(detail.to)}
                             </span>
+                            {!!detail.cc?.length && (
+                              <span>Cc: {fullAddress(detail.cc)}</span>
+                            )}
+                            {!!detail.bcc?.length && (
+                              <span>Bcc: {fullAddress(detail.bcc)}</span>
+                            )}
                           </div>
                           <time>
                             {detail.date
@@ -1735,11 +1736,11 @@ function App() {
                         <div className="reply-area">
                           <button
                             onClick={() =>
-                              setModal({ type: "reply", message: detail })
+                              setModal({ type: "reply-all", message: detail })
                             }
                           >
                             <Reply size={17} />
-                            {t(" Antworten\n                          ")}
+                            {t("Allen antworten")}
                           </button>
                           <button
                             onClick={() =>
@@ -1851,17 +1852,17 @@ function App() {
         >
           <button
             role="menuitem"
-            onClick={() => composeFromMessage(contextMessage.uid, "reply")}
-          >
-            <Reply size={16} />
-            {t(" Antworten\n          ")}
-          </button>
-          <button
-            role="menuitem"
             onClick={() => composeFromMessage(contextMessage.uid, "reply-all")}
           >
             <Reply size={16} />
-            {t(" Allen antworten\n          ")}
+            {t("Allen antworten")}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => composeFromMessage(contextMessage.uid, "reply")}
+          >
+            <Reply size={16} />
+            {t("Nur Absender antworten")}
           </button>
           <button
             role="menuitem"
@@ -1949,6 +1950,17 @@ function App() {
           onClose={() => setModal(null)}
           onEdit={(account) => setModal({ type: "edit", account })}
           onAdd={() => setModal("account")}
+          onOpenContacts={() => setModal("contacts")}
+          onCollectRecipientsChange={async (enabled) => {
+            await api("/settings/contacts", {
+              method: "PATCH",
+              body: { collectRecipients: enabled },
+            });
+            setAuth((current) => ({
+              ...current,
+              user: { ...current.user, collectRecipients: enabled },
+            }));
+          }}
           onLogout={logout}
           setTheme={setTheme}
           theme={theme}
@@ -1991,6 +2003,9 @@ function App() {
           onClose={() => setModal(null)}
           onConfirm={() => emptyTrashFolder(modal.path)}
         />
+      )}
+      {modal === "contacts" && (
+        <AddressBookModal onClose={() => setModal(null)} setError={setError} />
       )}
       {(modal === "compose" ||
         modal?.type === "reply" ||
@@ -2496,6 +2511,8 @@ function SettingsModal({
   onClose,
   onEdit,
   onAdd,
+  onOpenContacts,
+  onCollectRecipientsChange,
   onLogout,
   setTheme,
   theme,
@@ -2508,6 +2525,18 @@ function SettingsModal({
   onPrimary,
 }) {
   const [primaryBusy, setPrimaryBusy] = useState(false);
+  const [collectBusy, setCollectBusy] = useState(false);
+  async function toggleCollection() {
+    if (collectBusy) return;
+    setCollectBusy(true);
+    try {
+      await onCollectRecipientsChange(!auth.user.collectRecipients);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCollectBusy(false);
+    }
+  }
   async function makePrimary(id) {
     if (primaryBusy) return;
     setPrimaryBusy(true);
@@ -2611,6 +2640,34 @@ function SettingsModal({
             <Plus size={17} />
             {t(" Weiteres Postfach verbinden\n          ")}
           </button>
+          <h3>{t("Adressbuch")}</h3>
+          <div className="settings-row">
+            <div>
+              <strong>{t("Kontakte verwalten")}</strong>
+              <span>{t("Adressen suchen, hinzufügen und bearbeiten.")}</span>
+            </div>
+            <button type="button" onClick={onOpenContacts}>
+              <Contact size={16} /> {t("Öffnen")}
+            </button>
+          </div>
+          <div className="settings-row">
+            <div>
+              <strong>{t("Gesendete Empfänger automatisch merken")}</strong>
+              <span>
+                {t(
+                  "Neue Adressen nach erfolgreichem Senden im Adressbuch speichern.",
+                )}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-pressed={!!auth.user.collectRecipients}
+              disabled={collectBusy}
+              onClick={toggleCollection}
+            >
+              {auth.user.collectRecipients ? t("Ein") : t("Aus")}
+            </button>
+          </div>
           {auth.user.role === "admin" && (
             <UserManagement
               request={api}
@@ -2683,6 +2740,260 @@ function SettingsModal({
   );
 }
 
+function AddressBookModal({ onClose, setError }) {
+  const [contacts, setContacts] = useState([]);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/contacts")
+      .then(setContacts)
+      .catch((error) => setError(error.message));
+  }, [setError]);
+  async function save(event) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api(editing ? `/contacts/${editing}` : "/contacts", {
+        method: editing ? "PUT" : "POST",
+        body: { name, email },
+      });
+      setContacts(await api("/contacts"));
+      setEditing(null);
+      setName("");
+      setEmail("");
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(contact) {
+    if (
+      !window.confirm(
+        choose(
+          `Kontakt „${contact.email}“ löschen?`,
+          `Delete contact “${contact.email}”?`,
+        ),
+      )
+    )
+      return;
+    try {
+      await api(`/contacts/${contact.id}`, { method: "DELETE" });
+      setContacts((current) =>
+        current.filter((item) => item.id !== contact.id),
+      );
+      if (editing === contact.id) {
+        setEditing(null);
+        setName("");
+        setEmail("");
+      }
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+  const visible = contacts.filter((contact) =>
+    `${contact.name} ${contact.email}`
+      .toLocaleLowerCase()
+      .includes(search.toLocaleLowerCase()),
+  );
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="modal contacts-modal">
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">MINIMAIL</div>
+            <h2>{t("Adressbuch")}</h2>
+            <p>
+              {choose(
+                `${contacts.length} Kontakte`,
+                `${contacts.length} contacts`,
+              )}
+            </p>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="contacts-content">
+          <div className="contacts-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("Kontakte suchen …")}
+              aria-label={t("Kontakte suchen …")}
+            />
+          </div>
+          <div className="contacts-list">
+            {visible.map((contact) => (
+              <div className="contact-row" key={contact.id}>
+                <div className="contact-avatar">
+                  {(contact.name || contact.email)[0]?.toUpperCase()}
+                </div>
+                <div className="contact-info">
+                  <strong>{contact.name || contact.email}</strong>
+                  <span>{contact.email}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(contact.id);
+                    setName(contact.name);
+                    setEmail(contact.email);
+                  }}
+                  title={t("Bearbeiten")}
+                >
+                  <PenLine size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(contact)}
+                  title={t("Entfernen")}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {!visible.length && (
+              <div className="contacts-empty">
+                {t("Keine Kontakte gefunden.")}
+              </div>
+            )}
+          </div>
+          <form className="contact-form" onSubmit={save}>
+            <strong>
+              {editing ? t("Kontakt bearbeiten") : t("Kontakt hinzufügen")}
+            </strong>
+            <div className="contact-form-fields">
+              <label>
+                {t("Name")}
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={200}
+                />
+              </label>
+              <label>
+                {t("E-Mail-Adresse")}
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  required
+                  maxLength={254}
+                />
+              </label>
+            </div>
+            <div className="contact-form-actions">
+              {editing && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(null);
+                    setName("");
+                    setEmail("");
+                  }}
+                >
+                  {t("Abbrechen")}
+                </button>
+              )}
+              <button className="primary-button" disabled={busy}>
+                {t("Speichern")}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecipientInput({ value, onChange, contacts, placeholder, label }) {
+  const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState(0);
+  const token = value.split(/[,;]/).at(-1)?.trim().toLocaleLowerCase() || "";
+  const suggestions =
+    focused && token.length >= 1
+      ? contacts
+          .filter((item) =>
+            `${item.name} ${item.email}`.toLocaleLowerCase().includes(token),
+          )
+          .slice(0, 6)
+      : [];
+  function chooseContact(contact) {
+    const start = Math.max(value.lastIndexOf(","), value.lastIndexOf(";"));
+    onChange(
+      `${start < 0 ? "" : `${value.slice(0, start + 1).trim()} `}${contact.email}, `,
+    );
+    setActive(0);
+  }
+  return (
+    <div className="recipient-input">
+      <input
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setActive(0);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setFocused(false);
+          if (!suggestions.length) return;
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive(
+              (current) =>
+                (current +
+                  (event.key === "ArrowDown" ? 1 : -1) +
+                  suggestions.length) %
+                suggestions.length,
+            );
+          }
+          if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            chooseContact(suggestions[active] || suggestions[0]);
+          }
+        }}
+        placeholder={placeholder}
+        aria-label={label}
+        autoComplete="off"
+      />
+      {!!suggestions.length && (
+        <div className="recipient-suggestions" role="listbox">
+          {suggestions.map((contact, index) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={index === active}
+              className={index === active ? "selected" : ""}
+              key={contact.id}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseContact(contact)}
+            >
+              <strong>{contact.name || contact.email}</strong>
+              {contact.name && <span>{contact.email}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ComposeModal({
   account,
   accounts,
@@ -2695,9 +3006,22 @@ function ComposeModal({
     reply = initial?.type === "reply" || replyAll,
     forward = initial?.type === "forward",
     original = initial?.message;
-  const replyRecipients = replyAll ? replyAllCc(original, account?.email) : "";
-  const [to, setTo] = useState(reply ? original.from?.[0]?.address || "" : "");
-  const [cc, setCc] = useState(replyRecipients);
+  const initialRecipients = reply
+    ? replyRecipients(
+        original,
+        accounts.map((item) => item.email),
+        replyAll,
+      )
+    : { to: "", cc: "" };
+  const [to, setTo] = useState(initialRecipients.to);
+  const [cc, setCc] = useState(initialRecipients.cc);
+  const [bcc, setBcc] = useState("");
+  const [contacts, setContacts] = useState([]);
+  useEffect(() => {
+    api("/contacts")
+      .then(setContacts)
+      .catch((error) => setError(error.message));
+  }, [setError]);
   const [subject, setSubject] = useState(
     original
       ? `${reply ? "Re" : "Fwd"}: ${original.subject.replace(/^(Re|Fwd):\s*/i, "")}`
@@ -2722,7 +3046,8 @@ function ComposeModal({
   );
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [showCc, setShowCc] = useState(Boolean(replyRecipients));
+  const [showCc, setShowCc] = useState(Boolean(initialRecipients.cc));
+  const [showBcc, setShowBcc] = useState(false);
   const [senderAccountId, setSenderAccountId] = useState(
     account && !account.needsCredentials
       ? account.id
@@ -2759,6 +3084,7 @@ function ComposeModal({
         body: {
           to,
           cc,
+          bcc,
           subject,
           text: signatureText ? `${body.trimEnd()}\n\n${signatureText}` : body,
           attachments,
@@ -2833,24 +3159,41 @@ function ComposeModal({
             </div>
             <div className="compose-field">
               <span>{t("An")}</span>
-              <input
+              <RecipientInput
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={setTo}
+                contacts={contacts}
                 placeholder={t("Empfänger-Adresse")}
-                required
-                type="text"
+                label={t("An")}
               />
               <button type="button" onClick={() => setShowCc(!showCc)}>
-                {t("\n                Cc\n              ")}
+                Cc
+              </button>
+              <button type="button" onClick={() => setShowBcc(!showBcc)}>
+                Bcc
               </button>
             </div>
             {showCc && (
               <div className="compose-field">
                 <span>{t("Cc")}</span>
-                <input
+                <RecipientInput
                   value={cc}
-                  onChange={(e) => setCc(e.target.value)}
+                  onChange={setCc}
+                  contacts={contacts}
                   placeholder={t("Kopie an")}
+                  label="Cc"
+                />
+              </div>
+            )}
+            {showBcc && (
+              <div className="compose-field">
+                <span>Bcc</span>
+                <RecipientInput
+                  value={bcc}
+                  onChange={setBcc}
+                  contacts={contacts}
+                  placeholder={t("Blindkopie an")}
+                  label="Bcc"
                 />
               </div>
             )}

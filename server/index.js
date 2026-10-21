@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
+import { collectSentRecipients, validContact } from "./contacts.js";
 import { startMailChecks } from "./mailCheck.js";
 import { vpnProfiles } from "./vpn.js";
 import {
@@ -160,6 +161,7 @@ app.get("/api/auth/me", (req, res) => {
           role: req.user.role,
           mustChangePassword: !!req.user.must_change_password,
           twoFactorEnabled: !!req.user.totp_secret,
+          collectRecipients: !!req.user.collect_recipients,
         }
       : null,
   });
@@ -254,6 +256,115 @@ app.post("/api/auth/2fa/verify", authenticated, (req, res) => {
   res.json({ ok: true });
 });
 app.use("/api", authenticated, ready);
+
+app.patch("/api/settings/contacts", (req, res) => {
+  if (typeof req.body?.collectRecipients !== "boolean")
+    return res.status(400).json({ error: "Ungültige Einstellung." });
+  db.prepare("UPDATE users SET collect_recipients=? WHERE id=?").run(
+    Number(req.body.collectRecipients),
+    req.user.id,
+  );
+  res.json({ collectRecipients: req.body.collectRecipients });
+});
+
+app.get("/api/contacts", (req, res) => {
+  const query = String(req.query.q || "").trim();
+  if (query.length > 200)
+    return res.status(400).json({ error: "Suchbegriff zu lang." });
+  const contacts = db
+    .prepare(
+      "SELECT id,name,email,source FROM contacts WHERE user_id=? ORDER BY name COLLATE NOCASE, email COLLATE NOCASE",
+    )
+    .all(req.user.id);
+  res.json(
+    query
+      ? contacts.filter((item) =>
+          `${item.name} ${item.email}`
+            .toLocaleLowerCase()
+            .includes(query.toLocaleLowerCase()),
+        )
+      : contacts,
+  );
+});
+
+app.post("/api/contacts", (req, res) => {
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
+  const email =
+    typeof req.body?.email === "string" ? req.body.email.trim() : null;
+  if (!validContact(name, email))
+    return res
+      .status(400)
+      .json({ error: "Name oder E-Mail-Adresse ungültig." });
+  try {
+    const result = db
+      .prepare(
+        "INSERT INTO contacts (user_id,name,email,source,created_at,updated_at) VALUES (?, ?, ?, 'manual', ?, ?)",
+      )
+      .run(req.user.id, name, email, Date.now(), Date.now());
+    res
+      .status(201)
+      .json(
+        db
+          .prepare("SELECT id,name,email,source FROM contacts WHERE id=?")
+          .get(result.lastInsertRowid),
+      );
+  } catch (error) {
+    if (
+      error.code === "ERR_SQLITE_ERROR" &&
+      error.message.startsWith("UNIQUE constraint failed: contacts.")
+    )
+      return res
+        .status(409)
+        .json({ error: "Diese Adresse ist bereits im Adressbuch." });
+    throw error;
+  }
+});
+
+app.put("/api/contacts/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
+  const email =
+    typeof req.body?.email === "string" ? req.body.email.trim() : null;
+  if (!Number.isSafeInteger(id) || id < 1 || !validContact(name, email))
+    return res
+      .status(400)
+      .json({ error: "Name oder E-Mail-Adresse ungültig." });
+  try {
+    const result = db
+      .prepare(
+        "UPDATE contacts SET name=?,email=?,source='manual',updated_at=? WHERE id=? AND user_id=?",
+      )
+      .run(name, email, Date.now(), id, req.user.id);
+    if (!result.changes)
+      return res.status(404).json({ error: "Kontakt nicht gefunden." });
+    res.json(
+      db
+        .prepare("SELECT id,name,email,source FROM contacts WHERE id=?")
+        .get(id),
+    );
+  } catch (error) {
+    if (
+      error.code === "ERR_SQLITE_ERROR" &&
+      error.message.startsWith("UNIQUE constraint failed: contacts.")
+    )
+      return res
+        .status(409)
+        .json({ error: "Diese Adresse ist bereits im Adressbuch." });
+    throw error;
+  }
+});
+
+app.delete("/api/contacts/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1)
+    return res.status(400).json({ error: "Ungültiger Kontakt." });
+  const result = db
+    .prepare("DELETE FROM contacts WHERE id=? AND user_id=?")
+    .run(id, req.user.id);
+  if (!result.changes)
+    return res.status(404).json({ error: "Kontakt nicht gefunden." });
+  res.json({ ok: true });
+});
 
 function publicUser(user) {
   return {
@@ -690,13 +801,19 @@ const maxAttachmentBytes = 8 * 1024 * 1024;
 function validOutgoingMail(mail) {
   if (
     typeof mail.to !== "string" ||
-    !mail.to.trim() ||
+    ![mail.to, mail.cc, mail.bcc].some(
+      (field) => typeof field === "string" && field.trim(),
+    ) ||
     mail.to.length > 4096 ||
     /[\r\n]/.test(mail.to) ||
     (mail.cc !== undefined &&
       (typeof mail.cc !== "string" ||
         mail.cc.length > 4096 ||
         /[\r\n]/.test(mail.cc))) ||
+    (mail.bcc !== undefined &&
+      (typeof mail.bcc !== "string" ||
+        mail.bcc.length > 4096 ||
+        /[\r\n]/.test(mail.bcc))) ||
     (mail.subject !== undefined &&
       (typeof mail.subject !== "string" ||
         mail.subject.length > 998 ||
@@ -757,7 +874,19 @@ app.post(
       return res
         .status(400)
         .json({ error: "Empfänger, Nachricht oder Anhänge sind ungültig." });
-    res.json(await sendMessage(account, b));
+    const result = await sendMessage(account, b);
+    res.json(result);
+    if (req.user.collect_recipients) {
+      try {
+        const own = db
+          .prepare("SELECT email FROM accounts WHERE user_id=?")
+          .all(req.user.id)
+          .map((item) => item.email);
+        collectSentRecipients(db, req.user.id, b, own);
+      } catch (error) {
+        console.error("Could not collect sent recipients:", error);
+      }
+    }
   }),
 );
 
