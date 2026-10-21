@@ -65,6 +65,8 @@ Open a contact in the address book to import that recipient's OpenPGP public key
 
 The default mode for each mailbox is **Off**. Select OpenPGP or S/MIME and save the desired signing and encryption defaults, or change them for an individual message in the compose window. The reader decrypts supported PGP/MIME, inline PGP, and S/MIME messages when the corresponding private key is configured, and reports signature verification status. The message toolbar's **View source** action shows the original MIME source as text.
 
+The reader's **Show mail trace on map** action extracts public relay IP addresses from the message's `Received` headers, lists them in delivery order, and draws approximate locations and connections. Private, loopback, and reserved IPs are omitted. `Received` headers may be forged, IP geolocation is approximate, and the lines connect visible mail relays rather than showing the packet-level network route. Lookups use a local DB-IP City Lite database; email data and relay IPs are not sent to an external geolocation API. The Docker image includes the October 2026 database. To update it, change the pinned DB-IP release and checksum in `Dockerfile`, then rebuild. For local development, set `MAIL_TRACE_GEOIP_DB` to a downloaded City Lite MMDB file. The map credits [DB-IP](https://db-ip.com) as required by the database's CC BY 4.0 license.
+
 OpenPGP trust is based on the manually imported key for the sender's address. S/MIME checks the cryptographic signature, sender certificate email, validity dates, and either a trusted certificate chain or an exact certificate imported for that contact. Certificate revocation is not checked. There is no automatic key discovery, hardware token support, or Thunderbird key store import. An unknown or untrusted key is shown as such; it is never reported as a verified signature.
 
 Enable **Conversation view** in **Settings → Appearance**, or switch it directly above the message list. Replies in the same folder are grouped using message identifiers and references; opening a conversation displays its newest message. Expand the group or use the conversation links in the reader to open older messages. The choice is stored in your browser. Messages in different folders remain separate conversations.
@@ -73,6 +75,7 @@ Enable **Conversation view** in **Settings → Appearance**, or switch it direct
 
 - Read mailboxes and folders; search subject, sender, recipients, and message text on the mail server.
 - Read messages, inspect their original source, and download attachments; mark messages read, unread, or starred; archive and delete messages.
+- Inspect the approximate route of a message's visible mail relays on a map.
 - Send messages with up to eight attachments totaling 8 MB. MiniMail saves a copy in Sent when the server allows IMAP APPEND.
 - Keep multiple web users and their mailboxes separate. Only administrators can create users or reset another user's temporary password or 2FA.
 - Messages larger than 25 MB are not loaded in the web viewer. External images in HTML mail are removed for privacy.

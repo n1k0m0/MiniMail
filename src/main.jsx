@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import LoginScreen from "./LoginScreen.jsx";
 import UserManagement from "./UserManagement.jsx";
+import MailTrace from "./MailTrace.jsx";
 import { highlightMailSource } from "./mailSourceHighlight.js";
 import {
   Archive,
@@ -29,6 +30,7 @@ import {
   LogOut,
   Mail,
   MailOpen,
+  MapPinned,
   Menu,
   Moon,
   Paperclip,
@@ -1675,6 +1677,14 @@ function App() {
                         >
                           <FileCode2 size={19} />
                         </button>
+                        <button
+                          title={t("Mail-Weg auf Karte anzeigen")}
+                          onClick={() =>
+                            setModal({ type: "trace", uid: detail.uid })
+                          }
+                        >
+                          <MapPinned size={19} />
+                        </button>
                       </div>
                       <span className="reader-position">
                         {messages.findIndex(
@@ -2097,6 +2107,14 @@ function App() {
           uid={modal.uid}
           onClose={() => setModal(null)}
           setError={setError}
+        />
+      )}
+      {modal?.type === "trace" && (
+        <MailTrace
+          accountId={accountId}
+          folder={folder}
+          uid={modal.uid}
+          onClose={() => setModal(null)}
         />
       )}
       {modal === "contacts" && (

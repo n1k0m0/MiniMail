@@ -112,6 +112,19 @@ const translations = {
   Schließen: "Close",
   "Blindkopie an": "Bcc recipient",
   "Nachrichtenquelltext anzeigen": "View message source",
+  "Mail-Weg auf Karte anzeigen": "Show mail trace on map",
+  "Mail-Weg auf Karte": "Mail trace on map",
+  "Stationen aus den Received-Headern": "Hops from Received headers",
+  "Mail-Weg konnte nicht geladen werden.": "Could not load mail trace.",
+  "Mail-Weg wird ermittelt …": "Tracing mail route …",
+  "Karte der Mailserver": "Map of mail servers",
+  "Ort unbekannt": "Unknown location",
+  "Keine öffentlichen Server-IPs in den Mail-Headern gefunden.":
+    "No public server IPs found in the mail headers.",
+  "GeoIP-Datenbank nicht verfügbar; IPs werden ohne Karte angezeigt.":
+    "GeoIP database unavailable; IPs are shown without map locations.",
+  "Standorte sind Schätzungen. Received-Header können gefälscht sein; Linien zeigen Mailstationen, nicht den tatsächlichen Netzwerkweg.":
+    "Locations are estimates. Received headers can be forged; lines connect mail hops, not the actual network path.",
   Nachrichtenquelltext: "Message source",
   "Quelltext konnte nicht geladen werden.": "Could not load message source.",
   "Verschlüsselung und Schlüssel": "Encryption and keys",

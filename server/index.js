@@ -5,6 +5,7 @@ import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
 import { clearAccountIndex } from "./mailIndex.js";
+import { geoipReader, traceFromSource } from "./mailTrace.js";
 import { CryptoInputError, encryptionAvailability } from "./protectedMail.js";
 import {
   validatePgpPrivate,
@@ -1005,6 +1006,29 @@ app.get(
     if (!raw)
       return res.status(404).json({ error: "Nachricht nicht gefunden." });
     res.type("text/plain; charset=utf-8").send(raw.toString("utf8"));
+  }),
+);
+app.get(
+  "/api/accounts/:id/messages/:uid/trace",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const raw = await getMessageSource(
+      account,
+      folder(req),
+      Number(req.params.uid),
+    );
+    if (!raw)
+      return res.status(404).json({ error: "Nachricht nicht gefunden." });
+    const reader = await geoipReader();
+    res.json({
+      ...traceFromSource(
+        raw,
+        reader ? (ip) => reader.get(ip) : undefined,
+        req.query.lang === "en" ? "en" : "de",
+      ),
+      geoAvailable: !!reader,
+    });
   }),
 );
 app.get(
