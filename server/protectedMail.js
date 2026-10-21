@@ -8,7 +8,11 @@ import { simpleParser } from "mailparser";
 import { db } from "./db.js";
 import { decrypt } from "./security.js";
 import { parseRecipients } from "./contacts.js";
-import { runOpenSSL, withCryptoTemp } from "./cryptoKeys.js";
+import {
+  certificateIsCurrent,
+  runOpenSSL,
+  withCryptoTemp,
+} from "./cryptoKeys.js";
 
 export class CryptoInputError extends Error {}
 
@@ -191,6 +195,10 @@ async function protectSmime(account, mail, content) {
     (!account.smime_cert || !account.smime_key_enc)
   )
     throw new CryptoInputError("S/MIME-Zertifikat mit Privatschlüssel fehlt.");
+  if (!certificateIsCurrent(new crypto.X509Certificate(account.smime_cert)))
+    throw new CryptoInputError(
+      "Das S/MIME-Zertifikat ist abgelaufen oder noch nicht gültig und kann nur zum Lesen alter Nachrichten verwendet werden.",
+    );
   return withCryptoTemp(async (dir) => {
     const input = path.join(dir, "input.mime");
     const cert = path.join(dir, "own.pem");
@@ -487,10 +495,7 @@ async function readSmime(
       }
       const signerCert = new crypto.X509Certificate(await fs.readFile(signer));
       const identityMatches = !!senderCertEmail(signerCert, outerSender);
-      const now = Date.now();
-      const certificateCurrent =
-        now >= Date.parse(signerCert.validFrom) &&
-        now <= Date.parse(signerCert.validTo);
+      const certificateCurrent = certificateIsCurrent(signerCert);
       const savedContact = db
         .prepare(
           "SELECT smime_cert FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",

@@ -132,6 +132,8 @@ const translations = {
   "Schlüssel entfernen": "Remove key",
   "Zertifikat eingerichtet": "Certificate configured",
   "Kein Zertifikat eingerichtet": "No certificate configured",
+  "Zertifikat abgelaufen: nur ältere Nachrichten entschlüsseln":
+    "Certificate expired: decrypt older messages only",
   "PKCS#12-Datei (.p12/.pfx)": "PKCS#12 file (.p12/.pfx)",
   "Alternativ Zertifikat und Privatschlüssel als PEM einfügen.":
     "Alternatively, paste the certificate and private key as PEM.",

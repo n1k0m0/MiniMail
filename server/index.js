@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
@@ -10,6 +11,7 @@ import {
   validateSmimeCertificate,
   validateSmimeIdentity,
   readPkcs12,
+  certificateIsCurrent,
 } from "./cryptoKeys.js";
 import { collectSentRecipients, validContact } from "./contacts.js";
 import { startMailChecks } from "./mailCheck.js";
@@ -433,12 +435,10 @@ app.put(
       }
       return res.status(404).json({ error: "Verfahren nicht gefunden." });
     } catch {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Schlüssel oder Zertifikat ist ungültig oder passt nicht zur Adresse.",
-        });
+      return res.status(400).json({
+        error:
+          "Schlüssel oder Zertifikat ist ungültig oder passt nicht zur Adresse.",
+      });
     }
   }),
 );
@@ -540,6 +540,9 @@ function publicAccount(account) {
     ...rest,
     hasPgpKey: !!pgp_private_enc,
     hasSmimeCertificate: !!smime_cert && !!smime_key_enc,
+    smimeCertificateExpired:
+      !!smime_cert &&
+      !certificateIsCurrent(new crypto.X509Certificate(smime_cert)),
     cryptoSignDefault: !!rest.crypto_sign_default,
     cryptoEncryptDefault: !!rest.crypto_encrypt_default,
     imap_secure: !!rest.imap_secure,
@@ -566,6 +569,9 @@ app.get("/api/accounts/:id/crypto", (req, res) => {
     encrypt: !!account.crypto_encrypt_default,
     hasPgpKey: !!account.pgp_private_enc,
     hasSmimeCertificate: !!account.smime_cert && !!account.smime_key_enc,
+    smimeCertificateExpired:
+      !!account.smime_cert &&
+      !certificateIsCurrent(new crypto.X509Certificate(account.smime_cert)),
   });
 });
 app.patch("/api/accounts/:id/crypto", (req, res) => {
@@ -592,6 +598,14 @@ app.patch("/api/accounts/:id/crypto", (req, res) => {
     return res
       .status(400)
       .json({ error: "S/MIME-Zertifikat mit Privatschlüssel fehlt." });
+  if (
+    mode === "smime" &&
+    !certificateIsCurrent(new crypto.X509Certificate(account.smime_cert))
+  )
+    return res.status(400).json({
+      error:
+        "Das S/MIME-Zertifikat ist abgelaufen und kann nur zum Lesen alter Nachrichten verwendet werden.",
+    });
   db.prepare(
     "UPDATE accounts SET crypto_mode=?,crypto_sign_default=?,crypto_encrypt_default=? WHERE id=? AND user_id=?",
   ).run(mode, Number(sign), Number(encryptMail), account.id, req.user.id);
@@ -617,12 +631,10 @@ app.put(
       ).run(encrypt(privateKey), encrypt(passphrase), account.id, req.user.id);
       res.json({ ok: true, fingerprint });
     } catch {
-      res
-        .status(400)
-        .json({
-          error:
-            "OpenPGP-Privatschlüssel oder Passphrase ist ungültig oder passt nicht zum Postfach.",
-        });
+      res.status(400).json({
+        error:
+          "OpenPGP-Privatschlüssel oder Passphrase ist ungültig oder passt nicht zum Postfach.",
+      });
     }
   }),
 );
@@ -636,12 +648,15 @@ app.put(
       return res.status(400).json({ error: "Ungültige Schlüsselpassphrase." });
     try {
       const identity = b.pkcs12Base64
-        ? await readPkcs12(b.pkcs12Base64, b.passphrase, account.email)
+        ? await readPkcs12(b.pkcs12Base64, b.passphrase, account.email, {
+            allowExpired: true,
+          })
         : validateSmimeIdentity(
             b.certificate,
             b.privateKey,
             b.passphrase,
             account.email,
+            { allowExpired: true },
           );
       db.prepare(
         "UPDATE accounts SET smime_cert=?,smime_key_enc=? WHERE id=? AND user_id=?",
@@ -653,12 +668,10 @@ app.put(
       );
       res.json({ ok: true, fingerprint: identity.fingerprint });
     } catch {
-      res
-        .status(400)
-        .json({
-          error:
-            "S/MIME-Datei, Zertifikat oder Passphrase ist ungültig oder passt nicht zum Postfach.",
-        });
+      res.status(400).json({
+        error:
+          "S/MIME-Datei, Zertifikat oder Passphrase ist ungültig oder passt nicht zum Postfach.",
+      });
     }
   }),
 );

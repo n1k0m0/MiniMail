@@ -80,7 +80,19 @@ export async function validatePgpPublic(armored, email) {
   return { fingerprint: key.getFingerprint().toUpperCase() };
 }
 
-export function validateSmimeCertificate(pem, email) {
+export function certificateIsCurrent(certificate) {
+  const now = Date.now();
+  return (
+    now >= Date.parse(certificate.validFrom) &&
+    now <= Date.parse(certificate.validTo)
+  );
+}
+
+export function validateSmimeCertificate(
+  pem,
+  email,
+  { allowExpired = false } = {},
+) {
   if (
     typeof pem !== "string" ||
     pem.length > 200000 ||
@@ -90,11 +102,7 @@ export function validateSmimeCertificate(pem, email) {
   const certificate = new crypto.X509Certificate(pem);
   if (!certificate.checkEmail(email))
     throw new Error("Das S/MIME-Zertifikat gehört nicht zur E-Mail-Adresse.");
-  const now = Date.now();
-  if (
-    now < Date.parse(certificate.validFrom) ||
-    now > Date.parse(certificate.validTo)
-  )
+  if (!allowExpired && !certificateIsCurrent(certificate))
     throw new Error(
       "Das S/MIME-Zertifikat ist noch nicht gültig oder abgelaufen.",
     );
@@ -106,10 +114,12 @@ export function validateSmimeIdentity(
   keyPem,
   passphrase,
   email,
+  options = {},
 ) {
   const { fingerprint, certificate } = validateSmimeCertificate(
     certificatePem,
     email,
+    options,
   );
   if (typeof keyPem !== "string" || keyPem.length > 200000)
     throw new Error("Ungültiger S/MIME-Privatschlüssel.");
@@ -136,7 +146,7 @@ export function validateSmimeIdentity(
   };
 }
 
-export async function readPkcs12(base64, passphrase, email) {
+export async function readPkcs12(base64, passphrase, email, options = {}) {
   if (
     typeof base64 !== "string" ||
     base64.length > 1500000 ||
@@ -177,6 +187,6 @@ export async function readPkcs12(base64, passphrase, email) {
     )?.[0];
     if (!certPem || !keyPem)
       throw new Error("PKCS#12 enthält kein Zertifikat mit Privatschlüssel.");
-    return validateSmimeIdentity(certPem, keyPem, "", email);
+    return validateSmimeIdentity(certPem, keyPem, "", email, options);
   });
 }

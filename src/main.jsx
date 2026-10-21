@@ -2901,6 +2901,7 @@ function CryptoSettingsModal({ account, onClose, onChanged, setError }) {
     encrypt: !!account.cryptoEncryptDefault,
     hasPgpKey: !!account.hasPgpKey,
     hasSmimeCertificate: !!account.hasSmimeCertificate,
+    smimeCertificateExpired: !!account.smimeCertificateExpired,
   });
   const [pgpPrivate, setPgpPrivate] = useState("");
   const [pgpPassphrase, setPgpPassphrase] = useState("");
@@ -3123,6 +3124,13 @@ function CryptoSettingsModal({ account, onClose, onChanged, setError }) {
                 ? t("Zertifikat eingerichtet")
                 : t("Kein Zertifikat eingerichtet")}
             </p>
+            {state.smimeCertificateExpired && (
+              <p className="crypto-expired">
+                {t(
+                  "Zertifikat abgelaufen: nur ältere Nachrichten entschlüsseln",
+                )}
+              </p>
+            )}
             <label>
               {t("PKCS#12-Datei (.p12/.pfx)")}
               <input
