@@ -265,6 +265,27 @@ test("S/MIME signed and encrypted mail round-trips without exposing plaintext", 
   );
   assert.equal(verified.parsed.text.trim(), "Signed S/MIME body");
   assert.equal(verified.security.signature, "untrusted");
+  const multilineText = "First line\nSecond line\n\nRegards,\nMiniMail";
+  const multilineSigned = await protectOutgoing(
+    account,
+    { ...mail, crypto: { mode: "smime", sign: true, encrypt: false } },
+    outgoing(account.email, mail.to, multilineText),
+  );
+  const multilineRead = await inspectIncoming(account, multilineSigned.sentRaw);
+  assert.equal(multilineRead.parsed.text.trim(), multilineText);
+  assert.equal(multilineRead.security.signature, "untrusted");
+  const multilineEncrypted = await protectOutgoing(
+    account,
+    { ...mail, crypto: { mode: "smime", sign: true, encrypt: true } },
+    outgoing(account.email, mail.to, multilineText),
+  );
+  const encryptedRead = await inspectIncoming(
+    account,
+    multilineEncrypted.sentRaw,
+  );
+  assert.equal(encryptedRead.parsed.text.trim(), multilineText);
+  assert.equal(encryptedRead.security.encrypted, true);
+  assert.equal(encryptedRead.security.signature, "untrusted");
   const tamperedRaw = signed.sentRaw
     .toString("latin1")
     .replace("Signed S/MIME body", "Tampered S/MIME body");

@@ -46,7 +46,7 @@ function mimeParts(raw) {
       "content-disposition",
     ].includes(name(field)),
   );
-  const body = text.slice(split + 4).replace(/\r\n$/, "");
+  const body = crlf(text.slice(split + 4)).replace(/\r\n$/, "");
   return {
     headers: outer,
     content: Buffer.from(`${inner.join("\r\n")}\r\n\r\n${body}`, "latin1"),
