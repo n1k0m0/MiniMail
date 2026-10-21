@@ -5,6 +5,7 @@ import sanitizeHtml from "sanitize-html";
 import { decrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
 import { groupMessages, messageReferences } from "./threading.js";
+import { vpnProxy } from "./vpn.js";
 
 function settings(account) {
   const password = account.password_enc
@@ -26,6 +27,7 @@ function imapClient(account) {
     port: Number(a.imap_port),
     secure: !!a.imap_secure,
     doSTARTTLS: a.imap_secure ? undefined : true,
+    proxy: vpnProxy(a),
     auth: { user: a.username, pass: a.password },
     logger: false,
     connectionTimeout: 15000,
@@ -84,6 +86,7 @@ export async function testAccount(account) {
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
+    proxy: vpnProxy(a),
     auth: { user: a.smtp_username, pass: a.smtp_password },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
@@ -370,6 +373,7 @@ export async function sendMessage(account, mail) {
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
+    proxy: vpnProxy(a),
     auth: { user: a.smtp_username, pass: a.smtp_password },
     connectionTimeout: 15000,
     greetingTimeout: 15000,

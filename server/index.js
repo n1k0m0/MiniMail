@@ -4,6 +4,7 @@ import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
 import { startMailChecks } from "./mailCheck.js";
+import { vpnProfiles } from "./vpn.js";
 import {
   encrypt,
   decrypt,
@@ -344,7 +345,7 @@ function accountFor(req, res) {
   return account;
 }
 class AccountInputError extends Error {}
-function validateAccount(body) {
+function validateAccount(body, role) {
   const fields = ["name", "email", "imap_host", "smtp_host", "username"];
   for (const field of fields)
     if (typeof body[field] !== "string" || !body[field].trim())
@@ -382,7 +383,18 @@ function validateAccount(body) {
     throw new AccountInputError(
       "Das Abrufintervall muss zwischen 0 und 1440 Minuten liegen.",
     );
+  if (body.vpn_profile !== undefined && typeof body.vpn_profile !== "string")
+    throw new AccountInputError("Ungültiges VPN-Profil.");
+  if (
+    body.vpn_profile &&
+    (role !== "admin" ||
+      !vpnProfiles().some((profile) => profile.id === body.vpn_profile))
+  )
+    throw new AccountInputError("Dieses VPN-Profil ist nicht verfügbar.");
 }
+app.get("/api/vpn-profiles", (req, res) => {
+  res.json(req.user.role === "admin" ? vpnProfiles() : []);
+});
 app.get("/api/accounts", (req, res) => {
   res.json(
     db
@@ -394,7 +406,7 @@ app.get("/api/accounts", (req, res) => {
 app.post(
   "/api/accounts/test",
   asyncRoute(async (req, res) => {
-    validateAccount(req.body || {});
+    validateAccount(req.body || {}, req.user.role);
     const existing = req.body.id
       ? db
           .prepare("SELECT * FROM accounts WHERE id=? AND user_id=?")
@@ -414,7 +426,7 @@ app.post(
 app.post(
   "/api/accounts",
   asyncRoute(async (req, res) => {
-    validateAccount(req.body || {});
+    validateAccount(req.body || {}, req.user.role);
     if (!req.body.password)
       return res.status(400).json({ error: "Postfach-Passwort fehlt." });
     const b = req.body;
@@ -423,7 +435,7 @@ app.post(
       .get(req.user.id);
     const result = db
       .prepare(
-        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes,is_primary) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes,is_primary,vpn_profile) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         req.user.id,
@@ -444,6 +456,7 @@ app.post(
           ? 5
           : Number(b.check_interval_minutes),
         makePrimary ? 1 : 0,
+        b.vpn_profile || "",
       );
     res.json(
       publicAccount(
@@ -459,10 +472,10 @@ app.put(
   asyncRoute(async (req, res) => {
     const existing = accountFor(req, res);
     if (!existing) return;
-    validateAccount(req.body || {});
+    validateAccount(req.body || {}, req.user.role);
     const b = req.body;
     db.prepare(
-      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
+      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
     ).run(
       b.name.trim(),
       b.email.trim(),
@@ -479,6 +492,7 @@ app.put(
       b.check_interval_minutes === undefined
         ? existing.check_interval_minutes
         : Number(b.check_interval_minutes),
+      b.vpn_profile || "",
       existing.id,
     );
     res.json(

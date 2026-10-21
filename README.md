@@ -39,6 +39,14 @@ Many providers with their own two-factor authentication require an app password 
 
 If SMTP uses a different username or password from IMAP, enter those values separately in the mailbox dialog. Empty SMTP credential fields use the IMAP credentials.
 
+### private VPN VPN mailbox
+
+An administrator can make a server-side OpenVPN profile available to one mailbox. The **VPN connection** setting in the mailbox dialog then selects the tunnel for both IMAP and SMTP. Other mailboxes keep their direct connection. The VPN profile and its client key stay on the server; MiniMail never accepts arbitrary OpenVPN files through the web interface.
+
+For the Private mail VPN profile, place `profile.ovpn`, its `certs/` directory, and `key.pass` in `./local/vpn` on the Docker host. Keep the private key and passphrase readable only by root. The passphrase file contains one line. Start with `docker compose -f compose.yaml -f compose.local.yaml -f compose.vpn.yaml up -d --build`. On a different host, omit `compose.local.yaml` and adapt the VPN profile and target restrictions in `vpn/proxy.mjs` and `vpn/start.sh` before starting.
+
+The VPN container has the tunnel device and `NET_ADMIN`; the MiniMail container does not. Its HTTP CONNECT proxy only accepts `mail.private.example` on IMAP/TLS port 993 and SMTP/STARTTLS port 587 and pins the destination IP. The proxy process can send new outbound traffic only over `tun0`. The Compose override exposes no VPN or proxy port publicly. TLS still authenticates the mail server inside the tunnel. If the tunnel or VPN profile is unavailable, mailbox access fails rather than falling back to a direct connection.
+
 Set a primary mailbox under **Settings → Connected mailboxes**. MiniMail opens its inbox automatically after sign-in; you can switch mailboxes at any time.
 
 By default, the server checks each connected inbox every five minutes, even when no browser is open. Set an interval of 1–1440 minutes for each mailbox under **Settings → Edit mailbox → Automatic check**, or enter `0` to disable it. Open browsers update message and unread counts automatically.

@@ -1,0 +1,37 @@
+services:
+  minimail:
+    environment:
+      MAIL_VPN_PROFILE_ID: private
+      MAIL_VPN_PROFILE_LABEL: Private mail VPN
+      MAIL_VPN_PROXY_URL: http://vpn-gateway:3128
+    networks:
+      - mail-vpn
+    depends_on:
+      vpn-gateway:
+        condition: service_healthy
+
+  vpn-gateway:
+    build: ./vpn
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./local/vpn:/vpn:ro
+    networks:
+      - mail-vpn
+      - vpn-egress
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+networks:
+  mail-vpn:
+    internal: true
+  vpn-egress:

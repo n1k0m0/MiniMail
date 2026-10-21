@@ -69,6 +69,9 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       PORT: String(port),
       APP_ENCRYPTION_KEY: encryptionKey,
       DISABLE_MAIL_CHECKS: "1",
+      MAIL_VPN_PROFILE_ID: "private",
+      MAIL_VPN_PROFILE_LABEL: "Private mail VPN",
+      MAIL_VPN_PROXY_URL: "http://vpn-gateway:3128",
     },
     stdio: "ignore",
   });
@@ -199,6 +202,9 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await adminOther("/accounts")).status, 401);
     assert.equal((await admin("/accounts")).status, 200);
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
+    assert.deepEqual((await admin("/vpn-profiles")).data, [
+      { id: "private", label: "Private mail VPN" },
+    ]);
 
     const created = await admin("/admin/users", "POST", { username: "member" });
     assert.equal(created.status, 201);
@@ -215,6 +221,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(ownerAccount.data.needsCredentials, false);
     assert.equal(ownerAccount.data.is_primary, true);
     assert.equal(ownerAccount.data.check_interval_minutes, 5);
+    assert.equal(ownerAccount.data.vpn_profile, "");
     assert.equal(ownerAccount.data.last_checked_at, null);
     assert.equal(
       (
@@ -297,6 +304,24 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       400,
     );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          vpn_profile: "private",
+        })
+      ).data.vpn_profile,
+      "private",
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          vpn_profile: "unknown",
+        })
+      ).status,
+      400,
+    );
 
     for (let i = 0; i < 8; i++)
       assert.equal(
@@ -358,6 +383,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       200,
     );
     assert.equal((await member("/admin/users")).status, 403);
+    assert.deepEqual((await member("/vpn-profiles")).data, []);
     assert.equal(
       (await member("/admin/users", "POST", { username: "another" })).status,
       403,

@@ -2111,6 +2111,7 @@ const blankAccount = {
   smtp_password: "",
   username: "",
   password: "",
+  vpn_profile: "",
   check_interval_minutes: 5,
 };
 function AccountModal({ account, onClose, onSaved, setError }) {
@@ -2119,6 +2120,20 @@ function AccountModal({ account, onClose, onSaved, setError }) {
   );
   const [busy, setBusy] = useState(false);
   const [tested, setTested] = useState(false);
+  const [vpnProfiles, setVpnProfiles] = useState([]);
+  useEffect(() => {
+    let active = true;
+    api("/vpn-profiles")
+      .then((profiles) => {
+        if (active) setVpnProfiles(profiles);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   function field(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
     setTested(false);
@@ -2318,6 +2333,35 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                 </label>
               </div>
             </div>
+            {(vpnProfiles.length > 0 || form.vpn_profile) && (
+              <div className="form-section">
+                <div className="form-section-title">
+                  <ShieldCheck size={18} />
+                  {t("VPN-Verbindung")}
+                </div>
+                <label className="interval-field">
+                  {t("Verbindung für dieses Postfach")}
+                  <select
+                    value={form.vpn_profile || ""}
+                    onChange={(event) =>
+                      field("vpn_profile", event.target.value)
+                    }
+                  >
+                    <option value="">{t("Direkt (ohne VPN)")}</option>
+                    {vpnProfiles.map((profile) => (
+                      <option value={profile.id} key={profile.id}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="field-hint">
+                  {t(
+                    "IMAP und SMTP dieses Postfachs verwenden die ausgewählte Server-VPN-Verbindung.",
+                  )}
+                </p>
+              </div>
+            )}
             <div className="form-section credentials">
               <div className="form-section-title">
                 <LockKeyhole size={18} />

@@ -112,6 +112,16 @@ const translations = {
   "Postfach bearbeiten": "Edit mailbox",
   "Deine Zugangsdaten bleiben verschlüsselt auf deinem Server.":
     "Your credentials remain encrypted on your server.",
+  "VPN-Verbindung": "VPN connection",
+  "Verbindung für dieses Postfach": "Connection for this mailbox",
+  "Direkt (ohne VPN)": "Direct (without VPN)",
+  "IMAP und SMTP dieses Postfachs verwenden die ausgewählte Server-VPN-Verbindung.":
+    "This mailbox uses the selected server VPN connection for IMAP and SMTP.",
+  "Ungültiges VPN-Profil.": "Invalid VPN profile.",
+  "Dieses VPN-Profil ist nicht verfügbar.":
+    "This VPN profile is not available.",
+  "Das VPN-Profil ist auf diesem Server nicht verfügbar.":
+    "The VPN profile is not available on this server.",
   Anzeigename: "Display name",
   "Mein Postfach": "My mailbox",
   "E-Mail-Adresse": "Email address",

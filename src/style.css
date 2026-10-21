@@ -1476,6 +1476,7 @@ svg {
   font-weight: 700;
 }
 .modal input:not([type="checkbox"]),
+.modal select,
 .modal textarea {
   height: 38px;
   width: 100%;
@@ -1488,6 +1489,7 @@ svg {
   font-size: 12px;
 }
 .modal input:focus,
+.modal select:focus,
 .modal textarea:focus {
   border-color: #7188dc;
   box-shadow: 0 0 0 3px #7188dc20;
@@ -1540,6 +1542,9 @@ svg {
 }
 .interval-field input {
   max-width: 120px;
+}
+.interval-field select {
+  max-width: 320px;
 }
 .field-hint {
   color: #9aa7b9;
@@ -1958,6 +1963,7 @@ svg {
 [data-theme="dark"] .folder-search input,
 [data-theme="dark"] .page-controls input,
 [data-theme="dark"] .modal input:not([type="checkbox"]),
+[data-theme="dark"] .modal select,
 [data-theme="dark"] .modal textarea,
 [data-theme="dark"] .auth-card input {
   background: #1c2637;
