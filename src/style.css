@@ -864,6 +864,7 @@ svg {
 .row-top strong {
   color: #3c4860;
   font-size: 11px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -885,7 +886,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .row-subject span {
   min-width: 0;
@@ -2300,13 +2301,35 @@ svg {
 }
 [data-theme="dark"] .breadcrumb strong,
 [data-theme="dark"] .row-top strong,
-[data-theme="dark"] .unread .row-top strong,
 [data-theme="dark"] .row-subject,
-[data-theme="dark"] .unread .row-subject,
 [data-theme="dark"] .sender-details strong,
 [data-theme="dark"] .settings-account strong,
 [data-theme="dark"] .settings-row strong {
   color: #d7e0f4;
+}
+[data-theme="dark"] .folder-item {
+  color: #d7e0f4;
+}
+[data-theme="dark"] .account-choice {
+  color: #d7e0f4;
+}
+[data-theme="dark"] .account-text small,
+[data-theme="dark"] .section-label {
+  color: #aebbd1;
+}
+[data-theme="dark"] .folder-row.current .folder-item {
+  color: #f1f4ff;
+}
+[data-theme="dark"] .folder-toggle {
+  color: #b8c5df;
+}
+[data-theme="dark"] .message-row:not(.unread) .row-top strong,
+[data-theme="dark"] .message-row:not(.unread) .row-subject {
+  color: #b9c5d9;
+}
+[data-theme="dark"] .message-row.unread .row-top strong,
+[data-theme="dark"] .message-row.unread .row-subject {
+  color: #eef3ff;
 }
 [data-theme="dark"] .message-row:hover,
 [data-theme="dark"] .message-row.selected,
