@@ -2033,6 +2033,50 @@ svg {
   background: #182335;
   color: #dce5f5;
 }
+.source-header {
+  color: #2458b4;
+  font-weight: 700;
+}
+.source-punctuation {
+  color: #7889a5;
+}
+.source-parameter {
+  color: #8551a4;
+}
+.source-string {
+  color: #18734b;
+}
+.source-boundary {
+  color: #a2551c;
+  font-weight: 700;
+}
+.source-encoded {
+  color: #687995;
+}
+.source-markup {
+  color: #ab3d6d;
+}
+[data-theme="dark"] .source-header {
+  color: #9dbdff;
+}
+[data-theme="dark"] .source-punctuation {
+  color: #91a2bd;
+}
+[data-theme="dark"] .source-parameter {
+  color: #d5a7ef;
+}
+[data-theme="dark"] .source-string {
+  color: #95dfb3;
+}
+[data-theme="dark"] .source-boundary {
+  color: #ffc183;
+}
+[data-theme="dark"] .source-encoded {
+  color: #9aa9c0;
+}
+[data-theme="dark"] .source-markup {
+  color: #ffa4c6;
+}
 .contacts-content {
   min-height: 0;
   display: flex;

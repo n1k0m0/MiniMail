@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import LoginScreen from "./LoginScreen.jsx";
 import UserManagement from "./UserManagement.jsx";
+import { highlightMailSource } from "./mailSourceHighlight.js";
 import {
   Archive,
   ArrowLeft,
@@ -2124,6 +2125,10 @@ function App() {
 function SourceModal({ accountId, folder, uid, onClose, setError }) {
   const [source, setSource] = useState("");
   const [loading, setLoading] = useState(true);
+  const highlightedSource = useMemo(
+    () => highlightMailSource(source),
+    [source],
+  );
   useEffect(() => {
     const controller = new AbortController();
     fetch(
@@ -2167,7 +2172,17 @@ function SourceModal({ accountId, folder, uid, onClose, setError }) {
           </button>
         </div>
         <pre className="source-content">
-          {loading ? t("Lade Nachrichten …") : source}
+          {loading
+            ? t("Lade Nachrichten …")
+            : highlightedSource.map(({ text, type }, index) =>
+                type === "plain" ? (
+                  text
+                ) : (
+                  <span className={`source-${type}`} key={index}>
+                    {text}
+                  </span>
+                ),
+              )}
         </pre>
       </div>
     </div>
