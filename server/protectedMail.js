@@ -519,6 +519,7 @@ async function readSmime(
         mode: 0o600,
       });
       let trusted = true;
+      let signatureValid = true;
       try {
         await runOpenSSL([
           "cms",
@@ -536,19 +537,37 @@ async function readSmime(
         ]);
       } catch {
         trusted = false;
-        await runOpenSSL([
-          "cms",
-          "-verify",
-          "-inform",
-          "SMIME",
-          "-in",
-          current,
-          "-noverify",
-          "-signer",
-          signer,
-          "-out",
-          verified,
-        ]);
+        try {
+          await runOpenSSL([
+            "cms",
+            "-verify",
+            "-inform",
+            "SMIME",
+            "-in",
+            current,
+            "-noverify",
+            "-signer",
+            signer,
+            "-out",
+            verified,
+          ]);
+        } catch {
+          signatureValid = false;
+          await runOpenSSL([
+            "cms",
+            "-verify",
+            "-inform",
+            "SMIME",
+            "-in",
+            current,
+            "-noverify",
+            "-nosigs",
+            "-signer",
+            signer,
+            "-out",
+            verified,
+          ]);
+        }
       }
       const signerCert = new crypto.X509Certificate(await fs.readFile(signer));
       const identityMatches = !!senderCertEmail(signerCert, outerSender);
@@ -578,13 +597,15 @@ async function readSmime(
       security = {
         ...security,
         signed: true,
-        signature: !identityMatches
-          ? "identity-mismatch"
-          : !certificateCurrent
-            ? "expired"
-            : trusted || pinned
-              ? "valid"
-              : "untrusted",
+        signature: !signatureValid
+          ? "invalid"
+          : !identityMatches
+            ? "identity-mismatch"
+            : !certificateCurrent
+              ? "expired"
+              : trusted || pinned
+                ? "valid"
+                : "untrusted",
         fingerprint: signerCert.fingerprint256,
       };
       parsed = await simpleParser(await fs.readFile(verified));
