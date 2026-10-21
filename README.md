@@ -55,17 +55,27 @@ By default, the server checks each connected inbox every five minutes, even when
 
 Choose German or English in **Settings → Appearance → Language**. The choice is stored in your browser.
 
+### OpenPGP and S/MIME
+
+Open **Settings → Connected mailboxes → Keys** for each sending address. Import an armored OpenPGP private key and its passphrase, or an S/MIME `.p12`/`.pfx` bundle (or PEM certificate and private key). The key identity must match the mailbox address. Private keys and passphrases are encrypted in the server database with `APP_ENCRYPTION_KEY`; the server decrypts them only while processing mail. Back up this key with the database.
+
+Open a contact in the address book to import that recipient's OpenPGP public key or S/MIME certificate. Verify its fingerprint with the recipient through a trusted channel before importing it. For messages sent to several recipients, including Cc and Bcc, every recipient needs a matching public key or certificate. MiniMail also encrypts a copy for the sending mailbox so it can read its Sent copy. Missing recipient material stops encrypted sending with an error.
+
+The default mode for each mailbox is **Off**. Select OpenPGP or S/MIME and save the desired signing and encryption defaults, or change them for an individual message in the compose window. The reader decrypts supported PGP/MIME, inline PGP, and S/MIME messages when the corresponding private key is configured, and reports signature verification status. The message toolbar's **View source** action shows the original MIME source as text.
+
+OpenPGP trust is based on the manually imported key for the sender's address. S/MIME checks the cryptographic signature, sender certificate email, validity dates, and either a trusted certificate chain or an exact certificate imported for that contact. Certificate revocation is not checked. There is no automatic key discovery, hardware token support, or Thunderbird key store import. An unknown or untrusted key is shown as such; it is never reported as a verified signature.
+
 Enable **Conversation view** in **Settings → Appearance**, or switch it directly above the message list. Replies in the same folder are grouped using message identifiers and references; opening a conversation displays its newest message. Expand the group or use the conversation links in the reader to open older messages. The choice is stored in your browser. Messages in different folders remain separate conversations.
 
 ## Features and limitations
 
 - Read mailboxes and folders; search subject, sender, recipients, and message text on the mail server.
-- Read messages and download attachments; mark messages read, unread, or starred; archive and delete messages.
+- Read messages, inspect their original source, and download attachments; mark messages read, unread, or starred; archive and delete messages.
 - Send messages with up to eight attachments totaling 8 MB. MiniMail saves a copy in Sent when the server allows IMAP APPEND.
 - Keep multiple web users and their mailboxes separate. Only administrators can create users or reset another user's temporary password or 2FA.
 - Messages larger than 25 MB are not loaded in the web viewer. External images in HTML mail are removed for privacy.
 
-Keep public installations, the reverse proxy, and the host operating system updated. MiniMail does not yet provide OAuth provider integration, Maildir/mbox import, or full calendar and address-book features.
+Keep public installations, the reverse proxy, and the host operating system updated. MiniMail does not yet provide OAuth provider integration, Maildir/mbox import, or full calendar features.
 
 The stack is React/Vite, Express, ImapFlow, Nodemailer, and SQLite (`node:sqlite`). User passwords are hashed with scrypt. Mailbox credentials and TOTP secrets are encrypted with AES-256-GCM. Production session cookies are HttpOnly, Secure, SameSite=Strict, and use the `__Host-` prefix. State-changing API requests require a custom request header and check Origin/Fetch Metadata; API responses are not cached. The Docker container runs as a non-root user with a read-only filesystem and no Linux capabilities.
 

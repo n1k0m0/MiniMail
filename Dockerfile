@@ -8,6 +8,7 @@ RUN npm run build
 
 FROM node:24-alpine
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0
+RUN apk add --no-cache openssl ca-certificates
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && mkdir -p /app/data && chown -R node:node /app

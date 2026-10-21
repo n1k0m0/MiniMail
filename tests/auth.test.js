@@ -8,6 +8,7 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import * as openpgp from "openpgp";
 
 const serverPath = fileURLToPath(
   new URL("../server/index.js", import.meta.url),
@@ -268,7 +269,100 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(ownerAccount.data.sender_name, "Owner Name");
     assert.equal(ownerAccount.data.signature, "Owner signature");
     assert.equal(ownerAccount.data.smtp_password_enc, undefined);
+    assert.equal(ownerAccount.data.pgp_private_enc, undefined);
+    assert.equal(ownerAccount.data.smime_key_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
+    assert.equal(
+      (await admin(`/accounts/${ownerAccount.data.id}/crypto`)).data.mode,
+      "none",
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/crypto`, "PATCH", {
+          mode: "pgp",
+          sign: false,
+          encrypt: true,
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "receiver@example.test",
+          text: "hello",
+          crypto: { mode: "pgp", sign: false, encrypt: true },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
+          to: "receiver@example.test",
+          text: "hello",
+          crypto: { mode: "pgp", sign: false, encrypt: false },
+        })
+      ).status,
+      400,
+    );
+    const ownKey = await openpgp.generateKey({
+      type: "ecc",
+      curve: "curve25519",
+      userIDs: [{ email: ownerAccount.data.email }],
+      passphrase: "key-passphrase",
+    });
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/crypto/pgp`, "PUT", {
+          privateKey: ownKey.privateKey,
+          passphrase: "key-passphrase",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/crypto`, "PATCH", {
+          mode: "pgp",
+          sign: true,
+          encrypt: false,
+        })
+      ).status,
+      200,
+    );
+    const afterKeyImport = (await admin("/accounts")).data.find(
+      (item) => item.id === ownerAccount.data.id,
+    );
+    assert.equal(afterKeyImport.hasPgpKey, true);
+    assert.equal(afterKeyImport.pgp_private_enc, undefined);
+    assert.equal(afterKeyImport.pgp_passphrase_enc, undefined);
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}/crypto`, "PATCH", {
+          mode: "none",
+          sign: false,
+          encrypt: false,
+        })
+      ).status,
+      200,
+    );
+    const contactKey = await openpgp.generateKey({
+      type: "ecc",
+      curve: "curve25519",
+      userIDs: [{ email: "alice@example.test" }],
+    });
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}/crypto/pgp`, "PUT", {
+          publicKey: contactKey.publicKey,
+        })
+      ).status,
+      200,
+    );
+    const afterContactKey = (await admin("/contacts")).data[0];
+    assert.equal(afterContactKey.hasPgpKey, true);
+    assert.equal(afterContactKey.pgp_public, undefined);
     assert.equal(ownerAccount.data.is_primary, true);
     assert.equal(ownerAccount.data.check_interval_minutes, 5);
     assert.equal(ownerAccount.data.vpn_profile, "");
@@ -473,6 +567,18 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal(
       (await member(`/contacts/${contact.data.id}`, "DELETE")).status,
+      404,
+    );
+    assert.equal(
+      (
+        await member(`/contacts/${contact.data.id}/crypto/pgp`, "PUT", {
+          publicKey: "invalid",
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await member(`/accounts/${ownerAccount.data.id}/crypto`)).status,
       404,
     );
     assert.equal((await admin("/contacts")).data[0].name, "Alice B");

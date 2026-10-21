@@ -1350,7 +1350,7 @@ svg {
   position: fixed;
   right: 25px;
   bottom: 20px;
-  z-index: 30;
+  z-index: 50;
   max-width: 420px;
   background: #283859;
   color: #fff;
@@ -1767,6 +1767,184 @@ svg {
   color: #8796af;
   font-size: 11px;
 }
+.compose-security {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 22px;
+  border-bottom: 1px solid #edf0f5;
+  color: #60708a;
+  font-size: 11px;
+}
+.compose-security select {
+  max-width: 190px;
+  min-width: 0;
+  border: 1px solid #dce4f1;
+  border-radius: 6px;
+  padding: 5px;
+  background: #fff;
+  color: #34425e;
+}
+.compose-security label,
+.crypto-checks label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.compose-security input,
+.crypto-checks input {
+  accent-color: #526dd2;
+}
+.message-security {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0 4px;
+  padding: 11px 13px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.message-security.verified {
+  background: #e9f7f0;
+  color: #237353;
+}
+.message-security.warning {
+  background: #fff2e2;
+  color: #946520;
+}
+.message-security svg {
+  flex: none;
+  margin-top: 1px;
+}
+.message-security small {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.crypto-modal {
+  width: min(620px, 100%);
+  height: min(780px, 90vh);
+}
+.contact-crypto-backdrop {
+  z-index: 30;
+}
+.crypto-scroll {
+  padding: 6px 24px 24px;
+  overflow: auto;
+}
+.crypto-scroll section {
+  border-bottom: 1px solid #edf0f5;
+  padding: 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.crypto-scroll section:last-child {
+  border-bottom: 0;
+}
+.crypto-scroll h3 {
+  margin: 0;
+  color: #34425e;
+  font: 800 13px Manrope;
+}
+.crypto-scroll p {
+  margin: 0;
+  color: #8190a7;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.crypto-scroll label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #52617b;
+  font-size: 11px;
+  font-weight: 700;
+}
+.crypto-scroll select,
+.crypto-scroll input:not([type="checkbox"]),
+.crypto-scroll textarea {
+  width: 100%;
+  border: 1px solid #d9e1ef;
+  border-radius: 7px;
+  padding: 9px;
+  background: #fff;
+  color: #34425e;
+  font:
+    12px "DM Sans",
+    sans-serif;
+}
+.crypto-scroll textarea {
+  resize: vertical;
+  min-height: 70px;
+  font-family: ui-monospace, monospace;
+}
+.crypto-checks {
+  display: flex;
+  gap: 18px;
+}
+.crypto-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.crypto-actions > button:not(.primary-button) {
+  background: #f7ebed;
+  color: #a1505c;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.crypto-fingerprint {
+  padding-top: 12px;
+  overflow-wrap: anywhere;
+}
+.contact-key-badges {
+  display: flex;
+  gap: 4px;
+}
+.contact-key-badges small {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #eaf0fc;
+  color: #4e68c3;
+  font-size: 9px;
+  font-weight: 800;
+}
+[data-theme="dark"] .compose-security,
+[data-theme="dark"] .crypto-scroll section {
+  border-color: #2b3649;
+}
+[data-theme="dark"] .compose-security select,
+[data-theme="dark"] .crypto-scroll select,
+[data-theme="dark"] .crypto-scroll input:not([type="checkbox"]),
+[data-theme="dark"] .crypto-scroll textarea {
+  background: #1c2637;
+  color: #e1e7f4;
+  border-color: #39475c;
+}
+[data-theme="dark"] .crypto-scroll h3 {
+  color: #d7e0f4;
+}
+[data-theme="dark"] .message-security.verified {
+  background: #1d3c35;
+  color: #91e2b8;
+}
+[data-theme="dark"] .message-security.warning {
+  background: #483a28;
+  color: #f5d18e;
+}
+@media (max-width: 560px) {
+  .compose-security {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+}
 .recipient-input {
   position: relative;
   flex: 1;
@@ -1812,6 +1990,31 @@ svg {
 .contacts-modal {
   width: min(650px, 100%);
   height: min(740px, 90vh);
+}
+.source-modal {
+  width: min(900px, 100%);
+  height: min(760px, 90vh);
+}
+.source-content {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 20px;
+  overflow: auto;
+  background: #f8faff;
+  color: #2e3d58;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+[data-theme="dark"] .source-content {
+  background: #182335;
+  color: #dce5f5;
 }
 .contacts-content {
   min-height: 0;

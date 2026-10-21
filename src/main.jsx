@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import LoginScreen from "./LoginScreen.jsx";
 import UserManagement from "./UserManagement.jsx";
 import {
@@ -19,7 +20,9 @@ import {
   ChevronRight,
   Download,
   FileText,
+  FileCode2,
   Inbox,
+  KeyRound,
   LoaderCircle,
   LockKeyhole,
   LogOut,
@@ -171,6 +174,54 @@ function dateLabel(value) {
     month: "short",
     year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
   }).format(date);
+}
+
+function securityText(security) {
+  if (!security) return "";
+  const kind = security.kind === "pgp" ? "OpenPGP" : "S/MIME";
+  if (security.status === "missing-key")
+    return choose(
+      `${kind}: Verschlüsselt, aber kein passender privater Schlüssel eingerichtet.`,
+      `${kind}: Encrypted, but no matching private key is configured.`,
+    );
+  if (security.status === "error")
+    return choose(
+      `${kind}: Entschlüsselung oder Signaturprüfung fehlgeschlagen.`,
+      `${kind}: Decryption or signature verification failed.`,
+    );
+  if (security.signature === "invalid")
+    return choose(`${kind}: Signatur ungültig.`, `${kind}: Invalid signature.`);
+  if (security.signature === "expired")
+    return choose(
+      `${kind}: Signatur geprüft, aber das Zertifikat ist abgelaufen oder noch nicht gültig.`,
+      `${kind}: Signature verified, but the certificate has expired or is not yet valid.`,
+    );
+  if (security.signature === "identity-mismatch")
+    return choose(
+      `${kind}: Signatur gültig, aber das Zertifikat passt nicht zur Absenderadresse.`,
+      `${kind}: Signature valid, but the certificate does not match the sender address.`,
+    );
+  if (security.signature === "untrusted")
+    return choose(
+      `${kind}: Signatur gültig, Zertifikatskette nicht als vertrauenswürdig bestätigt.`,
+      `${kind}: Signature valid; certificate chain not trusted.`,
+    );
+  if (security.signature === "unknown-key")
+    return choose(
+      `${kind}: Signiert, aber kein öffentlicher Schlüssel zur Prüfung vorhanden.`,
+      `${kind}: Signed, but no public key is available for verification.`,
+    );
+  if (security.signature === "valid")
+    return choose(
+      `${kind}: Signatur gültig${security.encrypted ? "; Nachricht entschlüsselt" : ""}.`,
+      `${kind}: Valid signature${security.encrypted ? "; message decrypted" : ""}.`,
+    );
+  if (security.encrypted)
+    return choose(
+      `${kind}: Nachricht entschlüsselt.`,
+      `${kind}: Message decrypted.`,
+    );
+  return choose(`${kind}: Signierte Nachricht.`, `${kind}: Signed message.`);
 }
 function isTrashFolder(folder) {
   if (folder?.specialUse) return folder.specialUse === "\\Trash";
@@ -1615,6 +1666,14 @@ function App() {
                         <button title={t("Löschen")} onClick={() => remove()}>
                           <Trash2 size={19} />
                         </button>
+                        <button
+                          title={t("Nachrichtenquelltext anzeigen")}
+                          onClick={() =>
+                            setModal({ type: "source", uid: detail.uid })
+                          }
+                        >
+                          <FileCode2 size={19} />
+                        </button>
                       </div>
                       <span className="reader-position">
                         {messages.findIndex(
@@ -1687,6 +1746,23 @@ function App() {
                               : ""}
                           </time>
                         </div>
+                        {detail.security && (
+                          <div
+                            className={`message-security ${["error", "missing-key"].includes(detail.security.status) || ["invalid", "expired", "identity-mismatch", "untrusted", "unknown-key"].includes(detail.security.signature) ? "warning" : "verified"}`}
+                            role="status"
+                          >
+                            <LockKeyhole size={18} />
+                            <span>
+                              {securityText(detail.security)}
+                              {detail.security.fingerprint && (
+                                <small>
+                                  {t("Fingerabdruck")}:{" "}
+                                  {detail.security.fingerprint}
+                                </small>
+                              )}
+                            </span>
+                          </div>
+                        )}
                         <div className="message-body">
                           {detail.html ? (
                             <div
@@ -1949,6 +2025,7 @@ function App() {
           auth={auth}
           onClose={() => setModal(null)}
           onEdit={(account) => setModal({ type: "edit", account })}
+          onCrypto={(account) => setModal({ type: "crypto", account })}
           onAdd={() => setModal("account")}
           onOpenContacts={() => setModal("contacts")}
           onCollectRecipientsChange={async (enabled) => {
@@ -1997,11 +2074,28 @@ function App() {
           setError={setError}
         />
       )}
+      {modal?.type === "crypto" && (
+        <CryptoSettingsModal
+          account={modal.account}
+          onClose={() => setModal("settings")}
+          onChanged={async () => setAccounts(await api("/accounts"))}
+          setError={setError}
+        />
+      )}
       {modal?.type === "empty-trash" && (
         <EmptyTrashModal
           path={modal.path}
           onClose={() => setModal(null)}
           onConfirm={() => emptyTrashFolder(modal.path)}
+        />
+      )}
+      {modal?.type === "source" && (
+        <SourceModal
+          accountId={accountId}
+          folder={folder}
+          uid={modal.uid}
+          onClose={() => setModal(null)}
+          setError={setError}
         />
       )}
       {modal === "contacts" && (
@@ -2023,6 +2117,59 @@ function App() {
           setError={setError}
         />
       )}
+    </div>
+  );
+}
+
+function SourceModal({ accountId, folder, uid, onClose, setError }) {
+  const [source, setSource] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(
+      `/api/accounts/${accountId}/messages/${uid}/source?folder=${encodeURIComponent(folder)}`,
+      {
+        credentials: "same-origin",
+        signal: controller.signal,
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error(t("Quelltext konnte nicht geladen werden."));
+        return response.text();
+      })
+      .then(setSource)
+      .catch((error) => {
+        if (error.name !== "AbortError") setError(error.message);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [accountId, folder, uid, setError]);
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="modal source-modal">
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">MINIMAIL</div>
+            <h2>{t("Nachrichtenquelltext")}</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <pre className="source-content">
+          {loading ? t("Lade Nachrichten …") : source}
+        </pre>
+      </div>
     </div>
   );
 }
@@ -2510,6 +2657,7 @@ function SettingsModal({
   auth,
   onClose,
   onEdit,
+  onCrypto,
   onAdd,
   onOpenContacts,
   onCollectRecipientsChange,
@@ -2628,6 +2776,12 @@ function SettingsModal({
               </button>
               <button onClick={() => onEdit(account)}>{t("Bearbeiten")}</button>
               <button
+                onClick={() => onCrypto(account)}
+                title={t("Verschlüsselung und Schlüssel")}
+              >
+                <LockKeyhole size={14} /> {t("Schlüssel")}
+              </button>
+              <button
                 className="danger-icon"
                 title={t("Entfernen")}
                 onClick={() => remove(account)}
@@ -2740,8 +2894,464 @@ function SettingsModal({
   );
 }
 
+function CryptoSettingsModal({ account, onClose, onChanged, setError }) {
+  const [state, setState] = useState({
+    mode: account.crypto_mode || "none",
+    sign: !!account.cryptoSignDefault,
+    encrypt: !!account.cryptoEncryptDefault,
+    hasPgpKey: !!account.hasPgpKey,
+    hasSmimeCertificate: !!account.hasSmimeCertificate,
+  });
+  const [pgpPrivate, setPgpPrivate] = useState("");
+  const [pgpPassphrase, setPgpPassphrase] = useState("");
+  const [smimeFile, setSmimeFile] = useState(null);
+  const [smimeCert, setSmimeCert] = useState("");
+  const [smimeKey, setSmimeKey] = useState("");
+  const [smimePassphrase, setSmimePassphrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api(`/accounts/${account.id}/crypto`)
+      .then(setState)
+      .catch((error) => setError(error.message));
+  }, [account.id, setError]);
+  async function perform(action) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+      setState(await api(`/accounts/${account.id}/crypto`));
+      await onChanged();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function importSmime() {
+    let pkcs12Base64;
+    if (smimeFile) {
+      pkcs12Base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(smimeFile);
+      });
+    }
+    await api(`/accounts/${account.id}/crypto/smime`, {
+      method: "PUT",
+      body: pkcs12Base64
+        ? { pkcs12Base64, passphrase: smimePassphrase }
+        : {
+            certificate: smimeCert,
+            privateKey: smimeKey,
+            passphrase: smimePassphrase,
+          },
+    });
+    setSmimeFile(null);
+    setSmimeCert("");
+    setSmimeKey("");
+    setSmimePassphrase("");
+  }
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="modal crypto-modal">
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">{account.email}</div>
+            <h2>{t("Verschlüsselung und Schlüssel")}</h2>
+            <p>
+              {t("Private Schlüssel bleiben verschlüsselt auf deinem Server.")}
+            </p>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="crypto-scroll">
+          <section>
+            <h3>{t("Standard beim Schreiben")}</h3>
+            <label>
+              {t("Verfahren")}
+              <select
+                value={state.mode}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    mode: event.target.value,
+                    sign: false,
+                    encrypt: event.target.value !== "none",
+                  }))
+                }
+              >
+                <option value="none">{t("Aus")}</option>
+                <option value="pgp">OpenPGP</option>
+                <option value="smime">S/MIME</option>
+              </select>
+            </label>
+            <div className="crypto-checks">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.sign}
+                  disabled={state.mode === "none"}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      sign: event.target.checked,
+                    }))
+                  }
+                />{" "}
+                {t("Signieren")}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.encrypt}
+                  disabled={state.mode === "none"}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      encrypt: event.target.checked,
+                    }))
+                  }
+                />{" "}
+                {t("Verschlüsseln")}
+              </label>
+            </div>
+            <button
+              className="primary-button"
+              disabled={busy}
+              onClick={() =>
+                perform(() =>
+                  api(`/accounts/${account.id}/crypto`, {
+                    method: "PATCH",
+                    body: {
+                      mode: state.mode,
+                      sign: state.sign,
+                      encrypt: state.encrypt,
+                    },
+                  }),
+                )
+              }
+            >
+              {t("Standard speichern")}
+            </button>
+          </section>
+          <section>
+            <h3>OpenPGP</h3>
+            <p>
+              {state.hasPgpKey
+                ? t("Privatschlüssel eingerichtet")
+                : t("Kein Privatschlüssel eingerichtet")}
+            </p>
+            <label>
+              {t("Armierter Privatschlüssel")}
+              <textarea
+                value={pgpPrivate}
+                onChange={(event) => setPgpPrivate(event.target.value)}
+                placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----"
+                rows={4}
+              />
+            </label>
+            <input
+              type="file"
+              accept=".asc,.pgp,.txt"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (file) setPgpPrivate(await file.text());
+              }}
+              aria-label={t("OpenPGP-Schlüsseldatei auswählen")}
+            />
+            <label>
+              {t("Schlüsselpassphrase")}
+              <input
+                type="password"
+                value={pgpPassphrase}
+                onChange={(event) => setPgpPassphrase(event.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+            <div className="crypto-actions">
+              <button
+                className="primary-button"
+                disabled={busy || !pgpPrivate}
+                onClick={() =>
+                  perform(async () => {
+                    await api(`/accounts/${account.id}/crypto/pgp`, {
+                      method: "PUT",
+                      body: {
+                        privateKey: pgpPrivate,
+                        passphrase: pgpPassphrase,
+                      },
+                    });
+                    setPgpPrivate("");
+                    setPgpPassphrase("");
+                  })
+                }
+              >
+                {t("Schlüssel importieren")}
+              </button>
+              {state.hasPgpKey && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    perform(() =>
+                      api(`/accounts/${account.id}/crypto/pgp`, {
+                        method: "DELETE",
+                      }),
+                    )
+                  }
+                >
+                  {t("Schlüssel entfernen")}
+                </button>
+              )}
+            </div>
+          </section>
+          <section>
+            <h3>S/MIME</h3>
+            <p>
+              {state.hasSmimeCertificate
+                ? t("Zertifikat eingerichtet")
+                : t("Kein Zertifikat eingerichtet")}
+            </p>
+            <label>
+              {t("PKCS#12-Datei (.p12/.pfx)")}
+              <input
+                type="file"
+                accept=".p12,.pfx"
+                onChange={(event) =>
+                  setSmimeFile(event.target.files?.[0] || null)
+                }
+              />
+            </label>
+            <p>
+              {t("Alternativ Zertifikat und Privatschlüssel als PEM einfügen.")}
+            </p>
+            <label>
+              {t("Zertifikat (PEM)")}
+              <textarea
+                value={smimeCert}
+                onChange={(event) => setSmimeCert(event.target.value)}
+                rows={3}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            </label>
+            <label>
+              {t("Privatschlüssel (PEM)")}
+              <textarea
+                value={smimeKey}
+                onChange={(event) => setSmimeKey(event.target.value)}
+                rows={3}
+                placeholder="-----BEGIN PRIVATE KEY-----"
+              />
+            </label>
+            <label>
+              {t("Datei- oder Schlüsselpassphrase")}
+              <input
+                type="password"
+                value={smimePassphrase}
+                onChange={(event) => setSmimePassphrase(event.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+            <div className="crypto-actions">
+              <button
+                className="primary-button"
+                disabled={busy || (!smimeFile && (!smimeCert || !smimeKey))}
+                onClick={() => perform(importSmime)}
+              >
+                {t("Zertifikat importieren")}
+              </button>
+              {state.hasSmimeCertificate && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    perform(() =>
+                      api(`/accounts/${account.id}/crypto/smime`, {
+                        method: "DELETE",
+                      }),
+                    )
+                  }
+                >
+                  {t("Zertifikat entfernen")}
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
+  const [pgp, setPgp] = useState("");
+  const [certificate, setCertificate] = useState("");
+  const [fingerprint, setFingerprint] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function perform(kind, method, body) {
+    setBusy(true);
+    try {
+      const result = await api(`/contacts/${contact.id}/crypto/${kind}`, {
+        method,
+        ...(body ? { body } : {}),
+      });
+      setFingerprint(result.fingerprint || "");
+      await onChanged();
+      if (kind === "pgp") setPgp("");
+      else setCertificate("");
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function readCertificate(file) {
+    if (!file) return;
+    const raw = await file.text();
+    if (raw.includes("BEGIN CERTIFICATE")) {
+      setCertificate(raw);
+      return;
+    }
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    setCertificate(
+      `-----BEGIN CERTIFICATE-----\n${base64.match(/.{1,64}/g).join("\n")}\n-----END CERTIFICATE-----`,
+    );
+  }
+  return createPortal(
+    <div
+      className="modal-backdrop contact-crypto-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="modal crypto-modal">
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">{contact.email}</div>
+            <h2>{t("Schlüssel und Zertifikate")}</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="crypto-scroll">
+          <section>
+            <h3>OpenPGP</h3>
+            <p>
+              {contact.hasPgpKey
+                ? t("Öffentlicher Schlüssel vorhanden")
+                : t("Kein öffentlicher Schlüssel vorhanden")}
+            </p>
+            <label>
+              {t("Öffentlicher Schlüssel")}
+              <textarea
+                rows={5}
+                value={pgp}
+                onChange={(event) => setPgp(event.target.value)}
+                placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
+              />
+            </label>
+            <input
+              type="file"
+              accept=".asc,.pgp,.txt"
+              aria-label={t("OpenPGP-Schlüsseldatei auswählen")}
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (file) setPgp(await file.text());
+              }}
+            />
+            <div className="crypto-actions">
+              <button
+                className="primary-button"
+                disabled={busy || !pgp}
+                onClick={() => perform("pgp", "PUT", { publicKey: pgp })}
+              >
+                {t("Schlüssel speichern")}
+              </button>
+              {contact.hasPgpKey && (
+                <button
+                  disabled={busy}
+                  onClick={() => perform("pgp", "DELETE")}
+                >
+                  {t("Schlüssel entfernen")}
+                </button>
+              )}
+            </div>
+          </section>
+          <section>
+            <h3>S/MIME</h3>
+            <p>
+              {contact.hasSmimeCertificate
+                ? t("Zertifikat vorhanden")
+                : t("Kein Zertifikat vorhanden")}
+            </p>
+            <label>
+              {t("Öffentliches Zertifikat (PEM oder DER)")}
+              <textarea
+                rows={5}
+                value={certificate}
+                onChange={(event) => setCertificate(event.target.value)}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            </label>
+            <input
+              type="file"
+              accept=".pem,.crt,.cer,.der"
+              aria-label={t("S/MIME-Zertifikatdatei auswählen")}
+              onChange={(event) => readCertificate(event.target.files?.[0])}
+            />
+            <div className="crypto-actions">
+              <button
+                className="primary-button"
+                disabled={busy || !certificate}
+                onClick={() => perform("smime", "PUT", { certificate })}
+              >
+                {t("Zertifikat speichern")}
+              </button>
+              {contact.hasSmimeCertificate && (
+                <button
+                  disabled={busy}
+                  onClick={() => perform("smime", "DELETE")}
+                >
+                  {t("Zertifikat entfernen")}
+                </button>
+              )}
+            </div>
+          </section>
+          {fingerprint && (
+            <p className="crypto-fingerprint">
+              {t("Fingerabdruck")}: {fingerprint}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function AddressBookModal({ onClose, setError }) {
   const [contacts, setContacts] = useState([]);
+  const [cryptoContact, setCryptoContact] = useState(null);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
@@ -2847,6 +3457,19 @@ function AddressBookModal({ onClose, setError }) {
                   <strong>{contact.name || contact.email}</strong>
                   <span>{contact.email}</span>
                 </div>
+                {(contact.hasPgpKey || contact.hasSmimeCertificate) && (
+                  <span className="contact-key-badges">
+                    {contact.hasPgpKey && <small>PGP</small>}
+                    {contact.hasSmimeCertificate && <small>S/MIME</small>}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setCryptoContact(contact)}
+                  title={t("Schlüssel und Zertifikate")}
+                >
+                  <KeyRound size={16} />
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2916,6 +3539,20 @@ function AddressBookModal({ onClose, setError }) {
             </div>
           </form>
         </div>
+        {cryptoContact && (
+          <ContactCryptoModal
+            contact={cryptoContact}
+            onClose={() => setCryptoContact(null)}
+            onChanged={async () => {
+              const next = await api("/contacts");
+              setContacts(next);
+              setCryptoContact(
+                next.find((item) => item.id === cryptoContact.id) || null,
+              );
+            }}
+            setError={setError}
+          />
+        )}
       </div>
     </div>
   );
@@ -3056,6 +3693,35 @@ function ComposeModal({
           null,
   );
   const senderAccount = accounts.find((item) => item.id === senderAccountId);
+  function cryptoForSender(selectedAccount) {
+    const mode = selectedAccount?.crypto_mode || "none";
+    const replyMode =
+      original?.security?.encrypted &&
+      ["pgp", "smime"].includes(original.security.kind)
+        ? original.security.kind
+        : null;
+    const selectedMode =
+      replyMode &&
+      (replyMode === "pgp"
+        ? selectedAccount?.hasPgpKey
+        : selectedAccount?.hasSmimeCertificate)
+        ? replyMode
+        : mode;
+    return {
+      mode: selectedMode,
+      sign: selectedMode === mode && !!selectedAccount?.cryptoSignDefault,
+      encrypt:
+        !!replyMode && selectedMode === replyMode
+          ? true
+          : selectedMode === mode && !!selectedAccount?.cryptoEncryptDefault,
+    };
+  }
+  const [cryptoOptions, setCryptoOptions] = useState(() =>
+    cryptoForSender(senderAccount),
+  );
+  useEffect(() => {
+    setCryptoOptions(cryptoForSender(senderAccount));
+  }, [senderAccountId]);
   const signature = senderAccount?.signature?.trim() || "";
   const signatureText = signature
     ? `${signature.startsWith("-- ") ? "" : "-- \n"}${signature}`
@@ -3088,6 +3754,7 @@ function ComposeModal({
           subject,
           text: signatureText ? `${body.trimEnd()}\n\n${signatureText}` : body,
           attachments,
+          crypto: cryptoOptions,
           ...(reply && original?.messageId
             ? {
                 inReplyTo: original.messageId,
@@ -3205,6 +3872,52 @@ function ComposeModal({
                 placeholder={t("Worum geht es?")}
               />
             </div>
+          </div>
+          <div className="compose-security">
+            <LockKeyhole size={15} />
+            <select
+              aria-label={t("Verschlüsselungsverfahren")}
+              value={cryptoOptions.mode}
+              onChange={(event) =>
+                setCryptoOptions({
+                  mode: event.target.value,
+                  sign: false,
+                  encrypt: event.target.value !== "none",
+                })
+              }
+            >
+              <option value="none">{t("Ohne Ende-zu-Ende-Schutz")}</option>
+              <option value="pgp">OpenPGP</option>
+              <option value="smime">S/MIME</option>
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                disabled={cryptoOptions.mode === "none"}
+                checked={cryptoOptions.sign}
+                onChange={(event) =>
+                  setCryptoOptions((current) => ({
+                    ...current,
+                    sign: event.target.checked,
+                  }))
+                }
+              />{" "}
+              {t("Signieren")}
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                disabled={cryptoOptions.mode === "none"}
+                checked={cryptoOptions.encrypt}
+                onChange={(event) =>
+                  setCryptoOptions((current) => ({
+                    ...current,
+                    encrypt: event.target.checked,
+                  }))
+                }
+              />{" "}
+              {t("Verschlüsseln")}
+            </label>
           </div>
           <textarea
             className="compose-body"

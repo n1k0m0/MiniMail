@@ -30,6 +30,13 @@ db.exec(`
     vpn_profile TEXT NOT NULL DEFAULT '',
     sender_name TEXT NOT NULL DEFAULT '',
     signature TEXT NOT NULL DEFAULT '',
+    pgp_private_enc TEXT,
+    pgp_passphrase_enc TEXT,
+    smime_cert TEXT,
+    smime_key_enc TEXT,
+    crypto_mode TEXT NOT NULL DEFAULT 'none',
+    crypto_sign_default INTEGER NOT NULL DEFAULT 0,
+    crypto_encrypt_default INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
   CREATE TABLE IF NOT EXISTS contacts (
@@ -37,6 +44,7 @@ db.exec(`
     name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL COLLATE NOCASE,
     source TEXT NOT NULL DEFAULT 'manual', created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    pgp_public TEXT, smime_cert TEXT,
     UNIQUE(user_id, email), FOREIGN KEY(user_id) REFERENCES users(id)
   );
   CREATE INDEX IF NOT EXISTS contacts_user_name ON contacts(user_id, name);
@@ -100,6 +108,28 @@ if (!accountColumns.has("sender_name"))
   );
 if (!accountColumns.has("signature"))
   db.exec("ALTER TABLE accounts ADD COLUMN signature TEXT NOT NULL DEFAULT ''");
+for (const [column, definition] of Object.entries({
+  pgp_private_enc: "TEXT",
+  pgp_passphrase_enc: "TEXT",
+  smime_cert: "TEXT",
+  smime_key_enc: "TEXT",
+  crypto_mode: "TEXT NOT NULL DEFAULT 'none'",
+  crypto_sign_default: "INTEGER NOT NULL DEFAULT 0",
+  crypto_encrypt_default: "INTEGER NOT NULL DEFAULT 0",
+})) {
+  if (!accountColumns.has(column))
+    db.exec(`ALTER TABLE accounts ADD COLUMN ${column} ${definition}`);
+}
+const contactColumns = new Set(
+  db
+    .prepare("PRAGMA table_info(contacts)")
+    .all()
+    .map((column) => column.name),
+);
+if (!contactColumns.has("pgp_public"))
+  db.exec("ALTER TABLE contacts ADD COLUMN pgp_public TEXT");
+if (!contactColumns.has("smime_cert"))
+  db.exec("ALTER TABLE contacts ADD COLUMN smime_cert TEXT");
 db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_per_user ON accounts(user_id) WHERE is_primary=1",
 );

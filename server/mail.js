@@ -1,11 +1,11 @@
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
-import { simpleParser } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { decrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
 import { groupMessages, messageReferences } from "./threading.js";
 import { vpnProxy } from "./vpn.js";
+import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
 
 function settings(account) {
   const password = account.password_enc
@@ -231,7 +231,7 @@ export async function listMessages(
   });
 }
 
-async function parsedMessage(client, uid) {
+async function parsedMessage(client, uid, account) {
   const metadata = await client.fetchOne(
     uid,
     { uid: true, size: true },
@@ -252,14 +252,14 @@ async function parsedMessage(client, uid) {
     throw new Error(
       "Diese Nachricht ist für die Webansicht zu groß (über 25 MB).",
     );
-  const parsed = await simpleParser(item.source);
-  return { item, parsed };
+  const { parsed, security } = await inspectIncoming(account, item.source);
+  return { item, parsed, security };
 }
 export async function getMessage(account, folder, uid) {
   return inFolder(account, folder, async (client) => {
-    const result = await parsedMessage(client, uid);
+    const result = await parsedMessage(client, uid, account);
     if (!result) return null;
-    const { item, parsed } = result;
+    const { item, parsed, security } = result;
     return {
       uid: item.uid,
       subject: parsed.subject || "(Kein Betreff)",
@@ -275,6 +275,7 @@ export async function getMessage(account, folder, uid) {
       to: address(parsed.to?.value),
       cc: address(parsed.cc?.value),
       bcc: address(parsed.bcc?.value),
+      security,
       text: parsed.text || "",
       html: parsed.html
         ? sanitizeHtml(parsed.html, {
@@ -310,8 +311,28 @@ export async function getMessage(account, folder, uid) {
 }
 export async function getAttachment(account, folder, uid, index) {
   return inFolder(account, folder, async (client) => {
-    const result = await parsedMessage(client, uid);
+    const result = await parsedMessage(client, uid, account);
     return result?.parsed.attachments[index] || null;
+  });
+}
+export async function getMessageSource(account, folder, uid) {
+  return inFolder(account, folder, async (client) => {
+    const metadata = await client.fetchOne(
+      uid,
+      { uid: true, size: true },
+      { uid: true },
+    );
+    if (!metadata) return null;
+    if (metadata.size > 25 * 1024 * 1024)
+      throw new Error(
+        "Diese Nachricht ist für die Quelltextansicht zu groß (über 25 MB).",
+      );
+    const item = await client.fetchOne(
+      uid,
+      { uid: true, source: true },
+      { uid: true },
+    );
+    return item?.source || null;
   });
 }
 export async function updateFlags(account, folder, uid, flags) {
@@ -397,9 +418,14 @@ export async function sendMessage(account, mail) {
       content: Buffer.from(file.data, "base64"),
     })),
   };
+  const protectedMessage = await protectOutgoing(account, mail, outgoing);
   let info;
   try {
-    info = await transporter.sendMail(outgoing);
+    info = await transporter.sendMail(
+      protectedMessage
+        ? { raw: protectedMessage.smtpRaw, envelope: protectedMessage.envelope }
+        : outgoing,
+    );
   } finally {
     transporter.close();
   }
@@ -410,25 +436,30 @@ export async function sendMessage(account, mail) {
         folders.find((item) => item.specialUse === "\\Sent")?.path ||
         folders.find((item) => /^sent$/i.test(item.name))?.path;
       if (sent) {
-        const raw = await new Promise((resolve, reject) => {
-          nodemailer
-            .createTransport({
-              streamTransport: true,
-              buffer: true,
-              disableFileAccess: true,
-              disableUrlAccess: true,
-            })
-            .sendMail(
-              { ...outgoing, messageId: info.messageId },
-              (error, result) =>
-                error ? reject(error) : resolve(result.message),
-            );
-        });
+        const raw =
+          protectedMessage?.sentRaw ||
+          (await new Promise((resolve, reject) => {
+            nodemailer
+              .createTransport({
+                streamTransport: true,
+                buffer: true,
+                disableFileAccess: true,
+                disableUrlAccess: true,
+              })
+              .sendMail(
+                {
+                  ...outgoing,
+                  messageId: protectedMessage?.messageId || info.messageId,
+                },
+                (error, result) =>
+                  error ? reject(error) : resolve(result.message),
+              );
+          }));
         await client.append(sent, raw, ["\\Seen"]);
       }
     });
   } catch {
     /* SMTP succeeded; some servers store Sent automatically or disallow APPEND. */
   }
-  return { messageId: info.messageId };
+  return { messageId: protectedMessage?.messageId || info.messageId };
 }

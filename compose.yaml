@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
+      - /tmp:rw,noexec,nosuid,size=128m
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -3,6 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
+import { CryptoInputError } from "./protectedMail.js";
+import {
+  validatePgpPrivate,
+  validatePgpPublic,
+  validateSmimeCertificate,
+  validateSmimeIdentity,
+  readPkcs12,
+} from "./cryptoKeys.js";
 import { collectSentRecipients, validContact } from "./contacts.js";
 import { startMailChecks } from "./mailCheck.js";
 import { vpnProfiles } from "./vpn.js";
@@ -21,6 +29,7 @@ import {
   listFolders,
   listMessages,
   getMessage,
+  getMessageSource,
   getAttachment,
   updateFlags,
   markFolderRead,
@@ -73,6 +82,8 @@ app.use((req, res, next) => {
   next();
 });
 app.use("/api/accounts/:id/send", express.json({ limit: "12mb" }));
+app.use("/api/accounts/:id/crypto", express.json({ limit: "2mb" }));
+app.use("/api/contacts/:id/crypto", express.json({ limit: "512kb" }));
 app.use(express.json({ limit: "64kb" }));
 const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res)).catch(next);
@@ -273,19 +284,38 @@ app.get("/api/contacts", (req, res) => {
     return res.status(400).json({ error: "Suchbegriff zu lang." });
   const contacts = db
     .prepare(
-      "SELECT id,name,email,source FROM contacts WHERE user_id=? ORDER BY name COLLATE NOCASE, email COLLATE NOCASE",
+      "SELECT * FROM contacts WHERE user_id=? ORDER BY name COLLATE NOCASE, email COLLATE NOCASE",
     )
     .all(req.user.id);
   res.json(
-    query
+    (query
       ? contacts.filter((item) =>
           `${item.name} ${item.email}`
             .toLocaleLowerCase()
             .includes(query.toLocaleLowerCase()),
         )
-      : contacts,
+      : contacts
+    ).map(publicContact),
   );
 });
+
+function publicContact(contact) {
+  const { pgp_public, smime_cert, user_id, created_at, updated_at, ...rest } =
+    contact;
+  return {
+    ...rest,
+    hasPgpKey: !!pgp_public,
+    hasSmimeCertificate: !!smime_cert,
+  };
+}
+
+function contactFor(req, res) {
+  const contact = db
+    .prepare("SELECT * FROM contacts WHERE id=? AND user_id=?")
+    .get(Number(req.params.id), req.user.id);
+  if (!contact) res.status(404).json({ error: "Kontakt nicht gefunden." });
+  return contact;
+}
 
 app.post("/api/contacts", (req, res) => {
   const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
@@ -304,9 +334,11 @@ app.post("/api/contacts", (req, res) => {
     res
       .status(201)
       .json(
-        db
-          .prepare("SELECT id,name,email,source FROM contacts WHERE id=?")
-          .get(result.lastInsertRowid),
+        publicContact(
+          db
+            .prepare("SELECT * FROM contacts WHERE id=?")
+            .get(result.lastInsertRowid),
+        ),
       );
   } catch (error) {
     if (
@@ -329,6 +361,11 @@ app.put("/api/contacts/:id", (req, res) => {
     return res
       .status(400)
       .json({ error: "Name oder E-Mail-Adresse ungültig." });
+  const previous = db
+    .prepare("SELECT * FROM contacts WHERE id=? AND user_id=?")
+    .get(id, req.user.id);
+  if (!previous)
+    return res.status(404).json({ error: "Kontakt nicht gefunden." });
   try {
     const result = db
       .prepare(
@@ -337,10 +374,12 @@ app.put("/api/contacts/:id", (req, res) => {
       .run(name, email, Date.now(), id, req.user.id);
     if (!result.changes)
       return res.status(404).json({ error: "Kontakt nicht gefunden." });
+    if (previous.email.toLowerCase() !== email.toLowerCase())
+      db.prepare(
+        "UPDATE contacts SET pgp_public=NULL,smime_cert=NULL WHERE id=? AND user_id=?",
+      ).run(id, req.user.id);
     res.json(
-      db
-        .prepare("SELECT id,name,email,source FROM contacts WHERE id=?")
-        .get(id),
+      publicContact(db.prepare("SELECT * FROM contacts WHERE id=?").get(id)),
     );
   } catch (error) {
     if (
@@ -363,6 +402,56 @@ app.delete("/api/contacts/:id", (req, res) => {
     .run(id, req.user.id);
   if (!result.changes)
     return res.status(404).json({ error: "Kontakt nicht gefunden." });
+  res.json({ ok: true });
+});
+
+app.put(
+  "/api/contacts/:id/crypto/:kind",
+  asyncRoute(async (req, res) => {
+    const contact = contactFor(req, res);
+    if (!contact) return;
+    const kind = req.params.kind;
+    try {
+      if (kind === "pgp") {
+        const key = String(req.body?.publicKey || "");
+        const { fingerprint } = await validatePgpPublic(key, contact.email);
+        db.prepare(
+          "UPDATE contacts SET pgp_public=?,updated_at=? WHERE id=? AND user_id=?",
+        ).run(key, Date.now(), contact.id, req.user.id);
+        return res.json({ ok: true, fingerprint });
+      }
+      if (kind === "smime") {
+        const certificate = String(req.body?.certificate || "");
+        const { fingerprint } = validateSmimeCertificate(
+          certificate,
+          contact.email,
+        );
+        db.prepare(
+          "UPDATE contacts SET smime_cert=?,updated_at=? WHERE id=? AND user_id=?",
+        ).run(certificate, Date.now(), contact.id, req.user.id);
+        return res.json({ ok: true, fingerprint });
+      }
+      return res.status(404).json({ error: "Verfahren nicht gefunden." });
+    } catch {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Schlüssel oder Zertifikat ist ungültig oder passt nicht zur Adresse.",
+        });
+    }
+  }),
+);
+
+app.delete("/api/contacts/:id/crypto/:kind", (req, res) => {
+  const contact = contactFor(req, res);
+  if (!contact) return;
+  const column = { pgp: "pgp_public", smime: "smime_cert" }[req.params.kind];
+  if (!column)
+    return res.status(404).json({ error: "Verfahren nicht gefunden." });
+  db.prepare(
+    `UPDATE contacts SET ${column}=NULL,updated_at=? WHERE id=? AND user_id=?`,
+  ).run(Date.now(), contact.id, req.user.id);
   res.json({ ok: true });
 });
 
@@ -437,9 +526,22 @@ app.post("/api/admin/users/:id/reset-2fa", adminOnly, (req, res) => {
 });
 
 function publicAccount(account) {
-  const { password_enc, smtp_password_enc, user_id, ...rest } = account;
+  const {
+    password_enc,
+    smtp_password_enc,
+    pgp_private_enc,
+    pgp_passphrase_enc,
+    smime_key_enc,
+    smime_cert,
+    user_id,
+    ...rest
+  } = account;
   return {
     ...rest,
+    hasPgpKey: !!pgp_private_enc,
+    hasSmimeCertificate: !!smime_cert && !!smime_key_enc,
+    cryptoSignDefault: !!rest.crypto_sign_default,
+    cryptoEncryptDefault: !!rest.crypto_encrypt_default,
     imap_secure: !!rest.imap_secure,
     smtp_secure: !!rest.smtp_secure,
     check_failed: !!rest.check_failed,
@@ -455,6 +557,125 @@ function accountFor(req, res) {
   if (!account) res.status(404).json({ error: "Postfach nicht gefunden." });
   return account;
 }
+app.get("/api/accounts/:id/crypto", (req, res) => {
+  const account = accountFor(req, res);
+  if (!account) return;
+  res.json({
+    mode: account.crypto_mode,
+    sign: !!account.crypto_sign_default,
+    encrypt: !!account.crypto_encrypt_default,
+    hasPgpKey: !!account.pgp_private_enc,
+    hasSmimeCertificate: !!account.smime_cert && !!account.smime_key_enc,
+  });
+});
+app.patch("/api/accounts/:id/crypto", (req, res) => {
+  const account = accountFor(req, res);
+  if (!account) return;
+  const { mode, sign, encrypt: encryptMail } = req.body || {};
+  if (
+    !["none", "pgp", "smime"].includes(mode) ||
+    typeof sign !== "boolean" ||
+    typeof encryptMail !== "boolean" ||
+    (mode === "none" && (sign || encryptMail)) ||
+    (mode !== "none" && !sign && !encryptMail)
+  )
+    return res
+      .status(400)
+      .json({ error: "Ungültige Verschlüsselungseinstellung." });
+  if ((sign || encryptMail) && mode === "pgp" && !account.pgp_private_enc)
+    return res.status(400).json({ error: "OpenPGP-Privatschlüssel fehlt." });
+  if (
+    (sign || encryptMail) &&
+    mode === "smime" &&
+    (!account.smime_cert || !account.smime_key_enc)
+  )
+    return res
+      .status(400)
+      .json({ error: "S/MIME-Zertifikat mit Privatschlüssel fehlt." });
+  db.prepare(
+    "UPDATE accounts SET crypto_mode=?,crypto_sign_default=?,crypto_encrypt_default=? WHERE id=? AND user_id=?",
+  ).run(mode, Number(sign), Number(encryptMail), account.id, req.user.id);
+  res.json({ mode, sign, encrypt: encryptMail });
+});
+app.put(
+  "/api/accounts/:id/crypto/pgp",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const privateKey = req.body?.privateKey;
+    const passphrase = req.body?.passphrase || "";
+    if (typeof passphrase !== "string" || passphrase.length > 4096)
+      return res.status(400).json({ error: "Ungültige Schlüsselpassphrase." });
+    try {
+      const { fingerprint } = await validatePgpPrivate(
+        privateKey,
+        passphrase,
+        account.email,
+      );
+      db.prepare(
+        "UPDATE accounts SET pgp_private_enc=?,pgp_passphrase_enc=? WHERE id=? AND user_id=?",
+      ).run(encrypt(privateKey), encrypt(passphrase), account.id, req.user.id);
+      res.json({ ok: true, fingerprint });
+    } catch {
+      res
+        .status(400)
+        .json({
+          error:
+            "OpenPGP-Privatschlüssel oder Passphrase ist ungültig oder passt nicht zum Postfach.",
+        });
+    }
+  }),
+);
+app.put(
+  "/api/accounts/:id/crypto/smime",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const b = req.body || {};
+    if (typeof b.passphrase !== "string" || b.passphrase.length > 4096)
+      return res.status(400).json({ error: "Ungültige Schlüsselpassphrase." });
+    try {
+      const identity = b.pkcs12Base64
+        ? await readPkcs12(b.pkcs12Base64, b.passphrase, account.email)
+        : validateSmimeIdentity(
+            b.certificate,
+            b.privateKey,
+            b.passphrase,
+            account.email,
+          );
+      db.prepare(
+        "UPDATE accounts SET smime_cert=?,smime_key_enc=? WHERE id=? AND user_id=?",
+      ).run(
+        identity.certificate,
+        encrypt(identity.privateKey),
+        account.id,
+        req.user.id,
+      );
+      res.json({ ok: true, fingerprint: identity.fingerprint });
+    } catch {
+      res
+        .status(400)
+        .json({
+          error:
+            "S/MIME-Datei, Zertifikat oder Passphrase ist ungültig oder passt nicht zum Postfach.",
+        });
+    }
+  }),
+);
+app.delete("/api/accounts/:id/crypto/:kind", (req, res) => {
+  const account = accountFor(req, res);
+  if (!account) return;
+  if (req.params.kind === "pgp")
+    db.prepare(
+      "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,crypto_mode=CASE WHEN crypto_mode='pgp' THEN 'none' ELSE crypto_mode END,crypto_sign_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_encrypt_default END WHERE id=? AND user_id=?",
+    ).run(account.id, req.user.id);
+  else if (req.params.kind === "smime")
+    db.prepare(
+      "UPDATE accounts SET smime_cert=NULL,smime_key_enc=NULL,crypto_mode=CASE WHEN crypto_mode='smime' THEN 'none' ELSE crypto_mode END,crypto_sign_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_encrypt_default END WHERE id=? AND user_id=?",
+    ).run(account.id, req.user.id);
+  else return res.status(404).json({ error: "Verfahren nicht gefunden." });
+  res.json({ ok: true });
+});
 class AccountInputError extends Error {}
 function validateAccount(body, role) {
   const fields = ["name", "email", "imap_host", "smtp_host", "username"];
@@ -622,6 +843,10 @@ app.put(
       b.signature === undefined ? existing.signature : b.signature,
       existing.id,
     );
+    if (existing.email.toLowerCase() !== b.email.trim().toLowerCase())
+      db.prepare(
+        "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,smime_cert=NULL,smime_key_enc=NULL,crypto_mode='none',crypto_sign_default=0,crypto_encrypt_default=0 WHERE id=? AND user_id=?",
+      ).run(existing.id, req.user.id);
     res.json(
       publicAccount(
         db.prepare("SELECT * FROM accounts WHERE id=?").get(existing.id),
@@ -721,6 +946,21 @@ app.get(
     if (!message)
       return res.status(404).json({ error: "Nachricht nicht gefunden." });
     res.json(message);
+  }),
+);
+app.get(
+  "/api/accounts/:id/messages/:uid/source",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const raw = await getMessageSource(
+      account,
+      folder(req),
+      Number(req.params.uid),
+    );
+    if (!raw)
+      return res.status(404).json({ error: "Nachricht nicht gefunden." });
+    res.type("text/plain; charset=utf-8").send(raw.toString("utf8"));
   }),
 );
 app.get(
@@ -829,6 +1069,18 @@ function validOutgoingMail(mail) {
         ))) ||
     typeof mail.text !== "string" ||
     mail.text.length > 500000 ||
+    (mail.crypto !== undefined &&
+      (!mail.crypto ||
+        typeof mail.crypto !== "object" ||
+        Array.isArray(mail.crypto) ||
+        !["none", "pgp", "smime"].includes(mail.crypto.mode) ||
+        typeof mail.crypto.sign !== "boolean" ||
+        typeof mail.crypto.encrypt !== "boolean" ||
+        (mail.crypto.mode === "none" &&
+          (mail.crypto.sign || mail.crypto.encrypt)) ||
+        (mail.crypto.mode !== "none" &&
+          !mail.crypto.sign &&
+          !mail.crypto.encrypt))) ||
     (mail.attachments !== undefined && !Array.isArray(mail.attachments))
   )
     return false;
@@ -869,11 +1121,32 @@ app.post(
   asyncRoute(async (req, res) => {
     const account = accountFor(req, res);
     if (!account) return;
-    const b = req.body || {};
+    const b = {
+      ...(req.body || {}),
+      crypto: req.body?.crypto ?? {
+        mode: account.crypto_mode,
+        sign: !!account.crypto_sign_default,
+        encrypt: !!account.crypto_encrypt_default,
+      },
+    };
     if (!validOutgoingMail(b))
       return res
         .status(400)
         .json({ error: "Empfänger, Nachricht oder Anhänge sind ungültig." });
+    if (
+      (b.crypto.sign || b.crypto.encrypt) &&
+      b.crypto.mode === "pgp" &&
+      !account.pgp_private_enc
+    )
+      return res.status(400).json({ error: "OpenPGP-Privatschlüssel fehlt." });
+    if (
+      (b.crypto.sign || b.crypto.encrypt) &&
+      b.crypto.mode === "smime" &&
+      (!account.smime_cert || !account.smime_key_enc)
+    )
+      return res
+        .status(400)
+        .json({ error: "S/MIME-Zertifikat mit Privatschlüssel fehlt." });
     const result = await sendMessage(account, b);
     res.json(result);
     if (req.user.collect_recipients) {
@@ -900,7 +1173,7 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
-  if (error instanceof AccountInputError)
+  if (error instanceof AccountInputError || error instanceof CryptoInputError)
     return res.status(400).json({ error: error.message });
   if (error.type === "entity.too.large")
     return res.status(413).json({ error: "Die Anfrage ist zu groß." });

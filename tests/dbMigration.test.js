@@ -59,5 +59,39 @@ test("existing mailboxes get one primary mailbox per user", async () => {
       },
     ],
   );
+  const accountColumns = new Set(
+    migrated
+      .prepare("PRAGMA table_info(accounts)")
+      .all()
+      .map((item) => item.name),
+  );
+  for (const column of [
+    "pgp_private_enc",
+    "pgp_passphrase_enc",
+    "smime_cert",
+    "smime_key_enc",
+    "crypto_mode",
+    "crypto_sign_default",
+    "crypto_encrypt_default",
+  ])
+    assert.ok(accountColumns.has(column), column);
+  assert.deepEqual(
+    {
+      ...migrated
+        .prepare(
+          "SELECT crypto_mode,crypto_sign_default,crypto_encrypt_default FROM accounts WHERE id=10",
+        )
+        .get(),
+    },
+    { crypto_mode: "none", crypto_sign_default: 0, crypto_encrypt_default: 0 },
+  );
+  const contactColumns = new Set(
+    migrated
+      .prepare("PRAGMA table_info(contacts)")
+      .all()
+      .map((item) => item.name),
+  );
+  assert.ok(contactColumns.has("pgp_public"));
+  assert.ok(contactColumns.has("smime_cert"));
   migrated.close();
 });
