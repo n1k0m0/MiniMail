@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
+import { clearAccountIndex } from "./mailIndex.js";
 import { CryptoInputError, encryptionAvailability } from "./protectedMail.js";
 import {
   validatePgpPrivate,
@@ -884,6 +885,7 @@ app.put(
       b.signature === undefined ? existing.signature : b.signature,
       existing.id,
     );
+    clearAccountIndex(db, existing.id);
     if (existing.email.toLowerCase() !== b.email.trim().toLowerCase())
       db.prepare(
         "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,smime_cert=NULL,smime_key_enc=NULL,crypto_mode='none',crypto_sign_default=0,crypto_encrypt_default=0 WHERE id=? AND user_id=?",
@@ -919,6 +921,7 @@ app.delete("/api/accounts/:id", (req, res) => {
   if (!account) return;
   db.exec("BEGIN IMMEDIATE");
   try {
+    clearAccountIndex(db, account.id);
     db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
     if (account.is_primary)
       db.prepare(

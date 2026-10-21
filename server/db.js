@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { initializeMailIndex } from "./mailIndex.js";
 
 const dataDir = path.resolve("data");
 fs.mkdirSync(dataDir, { recursive: true });
@@ -49,6 +50,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS contacts_user_name ON contacts(user_id, name);
 `);
+initializeMailIndex(db);
 const userColumns = new Set(
   db
     .prepare("PRAGMA table_info(users)")

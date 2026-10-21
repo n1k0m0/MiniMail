@@ -1,11 +1,20 @@
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import sanitizeHtml from "sanitize-html";
-import { decrypt } from "./security.js";
+import { decrypt, encrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
-import { groupMessages, messageReferences } from "./threading.js";
+import { groupMessages } from "./threading.js";
 import { vpnProxy } from "./vpn.js";
 import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
+import { db } from "./db.js";
+import {
+  clearFolderIndex,
+  indexedMessages,
+  markIndexedFolderRead,
+  removeIndexedMessage,
+  syncThreadIndex,
+  updateIndexedFlags,
+} from "./mailIndex.js";
 
 function settings(account) {
   const password = account.password_enc
@@ -144,6 +153,67 @@ export async function listMessages(
   threaded = false,
 ) {
   return inFolder(account, folder, async (client) => {
+    const path = folder || "INBOX";
+    const pageSize = 60;
+    if (threaded) {
+      await syncThreadIndex(db, account.id, path, client, summary);
+      const items = indexedMessages(db, account.id, path);
+      const matches = query
+        ? (await client.search(
+            {
+              or: [
+                { subject: query },
+                { from: query },
+                { to: query },
+                { body: query },
+              ],
+            },
+            { uid: true },
+          )) || []
+        : null;
+      const matchSet = matches ? new Set(matches) : null;
+      const groups = groupMessages(items).filter(
+        (group) =>
+          !matchSet || group.thread.some((member) => matchSet.has(member.uid)),
+      );
+      const visible = groups.slice(page * pageSize, (page + 1) * pageSize);
+      const missingDetails = visible.filter((group) => group.size == null);
+      if (missingDetails.length) {
+        const detail = await client.fetchAll(
+          missingDetails.map((group) => group.uid),
+          { uid: true, size: true, bodyStructure: true },
+          { uid: true },
+        );
+        const byUid = new Map(detail.map((item) => [item.uid, summary(item)]));
+        const update = db.prepare(
+          "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
+        );
+        const byIndexedUid = new Map(items.map((item) => [item.uid, item]));
+        for (const group of visible) {
+          const extra = byUid.get(group.uid);
+          if (!extra) continue;
+          group.size = extra.size;
+          group.hasAttachments = extra.hasAttachments;
+          const indexed = byIndexedUid.get(group.uid);
+          if (indexed) {
+            indexed.size = extra.size;
+            indexed.hasAttachments = extra.hasAttachments;
+            update.run(
+              encrypt(JSON.stringify(indexed)),
+              account.id,
+              path,
+              group.uid,
+            );
+          }
+        }
+      }
+      return {
+        messages: visible,
+        total: groups.length,
+        messageTotal: matches ? matches.length : items.length,
+        page,
+      };
+    }
     const criteria = query
       ? {
           or: [
@@ -156,58 +226,6 @@ export async function listMessages(
       : { all: true };
     const matches = (await client.search(criteria, { uid: true })) || [];
     const sorted = [...matches].sort((a, b) => b - a);
-    const pageSize = 60;
-    if (threaded) {
-      if (!sorted.length)
-        return { messages: [], total: 0, messageTotal: 0, page };
-      const matchSet = new Set(matches);
-      const items = [];
-      for await (const item of client.fetch(
-        "1:*",
-        {
-          uid: true,
-          envelope: true,
-          flags: true,
-          internalDate: true,
-          headers: ["references"],
-          threadId: true,
-        },
-        { uid: true },
-      )) {
-        items.push({
-          ...summary(item),
-          messageId: item.envelope?.messageId,
-          inReplyTo: item.envelope?.inReplyTo,
-          references: messageReferences(item.headers),
-          threadId: item.threadId,
-        });
-      }
-      const groups = groupMessages(items).filter((group) =>
-        group.thread.some((member) => matchSet.has(member.uid)),
-      );
-      const visible = groups.slice(page * pageSize, (page + 1) * pageSize);
-      if (visible.length) {
-        const detail = await client.fetchAll(
-          visible.map((group) => group.uid),
-          { uid: true, size: true, bodyStructure: true },
-          { uid: true },
-        );
-        const byUid = new Map(detail.map((item) => [item.uid, summary(item)]));
-        for (const group of visible) {
-          const extra = byUid.get(group.uid);
-          if (extra) {
-            group.size = extra.size;
-            group.hasAttachments = extra.hasAttachments;
-          }
-        }
-      }
-      return {
-        messages: visible,
-        total: groups.length,
-        messageTotal: sorted.length,
-        page,
-      };
-    }
     const uids = sorted.slice(page * pageSize, (page + 1) * pageSize);
     if (!uids.length) return { messages: [], total: sorted.length, page };
     const messages = await client.fetchAll(
@@ -336,7 +354,7 @@ export async function getMessageSource(account, folder, uid) {
   });
 }
 export async function updateFlags(account, folder, uid, flags) {
-  return inFolder(account, folder, async (client) => {
+  const result = await inFolder(account, folder, async (client) => {
     for (const [flag, enabled] of Object.entries(flags)) {
       const imapFlag =
         flag === "seen" ? "\\Seen" : flag === "flagged" ? "\\Flagged" : null;
@@ -345,19 +363,25 @@ export async function updateFlags(account, folder, uid, flags) {
       else await client.messageFlagsRemove(uid, [imapFlag], { uid: true });
     }
   });
+  updateIndexedFlags(db, account.id, folder || "INBOX", uid, flags);
+  return result;
 }
 export async function markFolderRead(account, folder) {
-  return inFolder(account, folder, (client) =>
+  const result = await inFolder(account, folder, (client) =>
     client.messageFlagsAdd({ seen: false }, ["\\Seen"]),
   );
+  markIndexedFolderRead(db, account.id, folder || "INBOX");
+  return result;
 }
 export async function moveMessage(account, folder, uid, destination) {
-  return inFolder(account, folder, (client) =>
+  const result = await inFolder(account, folder, (client) =>
     client.messageMove(uid, destination, { uid: true }),
   );
+  removeIndexedMessage(db, account.id, folder || "INBOX", uid);
+  return result;
 }
 export async function deleteMessage(account, folder, uid) {
-  return withImap(account, async (client) => {
+  const result = await withImap(account, async (client) => {
     const folders = await client.list();
     const trash =
       folders.find((item) => item.specialUse === "\\Trash")?.path ||
@@ -372,9 +396,11 @@ export async function deleteMessage(account, folder, uid) {
       lock.release();
     }
   });
+  removeIndexedMessage(db, account.id, folder || "INBOX", uid);
+  return result;
 }
 export async function emptyTrash(account, folder) {
-  return withImap(account, async (client) => {
+  const result = await withImap(account, async (client) => {
     const target = (await client.list()).find((item) => item.path === folder);
     if (!target || target.flags?.has("\\Noselect") || !isTrashFolder(target))
       return null;
@@ -388,6 +414,8 @@ export async function emptyTrash(account, folder) {
       lock.release();
     }
   });
+  if (result !== null) clearFolderIndex(db, account.id, folder);
+  return result;
 }
 export async function sendMessage(account, mail) {
   const a = settings(account);
