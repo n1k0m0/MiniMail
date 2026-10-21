@@ -3173,7 +3173,7 @@ function ComposeModal({
                 Bcc
               </button>
             </div>
-            {showCc && (
+            {(showCc || !!cc.trim()) && (
               <div className="compose-field">
                 <span>{t("Cc")}</span>
                 <RecipientInput
@@ -3185,7 +3185,7 @@ function ComposeModal({
                 />
               </div>
             )}
-            {showBcc && (
+            {(showBcc || !!bcc.trim()) && (
               <div className="compose-field">
                 <span>Bcc</span>
                 <RecipientInput
