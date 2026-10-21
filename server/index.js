@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
 import { db } from "./db.js";
-import { CryptoInputError } from "./protectedMail.js";
+import { CryptoInputError, encryptionAvailability } from "./protectedMail.js";
 import {
   validatePgpPrivate,
   validatePgpPublic,
@@ -574,6 +574,34 @@ app.get("/api/accounts/:id/crypto", (req, res) => {
       !certificateIsCurrent(new crypto.X509Certificate(account.smime_cert)),
   });
 });
+app.post(
+  "/api/accounts/:id/crypto/availability",
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const { to = "", cc = "", bcc = "", mode } = req.body || {};
+    if (
+      !["pgp", "smime"].includes(mode) ||
+      [to, cc, bcc].some(
+        (value) =>
+          typeof value !== "string" ||
+          value.length > 4096 ||
+          /[\r\n]/.test(value),
+      )
+    )
+      return res.status(400).json({
+        error: "Ungültige Empfänger oder Verschlüsselungseinstellung.",
+      });
+    res.json(
+      await encryptionAvailability(account, {
+        to,
+        cc,
+        bcc,
+        crypto: { mode },
+      }),
+    );
+  }),
+);
 app.patch("/api/accounts/:id/crypto", (req, res) => {
   const account = accountFor(req, res);
   if (!account) return;
@@ -1088,7 +1116,7 @@ function validOutgoingMail(mail) {
         Array.isArray(mail.crypto) ||
         !["none", "pgp", "smime"].includes(mail.crypto.mode) ||
         typeof mail.crypto.sign !== "boolean" ||
-        typeof mail.crypto.encrypt !== "boolean" ||
+        ![true, false, "auto"].includes(mail.crypto.encrypt) ||
         (mail.crypto.mode === "none" &&
           (mail.crypto.sign || mail.crypto.encrypt)) ||
         (mail.crypto.mode !== "none" &&
@@ -1139,7 +1167,7 @@ app.post(
       crypto: req.body?.crypto ?? {
         mode: account.crypto_mode,
         sign: !!account.crypto_sign_default,
-        encrypt: !!account.crypto_encrypt_default,
+        encrypt: account.crypto_encrypt_default ? "auto" : false,
       },
     };
     if (!validOutgoingMail(b))

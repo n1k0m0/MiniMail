@@ -145,14 +145,63 @@ async function recipientMaterial(account, mail, column) {
           .toPublic()
           .armor();
     }
+    if (key) {
+      try {
+        if (column === "pgp_public")
+          await (await openpgp.readKey({ armoredKey: key })).getEncryptionKey();
+        else if (!certificateIsCurrent(new crypto.X509Certificate(key)))
+          key = null;
+      } catch {
+        key = null;
+      }
+    }
     if (!key) missing.push(email);
     else material.push(key);
   }
-  if (missing.length)
-    throw new CryptoInputError(
+  if (missing.length) {
+    const error = new CryptoInputError(
       `Für diese Empfänger fehlt ein ${column === "pgp_public" ? "OpenPGP-Schlüssel" : "S/MIME-Zertifikat"}: ${missing.join(", ")}`,
     );
+    error.missing = missing;
+    throw error;
+  }
   return material;
+}
+
+export async function encryptionAvailability(account, mail) {
+  if (!parseRecipients([mail.to, mail.cc, mail.bcc]).length)
+    return { available: false, reason: "Bitte zuerst Empfänger eingeben." };
+  try {
+    if (mail.crypto.mode === "pgp") {
+      const own = await unlockedPgp(account);
+      await own.getEncryptionKey();
+      await recipientMaterial(account, mail, "pgp_public");
+    } else if (mail.crypto.mode === "smime") {
+      if (!account.smime_cert || !account.smime_key_enc)
+        throw new CryptoInputError(
+          "S/MIME-Zertifikat mit Privatschlüssel fehlt.",
+        );
+      if (!certificateIsCurrent(new crypto.X509Certificate(account.smime_cert)))
+        throw new CryptoInputError(
+          "Das eigene S/MIME-Zertifikat ist abgelaufen.",
+        );
+      await recipientMaterial(account, mail, "smime_cert");
+    } else {
+      return {
+        available: false,
+        reason: "Kein Verschlüsselungsverfahren ausgewählt.",
+      };
+    }
+    return { available: true };
+  } catch (error) {
+    if (error instanceof CryptoInputError)
+      return {
+        available: false,
+        reason: error.message,
+        ...(error.missing ? { missing: error.missing } : {}),
+      };
+    throw error;
+  }
 }
 
 async function protectPgp(account, mail, content) {
@@ -262,7 +311,11 @@ async function protectSmime(account, mail, content) {
 }
 
 export async function protectOutgoing(account, mail, outgoing) {
-  const cryptoOptions = mail.crypto;
+  let cryptoOptions = mail.crypto;
+  if (cryptoOptions?.encrypt === "auto") {
+    const availability = await encryptionAvailability(account, mail);
+    cryptoOptions = { ...cryptoOptions, encrypt: availability.available };
+  }
   if (
     !cryptoOptions ||
     cryptoOptions.mode === "none" ||
@@ -280,8 +333,12 @@ export async function protectOutgoing(account, mail, outgoing) {
   const { headers, content } = mimeParts(generated.message);
   const mime =
     cryptoOptions.mode === "pgp"
-      ? await protectPgp(account, mail, content)
-      : await protectSmime(account, mail, content);
+      ? await protectPgp(account, { ...mail, crypto: cryptoOptions }, content)
+      : await protectSmime(
+          account,
+          { ...mail, crypto: cryptoOptions },
+          content,
+        );
   const messageId =
     /(?:^|\r\n)Message-ID:\s*(\S+)/i.exec(headers.join("\r\n"))?.[1] ||
     generated.messageId;

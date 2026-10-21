@@ -1769,6 +1769,7 @@ svg {
 }
 .compose-security {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 9px 22px;
@@ -1797,6 +1798,17 @@ svg {
 .compose-security input,
 .crypto-checks input {
   accent-color: #526dd2;
+}
+.compose-encryption-status {
+  flex-basis: 100%;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.compose-encryption-status.available {
+  color: #23825c;
+}
+.compose-encryption-status.unavailable {
+  color: #a45b37;
 }
 .message-security {
   display: flex;
@@ -1886,6 +1898,10 @@ svg {
 .crypto-checks {
   display: flex;
   gap: 18px;
+  flex-wrap: wrap;
+}
+.crypto-checks label {
+  white-space: normal;
 }
 .crypto-actions {
   display: flex;

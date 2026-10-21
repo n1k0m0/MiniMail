@@ -17,7 +17,7 @@ process.env.OPENSSL_BIN ||=
     : "openssl";
 const { db } = await import("../server/db.js");
 const { encrypt } = await import("../server/security.js");
-const { protectOutgoing, inspectIncoming } =
+const { protectOutgoing, inspectIncoming, encryptionAvailability } =
   await import("../server/protectedMail.js");
 const { readPkcs12, validateSmimeIdentity } =
   await import("../server/cryptoKeys.js");
@@ -91,6 +91,45 @@ test("OpenPGP signed and encrypted mail round-trips with authenticated content",
   const verified = await inspectIncoming(account, signed.sentRaw);
   assert.equal(verified.parsed.text.trim(), "Signed PGP body");
   assert.equal(verified.security.signature, "valid");
+  const autoEncrypted = await protectOutgoing(
+    account,
+    { ...mail, crypto: { mode: "pgp", sign: true, encrypt: "auto" } },
+    outgoing(account.email, mail.to, "Automatic PGP encryption"),
+  );
+  assert.match(autoEncrypted.smtpRaw.toString(), /multipart\/encrypted/);
+  assert.deepEqual(await encryptionAvailability(account, mail), {
+    available: true,
+  });
+  const autoSigned = await protectOutgoing(
+    account,
+    {
+      ...mail,
+      cc: "missing@example.test",
+      crypto: { mode: "pgp", sign: true, encrypt: "auto" },
+    },
+    outgoing(account.email, mail.to, "Automatic signing fallback"),
+  );
+  assert.match(autoSigned.smtpRaw.toString(), /multipart\/signed/);
+  assert.doesNotMatch(autoSigned.smtpRaw.toString(), /multipart\/encrypted/);
+  assert.deepEqual(
+    (
+      await encryptionAvailability(account, {
+        ...mail,
+        cc: "missing@example.test",
+      })
+    ).missing,
+    ["missing@example.test"],
+  );
+  const noProtection = await protectOutgoing(
+    account,
+    {
+      ...mail,
+      bcc: "missing@example.test",
+      crypto: { mode: "pgp", sign: false, encrypt: "auto" },
+    },
+    outgoing(account.email, mail.to, "No available encryption"),
+  );
+  assert.equal(noProtection, null);
   await assert.rejects(
     protectOutgoing(
       account,
@@ -226,6 +265,22 @@ test("S/MIME signed and encrypted mail round-trips without exposing plaintext", 
   );
   assert.equal(verified.parsed.text.trim(), "Signed S/MIME body");
   assert.equal(verified.security.signature, "untrusted");
+  const autoEncrypted = await protectOutgoing(
+    account,
+    { ...mail, crypto: { mode: "smime", sign: true, encrypt: "auto" } },
+    outgoing(account.email, mail.to, "Automatic S/MIME encryption"),
+  );
+  assert.match(autoEncrypted.smtpRaw.toString(), /application\/pkcs7-mime/);
+  const autoSigned = await protectOutgoing(
+    account,
+    {
+      ...mail,
+      bcc: "missing@example.test",
+      crypto: { mode: "smime", sign: true, encrypt: "auto" },
+    },
+    outgoing(account.email, mail.to, "Automatic S/MIME fallback"),
+  );
+  assert.match(autoSigned.smtpRaw.toString(), /multipart\/signed/);
   const opaqueInput = path.join(temp, "opaque-input.mime");
   const opaqueOutput = path.join(temp, "opaque-output.mime");
   await fs.writeFile(

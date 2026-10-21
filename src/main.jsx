@@ -3011,7 +3011,7 @@ function CryptoSettingsModal({ account, onClose, onChanged, setError }) {
                     }))
                   }
                 />{" "}
-                {t("Signieren")}
+                {t("Neue Nachrichten automatisch signieren")}
               </label>
               <label>
                 <input
@@ -3025,9 +3025,16 @@ function CryptoSettingsModal({ account, onClose, onChanged, setError }) {
                     }))
                   }
                 />{" "}
-                {t("Verschlüsseln")}
+                {t(
+                  "Automatisch verschlüsseln, wenn alle Empfänger Schlüssel haben",
+                )}
               </label>
             </div>
+            <p>
+              {t(
+                "Fehlt ein Empfängerschlüssel, wird ohne Verschlüsselung gesendet. Die Signatur bleibt aktiv, falls sie eingeschaltet ist.",
+              )}
+            </p>
             <button
               className="primary-button"
               disabled={busy}
@@ -3712,7 +3719,8 @@ function ComposeModal({
       replyMode &&
       (replyMode === "pgp"
         ? selectedAccount?.hasPgpKey
-        : selectedAccount?.hasSmimeCertificate)
+        : selectedAccount?.hasSmimeCertificate &&
+          !selectedAccount?.smimeCertificateExpired)
         ? replyMode
         : mode;
     return {
@@ -3721,7 +3729,9 @@ function ComposeModal({
       encrypt:
         !!replyMode && selectedMode === replyMode
           ? true
-          : selectedMode === mode && !!selectedAccount?.cryptoEncryptDefault,
+          : selectedMode === mode && !!selectedAccount?.cryptoEncryptDefault
+            ? "auto"
+            : false,
     };
   }
   const [cryptoOptions, setCryptoOptions] = useState(() =>
@@ -3730,6 +3740,35 @@ function ComposeModal({
   useEffect(() => {
     setCryptoOptions(cryptoForSender(senderAccount));
   }, [senderAccountId]);
+  const [encryptionStatus, setEncryptionStatus] = useState(null);
+  useEffect(() => {
+    if (
+      cryptoOptions.encrypt !== "auto" ||
+      cryptoOptions.mode === "none" ||
+      !senderAccount
+    ) {
+      setEncryptionStatus(null);
+      return;
+    }
+    const controller = new AbortController();
+    setEncryptionStatus({ checking: true });
+    const timer = setTimeout(() => {
+      api(`/accounts/${senderAccount.id}/crypto/availability`, {
+        method: "POST",
+        body: { to, cc, bcc, mode: cryptoOptions.mode },
+        signal: controller.signal,
+      })
+        .then(setEncryptionStatus)
+        .catch((error) => {
+          if (error.name !== "AbortError")
+            setEncryptionStatus({ available: false, reason: error.message });
+        });
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [senderAccountId, cryptoOptions.mode, cryptoOptions.encrypt, to, cc, bcc]);
   const signature = senderAccount?.signature?.trim() || "";
   const signatureText = signature
     ? `${signature.startsWith("-- ") ? "" : "-- \n"}${signature}`
@@ -3762,7 +3801,10 @@ function ComposeModal({
           subject,
           text: signatureText ? `${body.trimEnd()}\n\n${signatureText}` : body,
           attachments,
-          crypto: cryptoOptions,
+          crypto:
+            cryptoOptions.sign || cryptoOptions.encrypt
+              ? cryptoOptions
+              : { mode: "none", sign: false, encrypt: false },
           ...(reply && original?.messageId
             ? {
                 inReplyTo: original.messageId,
@@ -3890,7 +3932,7 @@ function ComposeModal({
                 setCryptoOptions({
                   mode: event.target.value,
                   sign: false,
-                  encrypt: event.target.value !== "none",
+                  encrypt: event.target.value === "none" ? false : "auto",
                 })
               }
             >
@@ -3913,19 +3955,50 @@ function ComposeModal({
               {t("Signieren")}
             </label>
             <label>
-              <input
-                type="checkbox"
+              {t("Verschlüsselung")}
+              <select
+                aria-label={t("Verschlüsselung")}
                 disabled={cryptoOptions.mode === "none"}
-                checked={cryptoOptions.encrypt}
+                value={
+                  cryptoOptions.encrypt === "auto"
+                    ? "auto"
+                    : cryptoOptions.encrypt
+                      ? "on"
+                      : "off"
+                }
                 onChange={(event) =>
                   setCryptoOptions((current) => ({
                     ...current,
-                    encrypt: event.target.checked,
+                    encrypt:
+                      event.target.value === "auto"
+                        ? "auto"
+                        : event.target.value === "on",
                   }))
                 }
-              />{" "}
-              {t("Verschlüsseln")}
+              >
+                <option value="off">{t("Aus")}</option>
+                <option value="auto">{t("Automatisch")}</option>
+                <option value="on">{t("Erzwingen")}</option>
+              </select>
             </label>
+            {cryptoOptions.encrypt === "auto" && (
+              <span
+                className={`compose-encryption-status${encryptionStatus?.available ? " available" : encryptionStatus && !encryptionStatus.checking ? " unavailable" : ""}`}
+                aria-live="polite"
+              >
+                {encryptionStatus?.checking
+                  ? t("Empfängerschlüssel werden geprüft …")
+                  : encryptionStatus?.available
+                    ? t(
+                        "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
+                      )
+                    : encryptionStatus?.missing?.length
+                      ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
+                      : encryptionStatus?.reason
+                        ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
+                        : t("Empfängerschlüssel werden geprüft …")}
+              </span>
+            )}
           </div>
           <textarea
             className="compose-body"

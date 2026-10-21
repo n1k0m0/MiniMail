@@ -122,6 +122,25 @@ const translations = {
   Verfahren: "Method",
   Signieren: "Sign",
   Verschlüsseln: "Encrypt",
+  "Neue Nachrichten automatisch signieren": "Automatically sign new messages",
+  "Automatisch verschlüsseln, wenn alle Empfänger Schlüssel haben":
+    "Encrypt automatically when every recipient has a key",
+  "Fehlt ein Empfängerschlüssel, wird ohne Verschlüsselung gesendet. Die Signatur bleibt aktiv, falls sie eingeschaltet ist.":
+    "If a recipient key is missing, the message is sent without encryption. Signing remains active if enabled.",
+  Verschlüsselung: "Encryption",
+  Automatisch: "Automatic",
+  Erzwingen: "Require encryption",
+  "Empfängerschlüssel werden geprüft …": "Checking recipient keys …",
+  "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.":
+    "All recipients have suitable keys: encryption is active.",
+  "Ohne Verschlüsselung: ": "Without encryption: ",
+  "Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ":
+    "Without encryption: Suitable keys are missing for these recipients: ",
+  "Bitte zuerst Empfänger eingeben.": "Enter recipients first.",
+  "Das eigene S/MIME-Zertifikat ist abgelaufen.":
+    "Your S/MIME certificate has expired.",
+  "Kein Verschlüsselungsverfahren ausgewählt.":
+    "No encryption method selected.",
   "Standard speichern": "Save default",
   "Privatschlüssel eingerichtet": "Private key configured",
   "Kein Privatschlüssel eingerichtet": "No private key configured",
