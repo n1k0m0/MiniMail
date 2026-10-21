@@ -45,6 +45,8 @@ By default, the server checks each connected inbox every five minutes, even when
 
 Choose German or English in **Settings → Appearance → Language**. The choice is stored in your browser.
 
+Enable **Conversation view** in **Settings → Appearance**, or switch it directly above the message list. Replies in the same folder are grouped using message identifiers and references; opening a conversation displays its newest message. Expand the group or use the conversation links in the reader to open older messages. The choice is stored in your browser. Messages in different folders remain separate conversations.
+
 ## Features and limitations
 
 - Read mailboxes and folders; search subject, sender, recipients, and message text on the mail server.

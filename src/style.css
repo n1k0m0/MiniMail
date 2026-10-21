@@ -705,6 +705,102 @@ svg {
 .message-row:hover {
   background: #f8faff;
 }
+.thread-toggle {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: #68799c;
+  background: transparent;
+}
+.thread-toggle:hover {
+  color: #405fcb;
+}
+.thread-count {
+  flex: none;
+  min-width: 19px;
+  height: 17px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #e8edfc;
+  color: #4965bf;
+  text-align: center;
+  font-size: 10px;
+  line-height: 15px;
+}
+.message-row.thread-child {
+  padding-left: 43px;
+  background: #fafbfe;
+}
+.message-row.thread-child.selected {
+  padding-left: 40px;
+}
+.thread-line {
+  position: absolute;
+  left: 27px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid #cbd5ed;
+}
+.thread-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.thread-mode-button:hover {
+  color: #4c65c1;
+}
+.reader-thread {
+  margin-bottom: 20px;
+  padding: 14px;
+  border: 1px solid #e2e8f3;
+  border-radius: 11px;
+  background: #f8faff;
+}
+.reader-thread > strong {
+  display: block;
+  margin-bottom: 9px;
+  color: #485777;
+  font-size: 11px;
+}
+.reader-thread-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.reader-thread-items button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid #dce4f1;
+  border-radius: 7px;
+  background: #fff;
+  color: #55627d;
+  font-size: 11px;
+}
+.reader-thread-items button.active {
+  border-color: #6c83de;
+  background: #ebefff;
+  color: #3550ad;
+}
+.reader-thread-items button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-thread-items time {
+  flex: none;
+  opacity: 0.72;
+}
 .message-row.dragging {
   opacity: 0.45;
 }
@@ -1768,6 +1864,31 @@ svg {
 [data-theme="dark"] .folder-row.current,
 [data-theme="dark"] .folder-row:hover {
   background: #273450;
+}
+[data-theme="dark"] .message-row.thread-child,
+[data-theme="dark"] .reader-thread {
+  background: #222e43;
+  border-color: #39475d;
+}
+[data-theme="dark"] .message-row.thread-child:hover,
+[data-theme="dark"] .message-row.thread-child.selected {
+  background: #273450;
+}
+[data-theme="dark"] .reader-thread > strong {
+  color: #c7d3eb;
+}
+[data-theme="dark"] .reader-thread-items button {
+  background: #2b3952;
+  border-color: #43526c;
+  color: #d6dff2;
+}
+[data-theme="dark"] .reader-thread-items button.active {
+  background: #344a76;
+  border-color: #91a9ff;
+}
+[data-theme="dark"] .thread-count {
+  background: #344a76;
+  color: #c7d7ff;
 }
 [data-theme="dark"] .folder-row.drop-target,
 [data-theme="dark"] .folder-row.current.drop-target {

@@ -4,6 +4,7 @@ import { simpleParser } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { decrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
+import { groupMessages, messageReferences } from "./threading.js";
 
 function settings(account) {
   const password = account.password_enc
@@ -132,7 +133,13 @@ export async function checkInbox(account) {
   });
 }
 
-export async function listMessages(account, folder, query, page = 0) {
+export async function listMessages(
+  account,
+  folder,
+  query,
+  page = 0,
+  threaded = false,
+) {
   return inFolder(account, folder, async (client) => {
     const criteria = query
       ? {
@@ -147,6 +154,57 @@ export async function listMessages(account, folder, query, page = 0) {
     const matches = (await client.search(criteria, { uid: true })) || [];
     const sorted = [...matches].sort((a, b) => b - a);
     const pageSize = 60;
+    if (threaded) {
+      if (!sorted.length)
+        return { messages: [], total: 0, messageTotal: 0, page };
+      const matchSet = new Set(matches);
+      const items = [];
+      for await (const item of client.fetch(
+        "1:*",
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          internalDate: true,
+          headers: ["references"],
+          threadId: true,
+        },
+        { uid: true },
+      )) {
+        items.push({
+          ...summary(item),
+          messageId: item.envelope?.messageId,
+          inReplyTo: item.envelope?.inReplyTo,
+          references: messageReferences(item.headers),
+          threadId: item.threadId,
+        });
+      }
+      const groups = groupMessages(items).filter((group) =>
+        group.thread.some((member) => matchSet.has(member.uid)),
+      );
+      const visible = groups.slice(page * pageSize, (page + 1) * pageSize);
+      if (visible.length) {
+        const detail = await client.fetchAll(
+          visible.map((group) => group.uid),
+          { uid: true, size: true, bodyStructure: true },
+          { uid: true },
+        );
+        const byUid = new Map(detail.map((item) => [item.uid, summary(item)]));
+        for (const group of visible) {
+          const extra = byUid.get(group.uid);
+          if (extra) {
+            group.size = extra.size;
+            group.hasAttachments = extra.hasAttachments;
+          }
+        }
+      }
+      return {
+        messages: visible,
+        total: groups.length,
+        messageTotal: sorted.length,
+        page,
+      };
+    }
     const uids = sorted.slice(page * pageSize, (page + 1) * pageSize);
     if (!uids.length) return { messages: [], total: sorted.length, page };
     const messages = await client.fetchAll(
@@ -202,6 +260,12 @@ export async function getMessage(account, folder, uid) {
     return {
       uid: item.uid,
       subject: parsed.subject || "(Kein Betreff)",
+      messageId: parsed.messageId || "",
+      references: Array.isArray(parsed.references)
+        ? parsed.references
+        : parsed.references
+          ? [parsed.references]
+          : [],
       date: parsed.date,
       from: address(parsed.from?.value),
       to: address(parsed.to?.value),
@@ -318,6 +382,8 @@ export async function sendMessage(account, mail) {
     to: mail.to,
     cc: mail.cc || undefined,
     subject: mail.subject || "",
+    inReplyTo: mail.inReplyTo || undefined,
+    references: mail.references?.length ? mail.references : undefined,
     text: mail.text || "",
     attachments: (mail.attachments || []).map((file) => ({
       filename: file.name,
@@ -345,8 +411,10 @@ export async function sendMessage(account, mail) {
               disableFileAccess: true,
               disableUrlAccess: true,
             })
-            .sendMail(outgoing, (error, result) =>
-              error ? reject(error) : resolve(result.message),
+            .sendMail(
+              { ...outgoing, messageId: info.messageId },
+              (error, result) =>
+                error ? reject(error) : resolve(result.message),
             );
         });
         await client.append(sent, raw, ["\\Seen"]);

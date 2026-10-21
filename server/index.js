@@ -562,6 +562,7 @@ app.get(
         folder(req),
         String(req.query.q || "").slice(0, 200),
         Math.max(0, Math.floor(Number(req.query.page) || 0)),
+        req.query.threaded === "1",
       ),
     );
   }),
@@ -670,6 +671,15 @@ function validOutgoingMail(mail) {
       (typeof mail.subject !== "string" ||
         mail.subject.length > 998 ||
         /[\r\n]/.test(mail.subject))) ||
+    (mail.inReplyTo !== undefined &&
+      (typeof mail.inReplyTo !== "string" ||
+        !/^<[^<>\r\n]{1,998}>$/.test(mail.inReplyTo))) ||
+    (mail.references !== undefined &&
+      (!Array.isArray(mail.references) ||
+        mail.references.length > 30 ||
+        mail.references.some(
+          (id) => typeof id !== "string" || !/^<[^<>\r\n]{1,998}>$/.test(id),
+        ))) ||
     typeof mail.text !== "string" ||
     mail.text.length > 500000 ||
     (mail.attachments !== undefined && !Array.isArray(mail.attachments))

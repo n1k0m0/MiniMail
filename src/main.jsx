@@ -53,6 +53,7 @@ import {
 const PAGE_SIZE = 60;
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
+const THREAD_VIEW_KEY = "minimail-thread-view";
 
 function storedWidth(key) {
   const value = Number(localStorage.getItem(key));
@@ -314,6 +315,10 @@ function App() {
   const activeFolderRef = useRef(folder);
   activeFolderRef.current = folder;
   const [messages, setMessages] = useState([]);
+  const [threaded, setThreaded] = useState(
+    () => localStorage.getItem(THREAD_VIEW_KEY) === "1",
+  );
+  const [expandedThreads, setExpandedThreads] = useState(new Set());
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [query, setQuery] = useState("");
@@ -367,8 +372,15 @@ function App() {
   const messageScrollRef = useRef(null);
   const contextMessage =
     contextMenu?.type === "message"
-      ? messages.find((item) => item.uid === contextMenu.uid)
+      ? messages
+          .flatMap((item) => item.thread || [item])
+          .find((item) => item.uid === contextMenu.uid)
       : null;
+  const selectedThread = threaded
+    ? messages.find((item) =>
+        item.thread?.some((member) => member.uid === selected),
+      )
+    : null;
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
   const visibleFolders = useMemo(
     () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
@@ -420,6 +432,13 @@ function App() {
   function selectLanguage(next) {
     updateLanguage(next);
     setLanguageState(next);
+  }
+  function selectThreaded(next) {
+    setThreaded(next);
+    localStorage.setItem(THREAD_VIEW_KEY, next ? "1" : "0");
+    setPage(0);
+    setSelected(null);
+    setExpandedThreads(new Set());
   }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -590,7 +609,7 @@ function App() {
     let active = true;
     setLoading(true);
     api(
-      `/accounts/${accountId}/messages?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(search)}&page=${page}`,
+      `/accounts/${accountId}/messages?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(search)}&page=${page}&threaded=${threaded ? "1" : "0"}`,
     )
       .then((data) => {
         if (active) {
@@ -613,6 +632,7 @@ function App() {
     folder,
     search,
     page,
+    threaded,
     refreshKey,
   ]);
   useEffect(() => {
@@ -628,7 +648,11 @@ function App() {
       .then((data) => {
         if (active) {
           setDetail(data);
-          if (messages.some((item) => item.uid === selected && !item.seen))
+          if (
+            messages
+              .flatMap((item) => item.thread || [item])
+              .some((item) => item.uid === selected && !item.seen)
+          )
             flag(selected, "seen", true);
         }
       })
@@ -647,12 +671,14 @@ function App() {
     setFolder(path);
     setPage(0);
     setSelected(null);
+    setExpandedThreads(new Set());
     setMobileSidebar(false);
   }
   function changePage(nextPage) {
     if (nextPage === page) return;
     setPage(nextPage);
     setSelected(null);
+    setExpandedThreads(new Set());
     if (messageScrollRef.current) messageScrollRef.current.scrollTop = 0;
   }
   function toggleFolder(path) {
@@ -685,9 +711,21 @@ function App() {
     );
     if (success)
       setMessages((current) =>
-        current.map((item) =>
-          item.uid === uid ? { ...item, [key]: enabled } : item,
-        ),
+        current.map((item) => {
+          const thread = item.thread?.map((member) =>
+            member.uid === uid ? { ...member, [key]: enabled } : member,
+          );
+          return {
+            ...item,
+            ...(item.uid === uid ? { [key]: enabled } : {}),
+            ...(thread
+              ? {
+                  thread,
+                  threadUnread: thread.some((member) => !member.seen),
+                }
+              : {}),
+          };
+        }),
       );
   }
   async function markFolderAsRead(path) {
@@ -706,7 +744,19 @@ function App() {
     );
     if (path === folder)
       setMessages((current) =>
-        current.map((item) => ({ ...item, seen: true })),
+        current.map((item) => ({
+          ...item,
+          seen: true,
+          ...(item.thread
+            ? {
+                thread: item.thread.map((member) => ({
+                  ...member,
+                  seen: true,
+                })),
+                threadUnread: false,
+              }
+            : {}),
+        })),
       );
     if (path.toUpperCase() === "INBOX")
       setAccounts((current) =>
@@ -745,7 +795,8 @@ function App() {
     );
     if (success) {
       setSelected((current) => (current === uid ? null : current));
-      setMessages((current) => current.filter((item) => item.uid !== uid));
+      if (!threaded)
+        setMessages((current) => current.filter((item) => item.uid !== uid));
     }
   }
   async function move(uid, destination, sourceFolder = folder) {
@@ -763,7 +814,8 @@ function App() {
       activeFolderRef.current === sourceFolder
     ) {
       setSelected((current) => (current === uid ? null : current));
-      setMessages((current) => current.filter((item) => item.uid !== uid));
+      if (!threaded)
+        setMessages((current) => current.filter((item) => item.uid !== uid));
     }
   }
   async function archive(uid = selected) {
@@ -808,7 +860,11 @@ function App() {
           : await api(
               `/accounts/${accountId}/messages/${uid}?folder=${encodeURIComponent(folder)}`,
             );
-      if (messages.some((item) => item.uid === uid && !item.seen))
+      if (
+        messages
+          .flatMap((item) => item.thread || [item])
+          .some((item) => item.uid === uid && !item.seen)
+      )
         await flag(uid, "seen", true);
       setModal({ type, message });
     } catch (err) {
@@ -1221,7 +1277,7 @@ function App() {
                   <p>
                     {loading
                       ? t("Lade Nachrichten …")
-                      : `${total} ${total === 1 ? t("Nachricht") : t("Nachrichten")}${search ? choose(` für „${search}“`, ` for “${search}”`) : ""}`}
+                      : `${total} ${threaded ? (total === 1 ? t("Konversation") : t("Konversationen")) : total === 1 ? t("Nachricht") : t("Nachrichten")}${search ? choose(` für „${search}“`, ` for “${search}”`) : ""}`}
                   </p>
                 </div>
                 <div className="list-header-actions">
@@ -1252,7 +1308,16 @@ function App() {
                 </div>
               </div>
               <div className="list-toolbar">
-                <span>{t("Alle Nachrichten")}</span>
+                <button
+                  type="button"
+                  className="thread-mode-button"
+                  aria-pressed={threaded}
+                  title={t("Konversationsansicht umschalten")}
+                  onClick={() => selectThreaded(!threaded)}
+                >
+                  {threaded ? t("Konversationen") : t("Alle Nachrichten")}
+                  <ChevronDown size={13} />
+                </button>
                 <PaginationControls
                   page={page}
                   total={total}
@@ -1269,79 +1334,208 @@ function App() {
                   </div>
                 ) : messages.length ? (
                   messages.map((item) => (
-                    <div
-                      key={item.uid}
-                      className={`message-row ${selected === item.uid ? "selected" : ""} ${!item.seen ? "unread" : ""} ${draggingUid === item.uid ? "dragging" : ""}`}
-                      draggable
-                      onDragStart={(event) => {
-                        draggedMessageRef.current = {
-                          uid: item.uid,
-                          sourceFolder: folder,
-                          accountId,
-                        };
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData(
-                          "application/x-minimail-message",
-                          String(item.uid),
-                        );
-                        setDraggingUid(item.uid);
-                        setContextMenu(null);
-                      }}
-                      onDragEnd={() => {
-                        draggedMessageRef.current = null;
-                        setDraggingUid(null);
-                        setDropFolder(null);
-                      }}
-                      onClick={() => setSelected(item.uid)}
-                      onContextMenu={(event) =>
-                        openContextMenu(event, item.uid)
-                      }
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") setSelected(item.uid);
-                        if (
-                          event.key === "ContextMenu" ||
-                          (event.shiftKey && event.key === "F10")
-                        )
-                          openContextMenu(event, item.uid);
-                      }}
-                    >
-                      <div className="row-avatar">
-                        {(
-                          item.from?.[0]?.name ||
-                          item.from?.[0]?.address ||
-                          "?"
-                        )
-                          .slice(0, 1)
-                          .toUpperCase()}
-                      </div>
-                      <div className="row-main">
-                        <div className="row-top">
-                          <strong>{fmtAddress(item.from)}</strong>
-                          <time>{dateLabel(item.date)}</time>
-                        </div>
-                        <div className="row-subject" title={item.subject}>
-                          <span>{item.subject}</span>
-                          {item.hasAttachments && (
-                            <Paperclip size={13} aria-label={t("Mit Anhang")} />
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        className={`star-button ${item.flagged ? "starred" : ""}`}
-                        title={t("Markierung")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          flag(item.uid, "flagged", !item.flagged);
+                    <React.Fragment key={item.uid}>
+                      <div
+                        className={`message-row ${selected === item.uid ? "selected" : ""} ${threaded ? (item.threadUnread ? "unread" : "") : !item.seen ? "unread" : ""} ${draggingUid === item.uid ? "dragging" : ""}`}
+                        draggable
+                        onDragStart={(event) => {
+                          draggedMessageRef.current = {
+                            uid: item.uid,
+                            sourceFolder: folder,
+                            accountId,
+                          };
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            "application/x-minimail-message",
+                            String(item.uid),
+                          );
+                          setDraggingUid(item.uid);
+                          setContextMenu(null);
+                        }}
+                        onDragEnd={() => {
+                          draggedMessageRef.current = null;
+                          setDraggingUid(null);
+                          setDropFolder(null);
+                        }}
+                        onClick={() => setSelected(item.uid)}
+                        onContextMenu={(event) =>
+                          openContextMenu(event, item.uid)
+                        }
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") setSelected(item.uid);
+                          if (
+                            event.key === "ContextMenu" ||
+                            (event.shiftKey && event.key === "F10")
+                          )
+                            openContextMenu(event, item.uid);
                         }}
                       >
-                        <Star
-                          size={16}
-                          fill={item.flagged ? "currentColor" : "none"}
-                        />
-                      </button>
-                    </div>
+                        {threaded && item.thread?.length > 1 && (
+                          <button
+                            type="button"
+                            className="thread-toggle"
+                            aria-label={
+                              expandedThreads.has(item.uid)
+                                ? t("Konversation einklappen")
+                                : t("Konversation aufklappen")
+                            }
+                            aria-expanded={expandedThreads.has(item.uid)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpandedThreads((current) => {
+                                const next = new Set(current);
+                                if (next.has(item.uid)) next.delete(item.uid);
+                                else next.add(item.uid);
+                                return next;
+                              });
+                            }}
+                          >
+                            {expandedThreads.has(item.uid) ? (
+                              <ChevronDown size={16} />
+                            ) : (
+                              <ChevronRight size={16} />
+                            )}
+                          </button>
+                        )}
+                        <div className="row-avatar">
+                          {(
+                            item.from?.[0]?.name ||
+                            item.from?.[0]?.address ||
+                            "?"
+                          )
+                            .slice(0, 1)
+                            .toUpperCase()}
+                        </div>
+                        <div className="row-main">
+                          <div className="row-top">
+                            <strong>{fmtAddress(item.from)}</strong>
+                            <time>{dateLabel(item.date)}</time>
+                          </div>
+                          <div className="row-subject" title={item.subject}>
+                            <span>{item.subject}</span>
+                            {threaded && item.thread?.length > 1 && (
+                              <span
+                                className="thread-count"
+                                title={t("Nachrichten in der Konversation")}
+                              >
+                                {item.thread.length}
+                              </span>
+                            )}
+                            {item.hasAttachments && (
+                              <Paperclip
+                                size={13}
+                                aria-label={t("Mit Anhang")}
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          className={`star-button ${item.flagged ? "starred" : ""}`}
+                          title={t("Markierung")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            flag(item.uid, "flagged", !item.flagged);
+                          }}
+                        >
+                          <Star
+                            size={16}
+                            fill={item.flagged ? "currentColor" : "none"}
+                          />
+                        </button>
+                      </div>
+                      {threaded &&
+                        expandedThreads.has(item.uid) &&
+                        item.thread
+                          ?.slice(0, -1)
+                          .reverse()
+                          .map((member) => (
+                            <div
+                              key={member.uid}
+                              className={`message-row thread-child ${selected === member.uid ? "selected" : ""} ${!member.seen ? "unread" : ""} ${draggingUid === member.uid ? "dragging" : ""}`}
+                              draggable
+                              onDragStart={(event) => {
+                                draggedMessageRef.current = {
+                                  uid: member.uid,
+                                  sourceFolder: folder,
+                                  accountId,
+                                };
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData(
+                                  "application/x-minimail-message",
+                                  String(member.uid),
+                                );
+                                setDraggingUid(member.uid);
+                                setContextMenu(null);
+                              }}
+                              onDragEnd={() => {
+                                draggedMessageRef.current = null;
+                                setDraggingUid(null);
+                                setDropFolder(null);
+                              }}
+                              onClick={() => setSelected(member.uid)}
+                              onContextMenu={(event) =>
+                                openContextMenu(event, member.uid)
+                              }
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter")
+                                  setSelected(member.uid);
+                                if (
+                                  event.key === "ContextMenu" ||
+                                  (event.shiftKey && event.key === "F10")
+                                )
+                                  openContextMenu(event, member.uid);
+                              }}
+                            >
+                              <div className="thread-line" aria-hidden="true" />
+                              <div className="row-avatar">
+                                {(
+                                  member.from?.[0]?.name ||
+                                  member.from?.[0]?.address ||
+                                  "?"
+                                )
+                                  .slice(0, 1)
+                                  .toUpperCase()}
+                              </div>
+                              <div className="row-main">
+                                <div className="row-top">
+                                  <strong>{fmtAddress(member.from)}</strong>
+                                  <time>{dateLabel(member.date)}</time>
+                                </div>
+                                <div
+                                  className="row-subject"
+                                  title={member.subject}
+                                >
+                                  <span>{member.subject}</span>
+                                  {member.hasAttachments && (
+                                    <Paperclip
+                                      size={13}
+                                      aria-label={t("Mit Anhang")}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                className={`star-button ${member.flagged ? "starred" : ""}`}
+                                title={t("Markierung")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  flag(member.uid, "flagged", !member.flagged);
+                                }}
+                              >
+                                <Star
+                                  size={16}
+                                  fill={
+                                    member.flagged ? "currentColor" : "none"
+                                  }
+                                />
+                              </button>
+                            </div>
+                          ))}
+                    </React.Fragment>
                   ))
                 ) : (
                   <div className="empty-list">
@@ -1428,14 +1622,42 @@ function App() {
                         </button>
                       </div>
                       <span className="reader-position">
-                        {messages.findIndex((item) => item.uid === selected) +
-                          1}{" "}
+                        {messages.findIndex(
+                          (item) =>
+                            item.uid === (selectedThread?.uid || selected),
+                        ) + 1}{" "}
                         {t("\n                        von ")}
                         {total}
                       </span>
                     </div>
                     <div className="reader-scroll">
                       <div className="reader-content">
+                        {selectedThread?.thread?.length > 1 && (
+                          <div
+                            className="reader-thread"
+                            aria-label={t("Nachrichten in der Konversation")}
+                          >
+                            <strong>
+                              {selectedThread.thread.length}{" "}
+                              {t("Nachrichten in dieser Konversation")}
+                            </strong>
+                            <div className="reader-thread-items">
+                              {selectedThread.thread.map((member) => (
+                                <button
+                                  type="button"
+                                  key={member.uid}
+                                  className={
+                                    selected === member.uid ? "active" : ""
+                                  }
+                                  onClick={() => setSelected(member.uid)}
+                                >
+                                  <span>{fmtAddress(member.from)}</span>
+                                  <time>{dateLabel(member.date)}</time>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="message-kicker">{t("NACHRICHT")}</div>
                         <h2>{detail.subject}</h2>
                         <div className="reader-meta">
@@ -1732,6 +1954,8 @@ function App() {
           theme={theme}
           language={language}
           onLanguageChange={selectLanguage}
+          threaded={threaded}
+          onThreadedChange={selectThreaded}
           setError={setError}
           onDeleted={async (id) => {
             const data = await api("/accounts");
@@ -2200,6 +2424,8 @@ function SettingsModal({
   theme,
   language,
   onLanguageChange,
+  threaded,
+  onThreadedChange,
   setError,
   onDeleted,
   onPrimary,
@@ -2343,6 +2569,21 @@ function SettingsModal({
               <option value="en">English</option>
             </select>
           </div>
+          <div className="settings-row">
+            <div>
+              <strong>{t("Konversationsansicht")}</strong>
+              <span>
+                {t("Zusammengehörige E-Mails als aufklappbare Kette anzeigen.")}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-pressed={threaded}
+              onClick={() => onThreadedChange(!threaded)}
+            >
+              {threaded ? t("Ein") : t("Aus")}
+            </button>
+          </div>
           <h3>{t("Sicherheit")}</h3>
           <div className="settings-row">
             <div>
@@ -2419,7 +2660,22 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
       );
       await api(`/accounts/${account.id}/send`, {
         method: "POST",
-        body: { to, cc, subject, text: body, attachments },
+        body: {
+          to,
+          cc,
+          subject,
+          text: body,
+          attachments,
+          ...(reply && original?.messageId
+            ? {
+                inReplyTo: original.messageId,
+                references: [
+                  ...(original.references || []),
+                  original.messageId,
+                ].slice(-30),
+              }
+            : {}),
+        },
       });
       onSent();
     } catch (err) {
