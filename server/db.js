@@ -27,6 +27,8 @@ db.exec(`
     check_failed INTEGER NOT NULL DEFAULT 0,
     is_primary INTEGER NOT NULL DEFAULT 0,
     vpn_profile TEXT NOT NULL DEFAULT '',
+    sender_name TEXT NOT NULL DEFAULT '',
+    signature TEXT NOT NULL DEFAULT '',
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 `);
@@ -79,6 +81,12 @@ if (!accountColumns.has("vpn_profile"))
   db.exec(
     "ALTER TABLE accounts ADD COLUMN vpn_profile TEXT NOT NULL DEFAULT ''",
   );
+if (!accountColumns.has("sender_name"))
+  db.exec(
+    "ALTER TABLE accounts ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''",
+  );
+if (!accountColumns.has("signature"))
+  db.exec("ALTER TABLE accounts ADD COLUMN signature TEXT NOT NULL DEFAULT ''");
 db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_per_user ON accounts(user_id) WHERE is_primary=1",
 );

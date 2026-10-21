@@ -386,6 +386,18 @@ function validateAccount(body, role) {
   if (body.vpn_profile !== undefined && typeof body.vpn_profile !== "string")
     throw new AccountInputError("Ungültiges VPN-Profil.");
   if (
+    body.sender_name !== undefined &&
+    (typeof body.sender_name !== "string" ||
+      body.sender_name.length > 256 ||
+      /[\r\n\u0000-\u001f\u007f]/.test(body.sender_name))
+  )
+    throw new AccountInputError("Ungültiger Absendername.");
+  if (
+    body.signature !== undefined &&
+    (typeof body.signature !== "string" || body.signature.length > 10000)
+  )
+    throw new AccountInputError("Ungültige Signatur.");
+  if (
     body.vpn_profile &&
     (role !== "admin" ||
       !vpnProfiles().some((profile) => profile.id === body.vpn_profile))
@@ -435,7 +447,7 @@ app.post(
       .get(req.user.id);
     const result = db
       .prepare(
-        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes,is_primary,vpn_profile) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,smtp_username,smtp_password_enc,created_at,check_interval_minutes,is_primary,vpn_profile,sender_name,signature) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         req.user.id,
@@ -457,6 +469,8 @@ app.post(
           : Number(b.check_interval_minutes),
         makePrimary ? 1 : 0,
         b.vpn_profile || "",
+        b.sender_name?.trim() || "",
+        b.signature || "",
       );
     res.json(
       publicAccount(
@@ -475,7 +489,7 @@ app.put(
     validateAccount(req.body || {}, req.user.role);
     const b = req.body;
     db.prepare(
-      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
+      "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,sender_name=?,signature=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
     ).run(
       b.name.trim(),
       b.email.trim(),
@@ -493,6 +507,8 @@ app.put(
         ? existing.check_interval_minutes
         : Number(b.check_interval_minutes),
       b.vpn_profile || "",
+      b.sender_name === undefined ? existing.sender_name : b.sender_name.trim(),
+      b.signature === undefined ? existing.signature : b.signature,
       existing.id,
     );
     res.json(

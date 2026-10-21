@@ -28,14 +28,35 @@ test("existing mailboxes get one primary mailbox per user", async () => {
   assert.deepEqual(
     migrated
       .prepare(
-        "SELECT id,user_id,is_primary,vpn_profile FROM accounts ORDER BY id",
+        "SELECT id,user_id,is_primary,vpn_profile,sender_name,signature FROM accounts ORDER BY id",
       )
       .all()
       .map((row) => ({ ...row })),
     [
-      { id: 10, user_id: 1, is_primary: 1, vpn_profile: "" },
-      { id: 11, user_id: 1, is_primary: 0, vpn_profile: "" },
-      { id: 20, user_id: 2, is_primary: 1, vpn_profile: "" },
+      {
+        id: 10,
+        user_id: 1,
+        is_primary: 1,
+        vpn_profile: "",
+        sender_name: "",
+        signature: "",
+      },
+      {
+        id: 11,
+        user_id: 1,
+        is_primary: 0,
+        vpn_profile: "",
+        sender_name: "",
+        signature: "",
+      },
+      {
+        id: 20,
+        user_id: 2,
+        is_primary: 1,
+        vpn_profile: "",
+        sender_name: "",
+        signature: "",
+      },
     ],
   );
   migrated.close();

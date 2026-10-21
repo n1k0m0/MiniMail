@@ -1551,6 +1551,15 @@ svg {
   font-size: 10px;
   line-height: 1.5;
 }
+.signature-field {
+  margin-top: 14px;
+}
+.modal .signature-field textarea {
+  height: 135px;
+  padding: 10px 11px;
+  line-height: 1.45;
+  resize: vertical;
+}
 .credentials p {
   color: #9aa7b9;
   font-size: 10px;
@@ -1736,6 +1745,23 @@ svg {
   min-width: 0;
   padding: 0 !important;
 }
+.compose-field select {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: #34425e;
+  font:
+    600 12px "DM Sans",
+    sans-serif;
+  outline: 0;
+}
+.compose-field select:focus-visible {
+  outline: 2px solid #7188e8;
+  outline-offset: 2px;
+}
 .compose-field button {
   background: transparent;
   color: #8796af;
@@ -1748,7 +1774,28 @@ svg {
   box-shadow: none;
   padding: 19px 22px;
   line-height: 1.7;
-  min-height: 180px;
+  min-height: 120px;
+}
+.compose-signature {
+  flex: none;
+  max-height: 128px;
+  overflow: auto;
+  padding: 11px 22px;
+  border-top: 1px solid #edf0f5;
+  background: #f8faff;
+  color: #64718b;
+  font-size: 11px;
+}
+.compose-signature strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #52617b;
+}
+.compose-signature pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }
 .compose-footer {
   height: 65px;
@@ -1972,6 +2019,18 @@ svg {
 }
 [data-theme="dark"] .compose-field input {
   background: transparent !important;
+}
+[data-theme="dark"] .compose-field select {
+  background: transparent;
+  color: #e1e7f4;
+}
+[data-theme="dark"] .compose-signature {
+  background: #1e2a3c;
+  border-color: #2b3649;
+  color: #a9b7ce;
+}
+[data-theme="dark"] .compose-signature strong {
+  color: #d7e0f4;
 }
 [data-theme="dark"] .message-body {
   color: #c4cedf;

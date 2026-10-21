@@ -39,6 +39,8 @@ Many providers with their own two-factor authentication require an app password 
 
 If SMTP uses a different username or password from IMAP, enter those values separately in the mailbox dialog. Empty SMTP credential fields use the IMAP credentials.
 
+Set a sender name and a plain-text signature for each mailbox in its settings. The compose window can send from any connected mailbox whose credentials are available; choosing another sender uses that mailbox's SMTP connection and shows its signature immediately. The signature is appended to the outgoing message and saved copy. Mailboxes without credentials appear as unavailable senders until their password is added.
+
 ### private VPN VPN mailbox
 
 An administrator can make a server-side OpenVPN profile available to one mailbox. The **VPN connection** setting in the mailbox dialog then selects the tunnel for both IMAP and SMTP. Other mailboxes keep their direct connection. The VPN profile and its client key stay on the server; MiniMail never accepts arbitrary OpenVPN files through the web interface.

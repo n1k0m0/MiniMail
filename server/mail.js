@@ -382,7 +382,7 @@ export async function sendMessage(account, mail) {
     disableUrlAccess: true,
   });
   const outgoing = {
-    from: { name: a.name, address: a.email },
+    from: { name: a.sender_name || a.name, address: a.email },
     to: mail.to,
     cc: mail.cc || undefined,
     subject: mail.subject || "",

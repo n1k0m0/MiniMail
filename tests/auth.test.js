@@ -214,9 +214,13 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ...account("owner"),
       smtp_username: "owner-smtp",
       smtp_password: "separate-smtp-password",
+      sender_name: "Owner Name",
+      signature: "Owner signature",
     });
     assert.equal(ownerAccount.status, 200);
     assert.equal(ownerAccount.data.smtp_username, "owner-smtp");
+    assert.equal(ownerAccount.data.sender_name, "Owner Name");
+    assert.equal(ownerAccount.data.signature, "Owner signature");
     assert.equal(ownerAccount.data.smtp_password_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
     assert.equal(ownerAccount.data.is_primary, true);
@@ -294,6 +298,24 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         })
       ).data.check_interval_minutes,
       0,
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          signature: "Updated signature",
+        })
+      ).data.signature,
+      "Updated signature",
+    );
+    assert.equal(
+      (
+        await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
+          ...account("owner"),
+          sender_name: "Invalid\nName",
+        })
+      ).status,
+      400,
     );
     assert.equal(
       (

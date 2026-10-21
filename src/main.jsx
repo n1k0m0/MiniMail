@@ -1998,6 +1998,7 @@ function App() {
         modal?.type === "forward") && (
         <ComposeModal
           account={activeAccount}
+          accounts={accounts}
           initial={modal}
           onClose={() => setModal(null)}
           onSent={() => {
@@ -2111,6 +2112,8 @@ const blankAccount = {
   smtp_password: "",
   username: "",
   password: "",
+  sender_name: "",
+  signature: "",
   vpn_profile: "",
   check_interval_minutes: 5,
 };
@@ -2211,6 +2214,36 @@ function AccountModal({ account, onClose, onSaved, setError }) {
                   placeholder={t("name@beispiel.de")}
                 />
               </label>
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">
+                <PenLine size={18} />
+                {t("Absender und Signatur")}
+              </div>
+              <label>
+                {t("Absendername")}
+                <input
+                  value={form.sender_name || ""}
+                  onChange={(event) => field("sender_name", event.target.value)}
+                  placeholder={form.name || t("Mein Postfach")}
+                  maxLength={256}
+                />
+              </label>
+              <label className="signature-field">
+                {t("Automatische Signatur")}
+                <textarea
+                  value={form.signature || ""}
+                  onChange={(event) => field("signature", event.target.value)}
+                  placeholder={t("Keine Signatur")}
+                  maxLength={10000}
+                  rows={6}
+                />
+              </label>
+              <p className="field-hint">
+                {t(
+                  "Die Signatur wird beim Schreiben automatisch an die Nachricht angehängt.",
+                )}
+              </p>
             </div>
             <div className="form-section">
               <div className="form-section-title">
@@ -2650,7 +2683,14 @@ function SettingsModal({
   );
 }
 
-function ComposeModal({ account, initial, onClose, onSent, setError }) {
+function ComposeModal({
+  account,
+  accounts,
+  initial,
+  onClose,
+  onSent,
+  setError,
+}) {
   const replyAll = initial?.type === "reply-all",
     reply = initial?.type === "reply" || replyAll,
     forward = initial?.type === "forward",
@@ -2683,9 +2723,21 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [showCc, setShowCc] = useState(Boolean(replyRecipients));
+  const [senderAccountId, setSenderAccountId] = useState(
+    account && !account.needsCredentials
+      ? account.id
+      : accounts.find((item) => !item.needsCredentials)?.id ||
+          account?.id ||
+          null,
+  );
+  const senderAccount = accounts.find((item) => item.id === senderAccountId);
+  const signature = senderAccount?.signature?.trim() || "";
+  const signatureText = signature
+    ? `${signature.startsWith("-- ") ? "" : "-- \n"}${signature}`
+    : "";
   async function submit(event) {
     event.preventDefault();
-    if (!account) {
+    if (!senderAccount || senderAccount.needsCredentials) {
       setError(t("Bitte zuerst ein Postfach verbinden."));
       return;
     }
@@ -2702,13 +2754,13 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
           }),
         })),
       );
-      await api(`/accounts/${account.id}/send`, {
+      await api(`/accounts/${senderAccount.id}/send`, {
         method: "POST",
         body: {
           to,
           cc,
           subject,
-          text: body,
+          text: signatureText ? `${body.trimEnd()}\n\n${signatureText}` : body,
           attachments,
           ...(reply && original?.messageId
             ? {
@@ -2740,7 +2792,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
           <div>
             <div className="eyebrow">
               {t("\n              VON ")}
-              {account?.email || t("KEIN POSTFACH")}
+              {senderAccount?.email || t("KEIN POSTFACH")}
             </div>
             <h2>
               {reply
@@ -2758,6 +2810,27 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
         </div>
         <form onSubmit={submit}>
           <div className="compose-fields">
+            <div className="compose-field">
+              <span>{t("Von")}</span>
+              <select
+                aria-label={t("Absenderadresse")}
+                value={senderAccountId || ""}
+                onChange={(event) =>
+                  setSenderAccountId(Number(event.target.value))
+                }
+              >
+                {accounts.map((item) => (
+                  <option
+                    key={item.id}
+                    value={item.id}
+                    disabled={item.needsCredentials}
+                  >
+                    {item.email}
+                    {item.needsCredentials ? ` (${t("Passwort fehlt")})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="compose-field">
               <span>{t("An")}</span>
               <input
@@ -2797,6 +2870,16 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
             placeholder={t("Schreibe deine Nachricht …")}
             required
           />
+          <div className="compose-signature" aria-live="polite">
+            <strong>
+              {t("Signatur für")} {senderAccount?.email || ""}
+            </strong>
+            {signatureText ? (
+              <pre>{signatureText}</pre>
+            ) : (
+              <span>{t("Keine Signatur")}</span>
+            )}
+          </div>
           {files.length > 0 && (
             <div className="compose-files">
               {files.map((file, index) => (
@@ -2819,7 +2902,12 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
           )}
           <div className="compose-footer">
             <div>
-              <button className="primary-button" disabled={busy || !account}>
+              <button
+                className="primary-button"
+                disabled={
+                  busy || !senderAccount || senderAccount.needsCredentials
+                }
+              >
                 {busy ? (
                   <LoaderCircle className="spin" size={17} />
                 ) : (
@@ -2854,7 +2942,7 @@ function ComposeModal({ account, initial, onClose, onSent, setError }) {
             </div>
             <span>
               {t("Gesendet über ")}
-              {account?.name || "MiniMail"}
+              {senderAccount?.name || "MiniMail"}
             </span>
           </div>
         </form>
