@@ -1731,13 +1731,13 @@ svg {
   font-weight: 800;
 }
 .compose-backdrop {
-  align-items: flex-end;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
 }
 .compose-modal {
-  width: min(590px, 100%);
-  height: min(680px, calc(100vh - 48px));
+  width: min(720px, 100%);
+  height: min(790px, calc(100dvh - 48px));
   border-radius: 13px;
 }
 .compose-header {
@@ -3588,8 +3588,51 @@ svg {
   font-size: 13px;
 }
 .wide-layout .compose-modal {
-  width: min(760px, 100%);
-  height: min(780px, calc(100dvh - 48px));
+  width: min(960px, 100%);
+  height: min(900px, calc(100dvh - 48px));
+}
+.wide-layout .compose-header {
+  padding: 25px 30px 20px;
+}
+.wide-layout .compose-header h2 {
+  font-size: 25px;
+}
+.wide-layout .compose-fields {
+  padding: 0 30px;
+}
+.wide-layout .compose-field {
+  height: 56px;
+}
+.wide-layout .compose-field span,
+.wide-layout .compose-field select,
+.wide-layout .compose-field button {
+  font-size: 14px;
+}
+.wide-layout .compose-security {
+  padding: 12px 30px;
+  font-size: 13px;
+}
+.wide-layout .compose-ai-actions {
+  padding: 11px 30px;
+}
+.wide-layout .compose-ai-actions button {
+  font-size: 13px;
+}
+.wide-layout .modal textarea.compose-body {
+  padding: 25px 30px;
+  font-size: 17px;
+  line-height: 1.65;
+}
+.wide-layout .compose-signature {
+  padding: 13px 30px;
+  font-size: 13px;
+}
+.wide-layout .compose-footer {
+  height: 72px;
+  padding: 0 30px;
+}
+.wide-layout .compose-footer span {
+  font-size: 12px;
 }
 .wide-layout .settings-modal {
   width: min(640px, 100%);
@@ -3600,14 +3643,123 @@ svg {
 .wide-layout .modal input:not([type="checkbox"]),
 .wide-layout .modal select,
 .wide-layout .modal textarea {
-  font-size: 13px;
-}
-.wide-layout .modal textarea.compose-body {
   font-size: 15px;
 }
 [data-theme="dark"] .reader-zoom-controls button:hover {
   background: #2d3b54;
   color: #c8d5fb;
+}
+
+@media (min-width: 2100px) {
+  .wide-layout {
+    grid-template-columns: 92px var(--sidebar-width, 400px) minmax(0, 1fr);
+  }
+  .wide-layout .logo-word {
+    font-size: 27px;
+  }
+  .wide-layout .compose-button {
+    height: 58px;
+    font-size: 17px;
+  }
+  .wide-layout .section-label,
+  .wide-layout .eyebrow {
+    font-size: 13px;
+  }
+  .wide-layout .account-choice {
+    min-height: 74px;
+  }
+  .wide-layout .account-text strong,
+  .wide-layout .folder-item,
+  .wide-layout .sidebar-settings {
+    font-size: 16px;
+  }
+  .wide-layout .account-text small,
+  .wide-layout .folder-search input {
+    font-size: 14px;
+  }
+  .wide-layout .folder-row,
+  .wide-layout .folder-item {
+    min-height: 49px;
+  }
+  .wide-layout .topbar {
+    height: 88px;
+  }
+  .wide-layout .breadcrumb,
+  .wide-layout .search-box input {
+    font-size: 16px;
+  }
+  .wide-layout .list-header {
+    height: 139px;
+  }
+  .wide-layout .list-header h1 {
+    font-size: 32px;
+  }
+  .wide-layout .list-header p,
+  .wide-layout .list-toolbar {
+    font-size: 14px;
+  }
+  .wide-layout .list-toolbar {
+    height: 48px;
+  }
+  .wide-layout .message-row {
+    min-height: 78px;
+  }
+  .wide-layout .row-top strong {
+    font-size: 16px;
+  }
+  .wide-layout .row-subject,
+  .wide-layout .row-top time,
+  .wide-layout .pagination {
+    font-size: 15px;
+  }
+  .wide-layout .reader-content {
+    max-width: 1280px;
+    padding: 58px 70px 84px;
+  }
+  .wide-layout .reader-content h2 {
+    font-size: 38px;
+  }
+  .wide-layout .sender-details strong {
+    font-size: 17px;
+  }
+  .wide-layout .sender-details span,
+  .wide-layout .reader-meta time {
+    font-size: 15px;
+  }
+  .wide-layout .message-body {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  .wide-layout .compose-modal {
+    width: min(1120px, calc(100vw - 80px));
+    height: min(1080px, calc(100dvh - 64px));
+  }
+  .wide-layout .compose-header h2 {
+    font-size: 29px;
+  }
+  .wide-layout .compose-field span,
+  .wide-layout .compose-field select,
+  .wide-layout .compose-field button,
+  .wide-layout .modal input:not([type="checkbox"]),
+  .wide-layout .modal select,
+  .wide-layout .modal textarea {
+    font-size: 16px;
+  }
+  .wide-layout .modal textarea.compose-body {
+    font-size: 19px;
+  }
+  .wide-layout .compose-signature {
+    font-size: 15px;
+  }
+  .wide-layout .settings-modal {
+    width: min(820px, calc(100vw - 80px));
+  }
+  .wide-layout .modal-header h2 {
+    font-size: 27px;
+  }
+  .wide-layout .modal label {
+    font-size: 15px;
+  }
 }
 
 @media (max-width: 760px) {

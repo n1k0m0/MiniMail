@@ -407,16 +407,26 @@ function App() {
   const wideDesktop = windowWidth >= 1600;
   const widthTier = wideDesktop ? "wide" : "standard";
   const narrowDesktop = windowWidth <= 1060;
-  const railWidth = narrowDesktop ? 58 : wideDesktop ? 80 : 72;
+  const railWidth = narrowDesktop
+    ? 58
+    : wideDesktop
+      ? windowWidth >= 2100
+        ? 92
+        : 80
+      : 72;
   const defaultSidebarWidth = narrowDesktop
     ? 210
     : wideDesktop
-      ? Math.min(355, Math.max(280, Math.round(windowWidth * 0.14)))
+      ? windowWidth >= 2100
+        ? Math.min(430, Math.max(360, Math.round(windowWidth * 0.16)))
+        : Math.min(355, Math.max(280, Math.round(windowWidth * 0.14)))
       : 247;
   const defaultMessageWidth = narrowDesktop
     ? 265
     : wideDesktop
-      ? Math.min(620, Math.max(420, Math.round(windowWidth * 0.24)))
+      ? windowWidth >= 2100
+        ? Math.min(740, Math.max(540, Math.round(windowWidth * 0.27)))
+        : Math.min(620, Math.max(420, Math.round(windowWidth * 0.24)))
       : 374;
   const sidebarMax = Math.max(
     180,
