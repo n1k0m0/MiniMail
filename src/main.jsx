@@ -3922,7 +3922,16 @@ function splitEditableDraft(value) {
     : { editable: value, quoted: "" };
 }
 
-function AiRewriteModal({ body, onApply, onClose }) {
+function AiRewriteModal({
+  body,
+  senderAccountId,
+  to,
+  cc,
+  subject,
+  recipientNameHints,
+  onApply,
+  onClose,
+}) {
   const { editable, quoted } = splitEditableDraft(body);
   const [instructions, setInstructions] = useState("");
   const [proposal, setProposal] = useState("");
@@ -3935,7 +3944,16 @@ function AiRewriteModal({ body, onApply, onClose }) {
     try {
       const result = await api("/ai/rewrite", {
         method: "POST",
-        body: { text: editable, instructions, language: getLanguage() },
+        body: {
+          text: editable,
+          instructions,
+          language: getLanguage(),
+          senderAccountId,
+          to,
+          cc,
+          subject,
+          recipientNameHints,
+        },
       });
       setProposal(result.text);
     } catch (cause) {
@@ -3971,7 +3989,7 @@ function AiRewriteModal({ body, onApply, onClose }) {
         <div className="ai-modal-content">
           <p className="ai-disclosure">
             {t(
-              "Entwurf und Anweisungen werden erst beim Erstellen an deinen KI-Server gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.",
+              "Beim Erstellen werden Entwurf, Anweisungen, Betreff sowie Absender und Empfänger mit verfügbaren Namen an deinen KI-Server gesendet. Das Bcc-Feld, die gespeicherte Signatur und automatisch angehängte Zitate werden nicht übertragen. Die KI ergänzt Anrede, Absätze und Grußformel; deine Signatur wird später separat angehängt.",
             )}
           </p>
           {editable.trim() && (
@@ -4519,6 +4537,20 @@ function ComposeModal({
       {aiOpen && (
         <AiRewriteModal
           body={body}
+          senderAccountId={senderAccountId}
+          to={to}
+          cc={cc}
+          subject={subject}
+          recipientNameHints={
+            original
+              ? [
+                  ...(original.from || []),
+                  ...(original.replyTo || []),
+                  ...(original.to || []),
+                  ...(original.cc || []),
+                ].slice(0, 50)
+              : []
+          }
           onClose={() => setAiOpen(false)}
           onApply={(next) => {
             setAiHistory((current) => [...current, body].slice(-10));

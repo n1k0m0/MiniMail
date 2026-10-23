@@ -128,8 +128,8 @@ const translations = {
   "KI-Änderung rückgängig": "Undo AI change",
   "Text mit KI überarbeiten": "Revise text with AI",
   "Ausgangstext anzeigen": "Show original draft",
-  "Entwurf und Anweisungen werden erst beim Erstellen an deinen KI-Server gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.":
-    "The draft and instructions are sent to your AI server only when you generate a suggestion. The signature and quoted mail history stay unchanged.",
+  "Beim Erstellen werden Entwurf, Anweisungen, Betreff sowie Absender und Empfänger mit verfügbaren Namen an deinen KI-Server gesendet. Das Bcc-Feld, die gespeicherte Signatur und automatisch angehängte Zitate werden nicht übertragen. Die KI ergänzt Anrede, Absätze und Grußformel; deine Signatur wird später separat angehängt.":
+    "When you generate a suggestion, the draft, instructions, subject, sender and recipients with available names are sent to your AI server. The Bcc field, saved signature and automatically appended quotes are not sent. AI adds a salutation, paragraphs and closing; your signature is appended separately later.",
   "Zusätzliche Anweisungen oder Stichpunkte":
     "Additional instructions or bullet points",
   "Zum Beispiel: freundlich antworten, Termin am Freitag vorschlagen …":

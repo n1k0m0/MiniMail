@@ -9,6 +9,7 @@ import {
   AiInputError,
   AiServiceError,
   aiSettings,
+  rewriteContext,
   requestAi,
   saveAiSettings,
 } from "./ai.js";
@@ -326,6 +327,7 @@ app.post(
         text: req.body?.text,
         instructions: req.body?.instructions || "",
         language: req.body?.language,
+        context: rewriteContext(db, req.user.id, req.body),
       }),
     });
   }),
