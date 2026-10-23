@@ -1003,7 +1003,7 @@ function App() {
     >
       <div className="icon-rail">
         <div className="brand-mark">
-          <Mail size={22} strokeWidth={2.5} />
+          <img src="/favicon.svg" width="40" height="40" alt="MiniMail" />
         </div>
         <button className="rail-icon active" title={t("E-Mail")}>
           <Mail size={21} />

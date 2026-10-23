@@ -79,12 +79,16 @@ svg {
 .brand-mark {
   width: 40px;
   height: 40px;
-  background: #fff;
-  color: #4161dc;
   border-radius: 13px;
   display: grid;
   place-items: center;
   box-shadow: 0 8px 18px #10226327;
+}
+.brand-mark img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
 }
 .rail-icon {
   width: 43px;
