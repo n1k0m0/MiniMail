@@ -3,7 +3,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import QRCode from "qrcode";
+import sanitizeHtml from "sanitize-html";
 import { db } from "./db.js";
+import {
+  AiInputError,
+  AiServiceError,
+  aiSettings,
+  requestAi,
+  saveAiSettings,
+} from "./ai.js";
 import { clearAccountIndex } from "./mailIndex.js";
 import { geoipReader, traceFromSource } from "./mailTrace.js";
 import { CryptoInputError, encryptionAvailability } from "./protectedMail.js";
@@ -281,6 +289,47 @@ app.patch("/api/settings/contacts", (req, res) => {
   );
   res.json({ collectRecipients: req.body.collectRecipients });
 });
+
+app.get("/api/settings/ai", (req, res) => {
+  res.json(aiSettings(db));
+});
+app.put("/api/settings/ai", adminOnly, (req, res) => {
+  try {
+    res.json(saveAiSettings(db, req.body || {}));
+  } catch (error) {
+    if (error instanceof AiInputError)
+      return res.status(400).json({ error: error.message });
+    throw error;
+  }
+});
+const aiRequests = new Map();
+function aiRateLimit(req, res, next) {
+  const now = Date.now();
+  const recent = (aiRequests.get(req.user.id) || []).filter(
+    (time) => now - time < 60000,
+  );
+  if (recent.length >= 10)
+    return res
+      .status(429)
+      .json({ error: "Zu viele KI-Anfragen. Bitte kurz warten." });
+  recent.push(now);
+  aiRequests.set(req.user.id, recent);
+  next();
+}
+app.post(
+  "/api/ai/rewrite",
+  aiRateLimit,
+  asyncRoute(async (req, res) => {
+    res.json({
+      text: await requestAi(db, {
+        kind: "rewrite",
+        text: req.body?.text,
+        instructions: req.body?.instructions || "",
+        language: req.body?.language,
+      }),
+    });
+  }),
+);
 
 app.get("/api/contacts", (req, res) => {
   const query = String(req.query.q || "").trim();
@@ -993,6 +1042,41 @@ app.get(
     res.json(message);
   }),
 );
+app.post(
+  "/api/accounts/:id/messages/:uid/summary",
+  aiRateLimit,
+  asyncRoute(async (req, res) => {
+    const account = accountFor(req, res);
+    if (!account) return;
+    const message = await getMessage(
+      account,
+      folder(req),
+      Number(req.params.uid),
+    );
+    if (!message)
+      return res.status(404).json({ error: "Nachricht nicht gefunden." });
+    const readable =
+      message.text ||
+      sanitizeHtml(message.html || "", {
+        allowedTags: [],
+        allowedAttributes: {},
+      });
+    if (!readable.trim())
+      return res
+        .status(422)
+        .json({ error: "Diese Nachricht enthält keinen lesbaren Text." });
+    const content = `Subject: ${message.subject || ""}\n\n${readable}`;
+    const truncated = content.length > 30000;
+    res.json({
+      text: await requestAi(db, {
+        kind: "summary",
+        text: content.slice(0, 30000),
+        language: req.body?.language,
+      }),
+      truncated,
+    });
+  }),
+);
 app.get(
   "/api/accounts/:id/messages/:uid/source",
   asyncRoute(async (req, res) => {
@@ -1241,6 +1325,10 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error instanceof AiInputError)
+    return res.status(400).json({ error: error.message });
+  if (error instanceof AiServiceError)
+    return res.status(502).json({ error: error.message });
   if (error instanceof AccountInputError || error instanceof CryptoInputError)
     return res.status(400).json({ error: error.message });
   if (error.type === "entity.too.large")

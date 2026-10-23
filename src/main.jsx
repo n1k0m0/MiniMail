@@ -42,11 +42,14 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Sparkles,
   Star,
   Sun,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
+import AiSettings from "./AiSettings.jsx";
 import "./style.css";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
 import { replyRecipients } from "./replyRecipients.js";
@@ -1685,6 +1688,14 @@ function App() {
                         >
                           <MapPinned size={19} />
                         </button>
+                        <button
+                          title={t("Mit KI zusammenfassen")}
+                          onClick={() =>
+                            setModal({ type: "summary", uid: detail.uid })
+                          }
+                        >
+                          <Sparkles size={19} />
+                        </button>
                       </div>
                       <span className="reader-position">
                         {messages.findIndex(
@@ -1836,6 +1847,14 @@ function App() {
                           >
                             <ArrowRight size={17} />
                             {t(" Weiterleiten\n                          ")}
+                          </button>
+                          <button
+                            onClick={() =>
+                              setModal({ type: "summary", uid: detail.uid })
+                            }
+                          >
+                            <Sparkles size={17} />
+                            {t("Zusammenfassen")}
                           </button>
                         </div>
                       </div>
@@ -2117,6 +2136,14 @@ function App() {
           onClose={() => setModal(null)}
         />
       )}
+      {modal?.type === "summary" && (
+        <AiSummaryModal
+          accountId={accountId}
+          folder={folder}
+          uid={modal.uid}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal === "contacts" && (
         <AddressBookModal onClose={() => setModal(null)} setError={setError} />
       )}
@@ -2202,6 +2229,96 @@ function SourceModal({ accountId, folder, uid, onClose, setError }) {
                 ),
               )}
         </pre>
+      </div>
+    </div>
+  );
+}
+
+function AiSummaryModal({ accountId, folder, uid, onClose }) {
+  const [summary, setSummary] = useState("");
+  const [truncated, setTruncated] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function summarize() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api(
+        `/accounts/${accountId}/messages/${uid}/summary`,
+        {
+          method: "POST",
+          body: { folder, language: getLanguage() },
+        },
+      );
+      setSummary(result.text);
+      setTruncated(result.truncated);
+    } catch (cause) {
+      setError(cause.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <div className="modal ai-modal">
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">MINIMAIL AI</div>
+            <h2>{t("KI-Zusammenfassung")}</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="ai-modal-content">
+          <p className="ai-disclosure">
+            {t(
+              "Beim Zusammenfassen wird der lesbare Nachrichtentext an OpenAI gesendet. Anhänge werden nicht übertragen.",
+            )}
+          </p>
+          {error && (
+            <p className="ai-error" role="alert">
+              {error}
+            </p>
+          )}
+          {summary && (
+            <div className="ai-result" aria-live="polite">
+              {summary}
+            </div>
+          )}
+          {truncated && (
+            <p className="ai-disclosure">
+              {t(
+                "Die Nachricht war sehr lang; nur der Anfang wurde zusammengefasst.",
+              )}
+            </p>
+          )}
+        </div>
+        <div className="modal-footer ai-modal-footer">
+          <button type="button" onClick={onClose}>
+            {t("Schließen")}
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={summarize}
+          >
+            {busy ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}
+            {summary ? t("Erneut zusammenfassen") : t("Zusammenfassen")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2855,6 +2972,11 @@ function SettingsModal({
               {auth.user.collectRecipients ? t("Ein") : t("Aus")}
             </button>
           </div>
+          <AiSettings
+            request={api}
+            isAdmin={auth.user.role === "admin"}
+            setError={setError}
+          />
           {auth.user.role === "admin" && (
             <UserManagement
               request={api}
@@ -3679,6 +3801,151 @@ function RecipientInput({ value, onChange, contacts, placeholder, label }) {
   );
 }
 
+function splitEditableDraft(value) {
+  const marker =
+    /\n\n(?:Am [^\n]+ schrieb [^\n]*:|On [^\n]+ wrote:|---------- (?:Weitergeleitete Nachricht|Forwarded message) ----------)/.exec(
+      value,
+    );
+  return marker
+    ? {
+        editable: value.slice(0, marker.index),
+        quoted: value.slice(marker.index),
+      }
+    : { editable: value, quoted: "" };
+}
+
+function AiRewriteModal({ body, onApply, onClose }) {
+  const { editable, quoted } = splitEditableDraft(body);
+  const [instructions, setInstructions] = useState("");
+  const [proposal, setProposal] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function generate() {
+    setBusy(true);
+    setError("");
+    setProposal("");
+    try {
+      const result = await api("/ai/rewrite", {
+        method: "POST",
+        body: { text: editable, instructions, language: getLanguage() },
+      });
+      setProposal(result.text);
+    } catch (cause) {
+      setError(cause.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className="modal-backdrop ai-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <div
+        className="modal ai-modal ai-rewrite-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-rewrite-title"
+      >
+        <div className="modal-header">
+          <div>
+            <div className="eyebrow">MINIMAIL AI</div>
+            <h2 id="ai-rewrite-title">{t("Text mit KI überarbeiten")}</h2>
+          </div>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="ai-modal-content">
+          <p className="ai-disclosure">
+            {t(
+              "Entwurf und Anweisungen werden erst beim Erstellen an OpenAI gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.",
+            )}
+          </p>
+          {editable.trim() && (
+            <details className="ai-original">
+              <summary>{t("Ausgangstext anzeigen")}</summary>
+              <pre>{editable}</pre>
+            </details>
+          )}
+          <label>
+            {t("Zusätzliche Anweisungen oder Stichpunkte")}
+            <textarea
+              value={instructions}
+              onChange={(event) => {
+                setInstructions(event.target.value);
+                setProposal("");
+              }}
+              maxLength={3000}
+              placeholder={t(
+                "Zum Beispiel: freundlich antworten, Termin am Freitag vorschlagen …",
+              )}
+            />
+          </label>
+          {!editable.trim() && (
+            <p className="ai-disclosure">
+              {t(
+                "Du kannst den Mailtext leer lassen und die Nachricht nur aus Stichpunkten erstellen lassen.",
+              )}
+            </p>
+          )}
+          {quoted && (
+            <p className="ai-disclosure">
+              {t(
+                "Der zitierte Mailverlauf wird beim Übernehmen wieder angehängt.",
+              )}
+            </p>
+          )}
+          {error && (
+            <p className="ai-error" role="alert">
+              {error}
+            </p>
+          )}
+          {proposal && (
+            <label>
+              {t("Vorschlag – vor dem Übernehmen bearbeitbar")}
+              <textarea
+                className="ai-proposal"
+                value={proposal}
+                onChange={(event) => setProposal(event.target.value)}
+              />
+            </label>
+          )}
+        </div>
+        <div className="modal-footer ai-modal-footer">
+          <button type="button" onClick={onClose}>
+            {t("Abbrechen")}
+          </button>
+          <button
+            type="button"
+            disabled={busy || (!editable.trim() && !instructions.trim())}
+            onClick={generate}
+          >
+            {busy ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}
+            {proposal ? t("Neu erstellen") : t("Vorschlag erstellen")}
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!proposal.trim() || busy}
+            onClick={() => onApply(proposal.trim() + quoted)}
+          >
+            {t("Übernehmen")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ComposeModal({
   account,
   accounts,
@@ -3729,6 +3996,8 @@ function ComposeModal({
             .join("\n")
         : "",
   );
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiHistory, setAiHistory] = useState([]);
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [showCc, setShowCc] = useState(Boolean(initialRecipients.cc));
@@ -3857,267 +4126,300 @@ function ComposeModal({
     }
   }
   return (
-    <div
-      className="modal-backdrop compose-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="modal compose-modal">
-        <div className="compose-header">
-          <div>
-            <div className="eyebrow">
-              {t("\n              VON ")}
-              {senderAccount?.email || t("KEIN POSTFACH")}
-            </div>
-            <h2>
-              {reply
-                ? replyAll
-                  ? t("Allen antworten")
-                  : t("Antworten")
-                : forward
-                  ? t("Weiterleiten")
-                  : t("Neue Nachricht")}
-            </h2>
-          </div>
-          <button className="icon-button" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </div>
-        <form onSubmit={submit}>
-          <div className="compose-fields">
-            <div className="compose-field">
-              <span>{t("Von")}</span>
-              <select
-                aria-label={t("Absenderadresse")}
-                value={senderAccountId || ""}
-                onChange={(event) =>
-                  setSenderAccountId(Number(event.target.value))
-                }
-              >
-                {accounts.map((item) => (
-                  <option
-                    key={item.id}
-                    value={item.id}
-                    disabled={item.needsCredentials}
-                  >
-                    {item.email}
-                    {item.needsCredentials ? ` (${t("Passwort fehlt")})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="compose-field">
-              <span>{t("An")}</span>
-              <RecipientInput
-                value={to}
-                onChange={setTo}
-                contacts={contacts}
-                placeholder={t("Empfänger-Adresse")}
-                label={t("An")}
-              />
-              <button type="button" onClick={() => setShowCc(!showCc)}>
-                Cc
-              </button>
-              <button type="button" onClick={() => setShowBcc(!showBcc)}>
-                Bcc
-              </button>
-            </div>
-            {(showCc || !!cc.trim()) && (
-              <div className="compose-field">
-                <span>{t("Cc")}</span>
-                <RecipientInput
-                  value={cc}
-                  onChange={setCc}
-                  contacts={contacts}
-                  placeholder={t("Kopie an")}
-                  label="Cc"
-                />
-              </div>
-            )}
-            {(showBcc || !!bcc.trim()) && (
-              <div className="compose-field">
-                <span>Bcc</span>
-                <RecipientInput
-                  value={bcc}
-                  onChange={setBcc}
-                  contacts={contacts}
-                  placeholder={t("Blindkopie an")}
-                  label="Bcc"
-                />
-              </div>
-            )}
-            <div className="compose-field">
-              <span>{t("Betreff")}</span>
-              <input
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder={t("Worum geht es?")}
-              />
-            </div>
-          </div>
-          <div className="compose-security">
-            <LockKeyhole size={15} />
-            <select
-              aria-label={t("Verschlüsselungsverfahren")}
-              value={cryptoOptions.mode}
-              onChange={(event) =>
-                setCryptoOptions({
-                  mode: event.target.value,
-                  sign: false,
-                  encrypt: event.target.value === "none" ? false : "auto",
-                })
-              }
-            >
-              <option value="none">{t("Ohne Ende-zu-Ende-Schutz")}</option>
-              <option value="pgp">OpenPGP</option>
-              <option value="smime">S/MIME</option>
-            </select>
-            <label>
-              <input
-                type="checkbox"
-                disabled={cryptoOptions.mode === "none"}
-                checked={cryptoOptions.sign}
-                onChange={(event) =>
-                  setCryptoOptions((current) => ({
-                    ...current,
-                    sign: event.target.checked,
-                  }))
-                }
-              />{" "}
-              {t("Signieren")}
-            </label>
-            <label>
-              {t("Verschlüsselung")}
-              <select
-                aria-label={t("Verschlüsselung")}
-                disabled={cryptoOptions.mode === "none"}
-                value={
-                  cryptoOptions.encrypt === "auto"
-                    ? "auto"
-                    : cryptoOptions.encrypt
-                      ? "on"
-                      : "off"
-                }
-                onChange={(event) =>
-                  setCryptoOptions((current) => ({
-                    ...current,
-                    encrypt:
-                      event.target.value === "auto"
-                        ? "auto"
-                        : event.target.value === "on",
-                  }))
-                }
-              >
-                <option value="off">{t("Aus")}</option>
-                <option value="auto">{t("Automatisch")}</option>
-                <option value="on">{t("Erzwingen")}</option>
-              </select>
-            </label>
-            {cryptoOptions.encrypt === "auto" && (
-              <span
-                className={`compose-encryption-status${encryptionStatus?.available ? " available" : encryptionStatus && !encryptionStatus.checking ? " unavailable" : ""}`}
-                aria-live="polite"
-              >
-                {encryptionStatus?.checking
-                  ? t("Empfängerschlüssel werden geprüft …")
-                  : encryptionStatus?.available
-                    ? t(
-                        "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
-                      )
-                    : encryptionStatus?.missing?.length
-                      ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
-                      : encryptionStatus?.reason
-                        ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
-                        : t("Empfängerschlüssel werden geprüft …")}
-              </span>
-            )}
-          </div>
-          <textarea
-            className="compose-body"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder={t("Schreibe deine Nachricht …")}
-            required
-          />
-          <div className="compose-signature" aria-live="polite">
-            <strong>
-              {t("Signatur für")} {senderAccount?.email || ""}
-            </strong>
-            {signatureText ? (
-              <pre>{signatureText}</pre>
-            ) : (
-              <span>{t("Keine Signatur")}</span>
-            )}
-          </div>
-          {files.length > 0 && (
-            <div className="compose-files">
-              {files.map((file, index) => (
-                <span key={index}>
-                  <Paperclip size={14} />
-                  {file.name}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFiles((current) =>
-                        current.filter((_, i) => i !== index),
-                      )
-                    }
-                  >
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="compose-footer">
+    <>
+      <div
+        className="modal-backdrop compose-backdrop"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
+        <div className="modal compose-modal">
+          <div className="compose-header">
             <div>
-              <button
-                className="primary-button"
-                disabled={
-                  busy || !senderAccount || senderAccount.needsCredentials
+              <div className="eyebrow">
+                {t("\n              VON ")}
+                {senderAccount?.email || t("KEIN POSTFACH")}
+              </div>
+              <h2>
+                {reply
+                  ? replyAll
+                    ? t("Allen antworten")
+                    : t("Antworten")
+                  : forward
+                    ? t("Weiterleiten")
+                    : t("Neue Nachricht")}
+              </h2>
+            </div>
+            <button className="icon-button" onClick={onClose}>
+              <X size={20} />
+            </button>
+          </div>
+          <form onSubmit={submit}>
+            <div className="compose-fields">
+              <div className="compose-field">
+                <span>{t("Von")}</span>
+                <select
+                  aria-label={t("Absenderadresse")}
+                  value={senderAccountId || ""}
+                  onChange={(event) =>
+                    setSenderAccountId(Number(event.target.value))
+                  }
+                >
+                  {accounts.map((item) => (
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={item.needsCredentials}
+                    >
+                      {item.email}
+                      {item.needsCredentials ? ` (${t("Passwort fehlt")})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="compose-field">
+                <span>{t("An")}</span>
+                <RecipientInput
+                  value={to}
+                  onChange={setTo}
+                  contacts={contacts}
+                  placeholder={t("Empfänger-Adresse")}
+                  label={t("An")}
+                />
+                <button type="button" onClick={() => setShowCc(!showCc)}>
+                  Cc
+                </button>
+                <button type="button" onClick={() => setShowBcc(!showBcc)}>
+                  Bcc
+                </button>
+              </div>
+              {(showCc || !!cc.trim()) && (
+                <div className="compose-field">
+                  <span>{t("Cc")}</span>
+                  <RecipientInput
+                    value={cc}
+                    onChange={setCc}
+                    contacts={contacts}
+                    placeholder={t("Kopie an")}
+                    label="Cc"
+                  />
+                </div>
+              )}
+              {(showBcc || !!bcc.trim()) && (
+                <div className="compose-field">
+                  <span>Bcc</span>
+                  <RecipientInput
+                    value={bcc}
+                    onChange={setBcc}
+                    contacts={contacts}
+                    placeholder={t("Blindkopie an")}
+                    label="Bcc"
+                  />
+                </div>
+              )}
+              <div className="compose-field">
+                <span>{t("Betreff")}</span>
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder={t("Worum geht es?")}
+                />
+              </div>
+            </div>
+            <div className="compose-security">
+              <LockKeyhole size={15} />
+              <select
+                aria-label={t("Verschlüsselungsverfahren")}
+                value={cryptoOptions.mode}
+                onChange={(event) =>
+                  setCryptoOptions({
+                    mode: event.target.value,
+                    sign: false,
+                    encrypt: event.target.value === "none" ? false : "auto",
+                  })
                 }
               >
-                {busy ? (
-                  <LoaderCircle className="spin" size={17} />
-                ) : (
-                  <Send size={17} />
-                )}{" "}
-                {t("\n                Senden\n              ")}
-              </button>
-              <label
-                className="attachment-button"
-                title={t("Dateien anhängen")}
-              >
-                <Paperclip size={19} />
+                <option value="none">{t("Ohne Ende-zu-Ende-Schutz")}</option>
+                <option value="pgp">OpenPGP</option>
+                <option value="smime">S/MIME</option>
+              </select>
+              <label>
                 <input
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    const next = [...files, ...Array.from(e.target.files)];
-                    if (
-                      next.reduce((sum, file) => sum + file.size, 0) >
-                      8 * 1024 * 1024
-                    ) {
-                      setError(
-                        t("Anhänge dürfen zusammen höchstens 8 MB groß sein."),
-                      );
-                      return;
-                    }
-                    setFiles(next.slice(0, 8));
-                  }}
-                />
+                  type="checkbox"
+                  disabled={cryptoOptions.mode === "none"}
+                  checked={cryptoOptions.sign}
+                  onChange={(event) =>
+                    setCryptoOptions((current) => ({
+                      ...current,
+                      sign: event.target.checked,
+                    }))
+                  }
+                />{" "}
+                {t("Signieren")}
               </label>
+              <label>
+                {t("Verschlüsselung")}
+                <select
+                  aria-label={t("Verschlüsselung")}
+                  disabled={cryptoOptions.mode === "none"}
+                  value={
+                    cryptoOptions.encrypt === "auto"
+                      ? "auto"
+                      : cryptoOptions.encrypt
+                        ? "on"
+                        : "off"
+                  }
+                  onChange={(event) =>
+                    setCryptoOptions((current) => ({
+                      ...current,
+                      encrypt:
+                        event.target.value === "auto"
+                          ? "auto"
+                          : event.target.value === "on",
+                    }))
+                  }
+                >
+                  <option value="off">{t("Aus")}</option>
+                  <option value="auto">{t("Automatisch")}</option>
+                  <option value="on">{t("Erzwingen")}</option>
+                </select>
+              </label>
+              {cryptoOptions.encrypt === "auto" && (
+                <span
+                  className={`compose-encryption-status${encryptionStatus?.available ? " available" : encryptionStatus && !encryptionStatus.checking ? " unavailable" : ""}`}
+                  aria-live="polite"
+                >
+                  {encryptionStatus?.checking
+                    ? t("Empfängerschlüssel werden geprüft …")
+                    : encryptionStatus?.available
+                      ? t(
+                          "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
+                        )
+                      : encryptionStatus?.missing?.length
+                        ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
+                        : encryptionStatus?.reason
+                          ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
+                          : t("Empfängerschlüssel werden geprüft …")}
+                </span>
+              )}
             </div>
-            <span>
-              {t("Gesendet über ")}
-              {senderAccount?.name || "MiniMail"}
-            </span>
-          </div>
-        </form>
+            <div className="compose-ai-actions">
+              <button type="button" onClick={() => setAiOpen(true)}>
+                <Sparkles size={15} />
+                {t("Mit KI überarbeiten")}
+              </button>
+              {aiHistory.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBody(aiHistory.at(-1));
+                    setAiHistory((current) => current.slice(0, -1));
+                  }}
+                >
+                  <Undo2 size={15} />
+                  {t("KI-Änderung rückgängig")}
+                </button>
+              )}
+            </div>
+            <textarea
+              className="compose-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder={t("Schreibe deine Nachricht …")}
+              required
+            />
+            <div className="compose-signature" aria-live="polite">
+              <strong>
+                {t("Signatur für")} {senderAccount?.email || ""}
+              </strong>
+              {signatureText ? (
+                <pre>{signatureText}</pre>
+              ) : (
+                <span>{t("Keine Signatur")}</span>
+              )}
+            </div>
+            {files.length > 0 && (
+              <div className="compose-files">
+                {files.map((file, index) => (
+                  <span key={index}>
+                    <Paperclip size={14} />
+                    {file.name}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFiles((current) =>
+                          current.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="compose-footer">
+              <div>
+                <button
+                  className="primary-button"
+                  disabled={
+                    busy || !senderAccount || senderAccount.needsCredentials
+                  }
+                >
+                  {busy ? (
+                    <LoaderCircle className="spin" size={17} />
+                  ) : (
+                    <Send size={17} />
+                  )}{" "}
+                  {t("\n                Senden\n              ")}
+                </button>
+                <label
+                  className="attachment-button"
+                  title={t("Dateien anhängen")}
+                >
+                  <Paperclip size={19} />
+                  <input
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(e) => {
+                      const next = [...files, ...Array.from(e.target.files)];
+                      if (
+                        next.reduce((sum, file) => sum + file.size, 0) >
+                        8 * 1024 * 1024
+                      ) {
+                        setError(
+                          t(
+                            "Anhänge dürfen zusammen höchstens 8 MB groß sein.",
+                          ),
+                        );
+                        return;
+                      }
+                      setFiles(next.slice(0, 8));
+                    }}
+                  />
+                </label>
+              </div>
+              <span>
+                {t("Gesendet über ")}
+                {senderAccount?.name || "MiniMail"}
+              </span>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+      {aiOpen && (
+        <AiRewriteModal
+          body={body}
+          onClose={() => setAiOpen(false)}
+          onApply={(next) => {
+            setAiHistory((current) => [...current, body].slice(-10));
+            setBody(next);
+            setAiOpen(false);
+          }}
+        />
+      )}
+    </>
   );
 }
 

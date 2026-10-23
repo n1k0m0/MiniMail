@@ -113,6 +113,60 @@ const translations = {
   "Blindkopie an": "Bcc recipient",
   "Nachrichtenquelltext anzeigen": "View message source",
   "Mail-Weg auf Karte anzeigen": "Show mail trace on map",
+  "Mit KI zusammenfassen": "Summarize with AI",
+  "KI-Zusammenfassung": "AI summary",
+  "Beim Zusammenfassen wird der lesbare Nachrichtentext an OpenAI gesendet. Anhänge werden nicht übertragen.":
+    "Summarizing sends the readable message text to OpenAI. Attachments are not sent.",
+  "Die Nachricht war sehr lang; nur der Anfang wurde zusammengefasst.":
+    "This message was very long; only the beginning was summarized.",
+  "Erneut zusammenfassen": "Summarize again",
+  Zusammenfassen: "Summarize",
+  "Mit KI überarbeiten": "Revise with AI",
+  "KI-Änderung rückgängig": "Undo AI change",
+  "Text mit KI überarbeiten": "Revise text with AI",
+  "Ausgangstext anzeigen": "Show original draft",
+  "Entwurf und Anweisungen werden erst beim Erstellen an OpenAI gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.":
+    "The draft and instructions are sent to OpenAI only when you generate a suggestion. The signature and quoted mail history stay unchanged.",
+  "Zusätzliche Anweisungen oder Stichpunkte":
+    "Additional instructions or bullet points",
+  "Zum Beispiel: freundlich antworten, Termin am Freitag vorschlagen …":
+    "For example: reply politely, suggest a meeting on Friday …",
+  "Du kannst den Mailtext leer lassen und die Nachricht nur aus Stichpunkten erstellen lassen.":
+    "You can leave the draft empty and create the message from bullet points alone.",
+  "Der zitierte Mailverlauf wird beim Übernehmen wieder angehängt.":
+    "The quoted mail history will be reattached when you apply the suggestion.",
+  "Vorschlag – vor dem Übernehmen bearbeitbar":
+    "Suggestion — editable before applying",
+  "Neu erstellen": "Generate again",
+  "Vorschlag erstellen": "Generate suggestion",
+  Übernehmen: "Apply",
+  "KI-Funktionen": "AI features",
+  "Text überarbeiten und Mails zusammenfassen":
+    "Revise text and summarize messages",
+  "OpenAI ist eingerichtet.": "OpenAI is configured.",
+  "OpenAI ist noch nicht eingerichtet.": "OpenAI is not configured yet.",
+  "Nur auf Klick wird Mailtext an OpenAI gesendet.":
+    "Message text is sent to OpenAI only when you request it.",
+  Modell: "Model",
+  "OpenAI API-Schlüssel": "OpenAI API key",
+  "Schlüssel unverändert lassen": "Leave key unchanged",
+  "API-Schlüssel entfernen": "Remove API key",
+  "Ungültige KI-Einstellung.": "Invalid AI setting.",
+  "KI ist noch nicht eingerichtet.": "AI is not configured yet.",
+  "Ungültige KI-Anfrage.": "Invalid AI request.",
+  "KI-Text fehlt oder ist zu lang.": "AI text is missing or too long.",
+  "KI-Anfrage hat zu lange gedauert.": "The AI request timed out.",
+  "KI-Dienst nicht erreichbar.": "AI service is unavailable.",
+  "KI-API-Schlüssel wurde abgelehnt.": "The AI API key was rejected.",
+  "KI-Limit erreicht. Bitte später erneut versuchen.":
+    "AI rate limit reached. Please try again later.",
+  "KI-Dienst konnte die Anfrage nicht verarbeiten.":
+    "The AI service could not process the request.",
+  "Ungültige Antwort vom KI-Dienst.": "Invalid response from the AI service.",
+  "KI hat keine vollständige Antwort geliefert.":
+    "AI did not return a complete response.",
+  "Zu viele KI-Anfragen. Bitte kurz warten.":
+    "Too many AI requests. Please wait a moment.",
   "Mail-Weg auf Karte": "Mail trace on map",
   "Stationen aus den Received-Headern": "Hops from Received headers",
   "Mail-Weg konnte nicht geladen werden.": "Could not load mail trace.",

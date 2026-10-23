@@ -204,6 +204,26 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await admin("/accounts")).status, 200);
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
     assert.equal((await admin("/auth/me")).data.user.collectRecipients, true);
+    assert.equal((await admin("/settings/ai")).status, 200);
+    assert.equal(
+      (
+        await admin("/settings/ai", "PUT", {
+          model: "gpt-4.1-mini",
+          apiKey: "test-ai-key",
+        })
+      ).status,
+      200,
+    );
+    const aiSettings = await admin("/settings/ai");
+    assert.equal(aiSettings.data.configured, true);
+    assert.equal(
+      JSON.stringify(aiSettings.data).includes("test-ai-key"),
+      false,
+    );
+    assert.equal(
+      (await admin("/ai/rewrite", "POST", { text: "" })).status,
+      400,
+    );
     assert.deepEqual((await admin("/contacts")).data, []);
     assert.equal(
       (
@@ -555,6 +575,10 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       200,
     );
     assert.equal((await member("/admin/users")).status, 403);
+    assert.equal(
+      (await member("/settings/ai", "PUT", { model: "gpt-4.1-mini" })).status,
+      403,
+    );
     assert.deepEqual((await member("/contacts")).data, []);
     assert.equal(
       (

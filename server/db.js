@@ -49,6 +49,11 @@ db.exec(`
     UNIQUE(user_id, email), FOREIGN KEY(user_id) REFERENCES users(id)
   );
   CREATE INDEX IF NOT EXISTS contacts_user_name ON contacts(user_id, name);
+  CREATE TABLE IF NOT EXISTS ai_settings (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    api_key_enc TEXT,
+    model TEXT NOT NULL DEFAULT 'gpt-4.1-mini'
+  );
 `);
 initializeMailIndex(db);
 const userColumns = new Set(
