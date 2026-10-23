@@ -97,6 +97,15 @@ function senderKey(userId, email) {
   return own?.pgp_private_enc ? decrypt(own.pgp_private_enc) : null;
 }
 
+function senderKeyVerified(userId, email) {
+  const contact = db
+    .prepare(
+      "SELECT pgp_verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+    )
+    .get(userId, email);
+  return !contact || !!contact.pgp_verified;
+}
+
 async function unlockedPgp(account) {
   if (!account.pgp_private_enc)
     throw new CryptoInputError("OpenPGP-Privatschlüssel fehlt.");
@@ -120,15 +129,18 @@ async function recipientMaterial(account, mail, column) {
     ),
   ];
   const missing = [];
+  const unconfirmed = [];
   const material = [];
   for (const email of addresses) {
     if (email === account.email.toLowerCase()) continue;
+    const verifiedColumn =
+      column === "pgp_public" ? "pgp_verified" : "smime_verified";
     const contact = db
       .prepare(
-        `SELECT ${column} AS key FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE`,
+        `SELECT ${column} AS key,${verifiedColumn} AS verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE`,
       )
       .get(account.user_id, email);
-    let key = contact?.key;
+    let key = contact?.verified ? contact.key : null;
     if (!key) {
       const own = db
         .prepare(
@@ -155,14 +167,17 @@ async function recipientMaterial(account, mail, column) {
         key = null;
       }
     }
-    if (!key) missing.push(email);
-    else material.push(key);
+    if (!key) {
+      missing.push(email);
+      if (contact?.key && !contact.verified) unconfirmed.push(email);
+    } else material.push(key);
   }
   if (missing.length) {
     const error = new CryptoInputError(
       `Für diese Empfänger fehlt ein ${column === "pgp_public" ? "OpenPGP-Schlüssel" : "S/MIME-Zertifikat"}: ${missing.join(", ")}`,
     );
     error.missing = missing;
+    error.unconfirmed = unconfirmed;
     throw error;
   }
   return material;
@@ -199,6 +214,7 @@ export async function encryptionAvailability(account, mail) {
         available: false,
         reason: error.message,
         ...(error.missing ? { missing: error.missing } : {}),
+        ...(error.unconfirmed ? { unconfirmed: error.unconfirmed } : {}),
       };
     throw error;
   }
@@ -373,7 +389,7 @@ async function verifyPgp(content, armoredSignature, userId, sender) {
     await result.signatures[0].verified;
     return {
       signed: true,
-      signature: "valid",
+      signature: senderKeyVerified(userId, sender) ? "valid" : "untrusted",
       fingerprint: key.getFingerprint().toUpperCase(),
     };
   } catch {
@@ -435,7 +451,9 @@ async function readPgp(account, raw, parsed, kind) {
   if (result.signatures?.length && verificationKeys) {
     try {
       await result.signatures[0].verified;
-      signature = "valid";
+      signature = senderKeyVerified(account.user_id, sender)
+        ? "valid"
+        : "untrusted";
     } catch {
       signature = "invalid";
     }
@@ -487,6 +505,7 @@ async function readSmime(
       signed: false,
       signature: "none",
     };
+    let discoveredSmime = null;
     if (encrypted) {
       await fs.writeFile(cert, account.smime_cert, { mode: 0o600 });
       await fs.writeFile(key, decrypt(account.smime_key_enc), { mode: 0o600 });
@@ -574,7 +593,7 @@ async function readSmime(
       const certificateCurrent = certificateIsCurrent(signerCert);
       const savedContact = db
         .prepare(
-          "SELECT smime_cert FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+          "SELECT smime_cert,smime_verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
         )
         .get(account.user_id, outerSender);
       const savedOwn = db
@@ -582,7 +601,10 @@ async function readSmime(
           "SELECT smime_cert FROM accounts WHERE user_id=? AND email=? COLLATE NOCASE",
         )
         .get(account.user_id, outerSender);
-      const pinned = [savedContact?.smime_cert, savedOwn?.smime_cert]
+      const pinned = [
+        savedContact?.smime_verified ? savedContact.smime_cert : null,
+        savedOwn?.smime_cert,
+      ]
         .filter(Boolean)
         .some((pem) => {
           try {
@@ -608,9 +630,14 @@ async function readSmime(
                 : "untrusted",
         fingerprint: signerCert.fingerprint256,
       };
+      if (signatureValid && identityMatches && certificateCurrent)
+        discoveredSmime = {
+          certificate: await fs.readFile(signer, "utf8"),
+          trusted,
+        };
       parsed = await simpleParser(await fs.readFile(verified));
     }
-    return { parsed, security };
+    return { parsed, security, discoveredSmime };
   });
 }
 
@@ -695,6 +722,13 @@ export async function inspectIncoming(account, raw) {
       let signature = "valid";
       try {
         await result.signatures[0].verified;
+        if (
+          !senderKeyVerified(
+            account.user_id,
+            parsed.from?.value?.[0]?.address || "",
+          )
+        )
+          signature = "untrusted";
       } catch {
         signature = "invalid";
       }

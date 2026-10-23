@@ -47,9 +47,36 @@ db.exec(`
     source TEXT NOT NULL DEFAULT 'manual', created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     pgp_public TEXT, smime_cert TEXT,
+    pgp_verified INTEGER NOT NULL DEFAULT 1,
+    smime_verified INTEGER NOT NULL DEFAULT 1,
+    pgp_source TEXT NOT NULL DEFAULT 'manual',
+    smime_source TEXT NOT NULL DEFAULT 'manual',
     UNIQUE(user_id, email), FOREIGN KEY(user_id) REFERENCES users(id)
   );
   CREATE INDEX IF NOT EXISTS contacts_user_name ON contacts(user_id, name);
+  CREATE TABLE IF NOT EXISTS discovered_keys (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    email TEXT NOT NULL COLLATE NOCASE,
+    kind TEXT NOT NULL CHECK(kind IN ('pgp','smime')),
+    fingerprint TEXT NOT NULL,
+    material TEXT NOT NULL,
+    source TEXT NOT NULL,
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    seen_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(user_id,email,kind,fingerprint)
+  );
+  CREATE INDEX IF NOT EXISTS discovered_keys_user_email ON discovered_keys(user_id,email);
+  CREATE TABLE IF NOT EXISTS key_scan_folders (
+    account_id INTEGER NOT NULL,
+    folder TEXT NOT NULL,
+    uid_validity TEXT NOT NULL,
+    last_uid INTEGER NOT NULL DEFAULT 0,
+    inline_uids TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(account_id,folder)
+  );
   CREATE TABLE IF NOT EXISTS ai_settings (
     id INTEGER PRIMARY KEY CHECK(id=1),
     api_key_enc TEXT,
@@ -142,6 +169,15 @@ if (!contactColumns.has("pgp_public"))
   db.exec("ALTER TABLE contacts ADD COLUMN pgp_public TEXT");
 if (!contactColumns.has("smime_cert"))
   db.exec("ALTER TABLE contacts ADD COLUMN smime_cert TEXT");
+for (const [column, definition] of Object.entries({
+  pgp_verified: "INTEGER NOT NULL DEFAULT 1",
+  smime_verified: "INTEGER NOT NULL DEFAULT 1",
+  pgp_source: "TEXT NOT NULL DEFAULT 'manual'",
+  smime_source: "TEXT NOT NULL DEFAULT 'manual'",
+})) {
+  if (!contactColumns.has(column))
+    db.exec(`ALTER TABLE contacts ADD COLUMN ${column} ${definition}`);
+}
 db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_per_user ON accounts(user_id) WHERE is_primary=1",
 );

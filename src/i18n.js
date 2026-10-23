@@ -225,6 +225,8 @@ const translations = {
   "Ohne Verschlüsselung: ": "Without encryption: ",
   "Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ":
     "Without encryption: Suitable keys are missing for these recipients: ",
+  "Ohne Verschlüsselung: Schlüssel noch nicht bestätigt für: ":
+    "Without encryption: Keys are not yet confirmed for: ",
   "Bitte zuerst Empfänger eingeben.": "Enter recipients first.",
   "Das eigene S/MIME-Zertifikat ist abgelaufen.":
     "Your S/MIME certificate has expired.",
@@ -252,10 +254,22 @@ const translations = {
   "Zertifikat entfernen": "Remove certificate",
   "Schlüssel und Zertifikate": "Keys and certificates",
   "Öffentlicher Schlüssel vorhanden": "Public key available",
+  "Schlüssel automatisch gefunden – Fingerabdruck prüfen":
+    "Key discovered automatically – check its fingerprint",
   "Kein öffentlicher Schlüssel vorhanden": "No public key available",
   "Öffentlicher Schlüssel": "Public key",
   "Schlüssel speichern": "Save key",
   "Zertifikat vorhanden": "Certificate available",
+  "Zertifikat automatisch gefunden – Fingerabdruck prüfen":
+    "Certificate discovered automatically – check its fingerprint",
+  "Automatisch gefundene Schlüssel": "Automatically discovered keys",
+  "Prüfe den Fingerabdruck über einen zweiten Kanal, bevor du einen Schlüssel bestätigst oder ersetzt.":
+    "Check the fingerprint through another channel before confirming or replacing a key.",
+  "Aktiv und bestätigt": "Active and confirmed",
+  "Gesammelt, noch nicht bestätigt": "Collected, not yet confirmed",
+  "Weiterer Schlüssel – aktiven Schlüssel nicht ersetzt":
+    "Additional key – active key was not replaced",
+  "Fingerabdruck bestätigt – verwenden": "Fingerprint confirmed – use key",
   "Öffentliches Zertifikat (PEM oder DER)": "Public certificate (PEM or DER)",
   "S/MIME-Zertifikatdatei auswählen": "Choose S/MIME certificate file",
   "Zertifikat speichern": "Save certificate",

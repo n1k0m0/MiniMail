@@ -2100,6 +2100,50 @@ svg {
   padding-top: 12px;
   overflow-wrap: anywhere;
 }
+.key-discoveries {
+  display: grid;
+  gap: 10px;
+}
+.discovered-key {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #dfe6f0;
+  border-radius: 8px;
+}
+.discovered-key > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.discovered-key span,
+.discovered-key small {
+  color: #71809a;
+}
+.discovered-key code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.discovered-key button {
+  flex: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #e9efff;
+  color: #354fb1;
+  font-size: 11px;
+  font-weight: 700;
+}
+@media (max-width: 560px) {
+  .discovered-key {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+[data-theme="dark"] .discovered-key {
+  border-color: #39475c;
+}
 .contact-key-badges {
   display: flex;
   gap: 4px;

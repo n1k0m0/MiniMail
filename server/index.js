@@ -355,12 +355,26 @@ app.get("/api/contacts", (req, res) => {
 });
 
 function publicContact(contact) {
-  const { pgp_public, smime_cert, user_id, created_at, updated_at, ...rest } =
-    contact;
+  const {
+    pgp_public,
+    smime_cert,
+    pgp_verified,
+    smime_verified,
+    pgp_source,
+    smime_source,
+    user_id,
+    created_at,
+    updated_at,
+    ...rest
+  } = contact;
   return {
     ...rest,
     hasPgpKey: !!pgp_public,
     hasSmimeCertificate: !!smime_cert,
+    pgpVerified: !!pgp_public && !!pgp_verified,
+    smimeVerified: !!smime_cert && !!smime_verified,
+    pgpSource: pgp_public ? pgp_source : null,
+    smimeSource: smime_cert ? smime_source : null,
   };
 }
 
@@ -431,7 +445,7 @@ app.put("/api/contacts/:id", (req, res) => {
       return res.status(404).json({ error: "Kontakt nicht gefunden." });
     if (previous.email.toLowerCase() !== email.toLowerCase())
       db.prepare(
-        "UPDATE contacts SET pgp_public=NULL,smime_cert=NULL WHERE id=? AND user_id=?",
+        "UPDATE contacts SET pgp_public=NULL,smime_cert=NULL,pgp_verified=1,smime_verified=1,pgp_source='manual',smime_source='manual' WHERE id=? AND user_id=?",
       ).run(id, req.user.id);
     res.json(
       publicContact(db.prepare("SELECT * FROM contacts WHERE id=?").get(id)),
@@ -471,7 +485,7 @@ app.put(
         const key = String(req.body?.publicKey || "");
         const { fingerprint } = await validatePgpPublic(key, contact.email);
         db.prepare(
-          "UPDATE contacts SET pgp_public=?,updated_at=? WHERE id=? AND user_id=?",
+          "UPDATE contacts SET pgp_public=?,pgp_verified=1,pgp_source='manual',updated_at=? WHERE id=? AND user_id=?",
         ).run(key, Date.now(), contact.id, req.user.id);
         return res.json({ ok: true, fingerprint });
       }
@@ -482,7 +496,7 @@ app.put(
           contact.email,
         );
         db.prepare(
-          "UPDATE contacts SET smime_cert=?,updated_at=? WHERE id=? AND user_id=?",
+          "UPDATE contacts SET smime_cert=?,smime_verified=1,smime_source='manual',updated_at=? WHERE id=? AND user_id=?",
         ).run(certificate, Date.now(), contact.id, req.user.id);
         return res.json({ ok: true, fingerprint });
       }
@@ -503,10 +517,57 @@ app.delete("/api/contacts/:id/crypto/:kind", (req, res) => {
   if (!column)
     return res.status(404).json({ error: "Verfahren nicht gefunden." });
   db.prepare(
-    `UPDATE contacts SET ${column}=NULL,updated_at=? WHERE id=? AND user_id=?`,
+    `UPDATE contacts SET ${column}=NULL,${column === "pgp_public" ? "pgp_verified=1,pgp_source='manual'" : "smime_verified=1,smime_source='manual'"},updated_at=? WHERE id=? AND user_id=?`,
   ).run(Date.now(), contact.id, req.user.id);
   res.json({ ok: true });
 });
+
+app.get("/api/contacts/:id/crypto/discoveries", (req, res) => {
+  const contact = contactFor(req, res);
+  if (!contact) return;
+  const rows = db
+    .prepare(
+      "SELECT id,kind,fingerprint,material,source,first_seen_at,last_seen_at,seen_count FROM discovered_keys WHERE user_id=? AND email=? COLLATE NOCASE ORDER BY last_seen_at DESC",
+    )
+    .all(req.user.id, contact.email);
+  res.json(
+    rows.map(({ material, ...row }) => ({
+      ...row,
+      active:
+        material ===
+        (row.kind === "pgp" ? contact.pgp_public : contact.smime_cert),
+    })),
+  );
+});
+
+app.post(
+  "/api/contacts/:id/crypto/discoveries/:keyId/accept",
+  asyncRoute(async (req, res) => {
+    const contact = contactFor(req, res);
+    if (!contact) return;
+    const keyId = Number(req.params.keyId);
+    if (!Number.isSafeInteger(keyId) || keyId < 1)
+      return res.status(400).json({ error: "Ungültiger Schlüssel." });
+    const discovered = db
+      .prepare(
+        "SELECT * FROM discovered_keys WHERE id=? AND user_id=? AND email=? COLLATE NOCASE",
+      )
+      .get(keyId, req.user.id, contact.email);
+    if (!discovered)
+      return res.status(404).json({ error: "Schlüssel nicht gefunden." });
+    if (discovered.kind === "pgp")
+      await validatePgpPublic(discovered.material, contact.email);
+    else validateSmimeCertificate(discovered.material, contact.email);
+    const column = discovered.kind === "pgp" ? "pgp_public" : "smime_cert";
+    const verified =
+      discovered.kind === "pgp" ? "pgp_verified" : "smime_verified";
+    const source = discovered.kind === "pgp" ? "pgp_source" : "smime_source";
+    db.prepare(
+      `UPDATE contacts SET ${column}=?,${verified}=1,${source}='confirmed',updated_at=? WHERE id=? AND user_id=?`,
+    ).run(discovered.material, Date.now(), contact.id, req.user.id);
+    res.json({ ok: true, fingerprint: discovered.fingerprint });
+  }),
+);
 
 function publicUser(user) {
   return {

@@ -1,8 +1,9 @@
 import { db } from "./db.js";
 import { decrypt } from "./security.js";
-import { checkInbox } from "./mail.js";
+import { checkInbox, scanAccountKeys } from "./mail.js";
 
 let running = false;
+let scanningKeys = false;
 
 export async function checkDueMailboxes() {
   if (running) return;
@@ -41,4 +42,36 @@ export async function checkDueMailboxes() {
 export function startMailChecks() {
   setTimeout(() => checkDueMailboxes().catch(console.error), 5000).unref();
   setInterval(() => checkDueMailboxes().catch(console.error), 30000).unref();
+  const scan = async () => {
+    if (scanningKeys) return;
+    scanningKeys = true;
+    let pending = false;
+    try {
+      const accounts = db.prepare("SELECT * FROM accounts ORDER BY id").all();
+      for (const account of accounts) {
+        if (!account.password_enc || !decrypt(account.password_enc)) continue;
+        try {
+          const result = await scanAccountKeys(account);
+          pending ||= result.pending;
+          if (result.stored || result.alternate)
+            console.log("Mail keys collected", {
+              accountId: account.id,
+              folder: result.folder,
+              stored: result.stored,
+              alternate: result.alternate,
+            });
+        } catch (error) {
+          pending = true;
+          console.error("Mail key scan failed", {
+            accountId: account.id,
+            error: error.message,
+          });
+        }
+      }
+    } finally {
+      scanningKeys = false;
+      setTimeout(scan, pending ? 10000 : 300000).unref();
+    }
+  };
+  setTimeout(scan, 10000).unref();
 }

@@ -21,6 +21,7 @@ const { protectOutgoing, inspectIncoming, encryptionAvailability } =
   await import("../server/protectedMail.js");
 const { readPkcs12, validateSmimeIdentity } =
   await import("../server/cryptoKeys.js");
+const { collectMessageKeys } = await import("../server/keyDiscovery.js");
 db.prepare(
   "INSERT INTO users (id,username,password_hash,created_at) VALUES (1,'owner','test',1)",
 ).run();
@@ -334,15 +335,152 @@ test("S/MIME signed and encrypted mail round-trips without exposing plaintext", 
     "-out",
     opaqueOutput,
   ]);
-  const opaque = await inspectIncoming(
-    account,
-    Buffer.concat([
-      Buffer.from("From: Alice <alice@example.test>\r\n"),
-      await fs.readFile(opaqueOutput),
-    ]),
-  );
+  const opaqueRaw = Buffer.concat([
+    Buffer.from("From: Alice <alice@example.test>\r\n"),
+    await fs.readFile(opaqueOutput),
+  ]);
+  const opaque = await inspectIncoming(account, opaqueRaw);
   assert.equal(opaque.parsed.text.trim(), "Opaque signed body");
   assert.equal(opaque.security.signature, "untrusted");
+  assert.match(opaque.discoveredSmime.certificate, /BEGIN CERTIFICATE/);
+  const collected = await collectMessageKeys(
+    db,
+    { id: 5, user_id: 1, email: "owner@example.test" },
+    opaqueRaw,
+  );
+  assert.equal(collected.stored, 1);
+  const saved = db
+    .prepare(
+      "SELECT smime_cert,smime_verified FROM contacts WHERE user_id=1 AND email='alice@example.test'",
+    )
+    .get();
+  assert.match(saved.smime_cert, /BEGIN CERTIFICATE/);
+  assert.equal(saved.smime_verified, 0);
+  const stillUntrusted = await inspectIncoming(account, opaqueRaw);
+  assert.equal(stillUntrusted.security.signature, "untrusted");
+});
+
+test("Autocrypt keys are collected without silently trusting or replacing them", async () => {
+  const first = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ name: "Harriet", email: "harriet@example.test" }],
+  });
+  const second = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ name: "Harriet", email: "harriet@example.test" }],
+  });
+  const account = { id: 5, user_id: 1, email: "owner@example.test" };
+  const raw = async (key, headerAddress = "harriet@example.test") => {
+    const parsed = await openpgp.readKey({ armoredKey: key.publicKey });
+    const data = Buffer.from(parsed.write()).toString("base64");
+    return Buffer.from(
+      `From: Harriet <harriet@example.test>\r\nAutocrypt: addr=${headerAddress}; keydata=${data}\r\nContent-Type: text/plain\r\n\r\nHello`,
+    );
+  };
+  assert.deepEqual(
+    await collectMessageKeys(
+      db,
+      account,
+      await raw(first, "other@example.test"),
+    ),
+    { stored: 0, alternate: 0 },
+  );
+  assert.deepEqual(await collectMessageKeys(db, account, await raw(first)), {
+    stored: 1,
+    alternate: 0,
+  });
+  const contact = db
+    .prepare(
+      "SELECT pgp_public,pgp_verified,pgp_source FROM contacts WHERE user_id=1 AND email='harriet@example.test'",
+    )
+    .get();
+  assert.equal(contact.pgp_verified, 0);
+  assert.equal(contact.pgp_source, "autocrypt");
+  assert.match(contact.pgp_public, /BEGIN PGP PUBLIC KEY BLOCK/);
+  assert.deepEqual(await collectMessageKeys(db, account, await raw(second)), {
+    stored: 0,
+    alternate: 1,
+  });
+  const after = db
+    .prepare(
+      "SELECT pgp_public FROM contacts WHERE user_id=1 AND email='harriet@example.test'",
+    )
+    .get();
+  assert.equal(after.pgp_public, contact.pgp_public);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM discovered_keys WHERE user_id=1 AND email='harriet@example.test'",
+      )
+      .get().n,
+    2,
+  );
+  const owner = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ name: "Owner", email: "owner@example.test" }],
+  });
+  const ownerAccount = {
+    ...account,
+    pgp_private_enc: encrypt(owner.privateKey),
+    pgp_passphrase_enc: encrypt(""),
+  };
+  const mail = {
+    to: "harriet@example.test",
+    cc: "",
+    bcc: "",
+    crypto: { mode: "pgp" },
+  };
+  const unavailable = await encryptionAvailability(ownerAccount, mail);
+  assert.equal(unavailable.available, false);
+  assert.deepEqual(unavailable.unconfirmed, ["harriet@example.test"]);
+  const signed = await protectOutgoing(
+    {
+      ...account,
+      email: "harriet@example.test",
+      pgp_private_enc: encrypt(first.privateKey),
+      pgp_passphrase_enc: encrypt(""),
+    },
+    {
+      to: "owner@example.test",
+      cc: "",
+      bcc: "",
+      crypto: { mode: "pgp", sign: true, encrypt: false },
+    },
+    outgoing("harriet@example.test", "owner@example.test", "Signed note"),
+  );
+  const inspected = await inspectIncoming(ownerAccount, signed.smtpRaw);
+  assert.equal(inspected.security.signature, "untrusted");
+  db.prepare(
+    "UPDATE contacts SET pgp_verified=1 WHERE user_id=1 AND email='harriet@example.test'",
+  ).run();
+  assert.equal(
+    (await encryptionAvailability(ownerAccount, mail)).available,
+    true,
+  );
+  const inline = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ name: "Ian", email: "ian@example.test" }],
+  });
+  const inlineResult = await collectMessageKeys(
+    db,
+    account,
+    Buffer.from(
+      `From: Ian <ian@example.test>\r\nContent-Type: text/plain\r\n\r\nMy public key:\r\n${inline.publicKey}`,
+    ),
+  );
+  assert.equal(inlineResult.stored, 1);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT pgp_source FROM contacts WHERE user_id=1 AND email='ian@example.test'",
+      )
+      .get().pgp_source,
+    "pgp-inline",
+  );
 });
 
 test.after(async () => {

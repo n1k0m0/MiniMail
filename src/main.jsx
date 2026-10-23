@@ -213,10 +213,15 @@ function securityText(security) {
       `${kind}: Signature valid, but the certificate does not match the sender address.`,
     );
   if (security.signature === "untrusted")
-    return choose(
-      `${kind}: Signatur gültig, Zertifikatskette nicht als vertrauenswürdig bestätigt.`,
-      `${kind}: Signature valid; certificate chain not trusted.`,
-    );
+    return security.kind === "pgp"
+      ? choose(
+          "OpenPGP: Signatur passt zum automatisch gefundenen Schlüssel; Fingerabdruck noch nicht bestätigt.",
+          "OpenPGP: Signature matches an automatically discovered key; fingerprint not yet confirmed.",
+        )
+      : choose(
+          "S/MIME: Signatur gültig, Zertifikatskette nicht als vertrauenswürdig bestätigt.",
+          "S/MIME: Signature valid; certificate chain not trusted.",
+        );
   if (security.signature === "unknown-key")
     return choose(
       `${kind}: Signiert, aber kein öffentlicher Schlüssel zur Prüfung vorhanden.`,
@@ -3475,7 +3480,13 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
   const [pgp, setPgp] = useState("");
   const [certificate, setCertificate] = useState("");
   const [fingerprint, setFingerprint] = useState("");
+  const [discoveries, setDiscoveries] = useState([]);
   const [busy, setBusy] = useState(false);
+  const loadDiscoveries = () =>
+    api(`/contacts/${contact.id}/crypto/discoveries`).then(setDiscoveries);
+  useEffect(() => {
+    loadDiscoveries().catch((error) => setError(error.message));
+  }, [contact.id, setError]);
   async function perform(kind, method, body) {
     setBusy(true);
     try {
@@ -3485,8 +3496,25 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
       });
       setFingerprint(result.fingerprint || "");
       await onChanged();
+      await loadDiscoveries();
       if (kind === "pgp") setPgp("");
       else setCertificate("");
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function acceptDiscovery(item) {
+    setBusy(true);
+    try {
+      const result = await api(
+        `/contacts/${contact.id}/crypto/discoveries/${item.id}/accept`,
+        { method: "POST" },
+      );
+      setFingerprint(result.fingerprint);
+      await onChanged();
+      await loadDiscoveries();
     } catch (error) {
       setError(error.message);
     } finally {
@@ -3536,7 +3564,9 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
             <h3>OpenPGP</h3>
             <p>
               {contact.hasPgpKey
-                ? t("Öffentlicher Schlüssel vorhanden")
+                ? contact.pgpVerified
+                  ? t("Öffentlicher Schlüssel vorhanden")
+                  : t("Schlüssel automatisch gefunden – Fingerabdruck prüfen")
                 : t("Kein öffentlicher Schlüssel vorhanden")}
             </p>
             <label>
@@ -3579,7 +3609,9 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
             <h3>S/MIME</h3>
             <p>
               {contact.hasSmimeCertificate
-                ? t("Zertifikat vorhanden")
+                ? contact.smimeVerified
+                  ? t("Zertifikat vorhanden")
+                  : t("Zertifikat automatisch gefunden – Fingerabdruck prüfen")
                 : t("Kein Zertifikat vorhanden")}
             </p>
             <label>
@@ -3615,6 +3647,51 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
               )}
             </div>
           </section>
+          {discoveries.length > 0 && (
+            <section className="key-discoveries">
+              <h3>{t("Automatisch gefundene Schlüssel")}</h3>
+              <p>
+                {t(
+                  "Prüfe den Fingerabdruck über einen zweiten Kanal, bevor du einen Schlüssel bestätigst oder ersetzt.",
+                )}
+              </p>
+              {discoveries.map((item) => {
+                const verified =
+                  item.kind === "pgp"
+                    ? contact.pgpVerified
+                    : contact.smimeVerified;
+                return (
+                  <div className="discovered-key" key={item.id}>
+                    <div>
+                      <strong>
+                        {item.kind === "pgp" ? "OpenPGP" : "S/MIME"}
+                      </strong>
+                      <span>{item.source}</span>
+                      <code>{item.fingerprint}</code>
+                      <small>
+                        {item.active
+                          ? verified
+                            ? t("Aktiv und bestätigt")
+                            : t("Gesammelt, noch nicht bestätigt")
+                          : t(
+                              "Weiterer Schlüssel – aktiven Schlüssel nicht ersetzt",
+                            )}
+                      </small>
+                    </div>
+                    {(!item.active || !verified) && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => acceptDiscovery(item)}
+                      >
+                        {t("Fingerabdruck bestätigt – verwenden")}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+          )}
           {fingerprint && (
             <p className="crypto-fingerprint">
               {t("Fingerabdruck")}: {fingerprint}
@@ -4418,11 +4495,13 @@ function ComposeModal({
                         ? t(
                             "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
                           )
-                        : encryptionStatus?.missing?.length
-                          ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
-                          : encryptionStatus?.reason
-                            ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
-                            : t("Empfängerschlüssel werden geprüft …")}
+                        : encryptionStatus?.unconfirmed?.length
+                          ? `${t("Ohne Verschlüsselung: Schlüssel noch nicht bestätigt für: ")}${encryptionStatus.unconfirmed.join(", ")}`
+                          : encryptionStatus?.missing?.length
+                            ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
+                            : encryptionStatus?.reason
+                              ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
+                              : t("Empfängerschlüssel werden geprüft …")}
                   </span>
                 )}
               </div>

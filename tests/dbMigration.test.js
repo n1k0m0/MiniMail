@@ -93,5 +93,26 @@ test("existing mailboxes get one primary mailbox per user", async () => {
   );
   assert.ok(contactColumns.has("pgp_public"));
   assert.ok(contactColumns.has("smime_cert"));
+  for (const column of [
+    "pgp_verified",
+    "smime_verified",
+    "pgp_source",
+    "smime_source",
+  ])
+    assert.ok(contactColumns.has(column), column);
+  assert.ok(
+    migrated
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='discovered_keys'",
+      )
+      .get(),
+  );
+  assert.ok(
+    migrated
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='key_scan_folders'",
+      )
+      .get(),
+  );
   migrated.close();
 });

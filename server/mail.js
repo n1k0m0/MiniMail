@@ -6,6 +6,7 @@ import { isTrashFolder } from "./folderTypes.js";
 import { groupMessages } from "./threading.js";
 import { vpnProxy } from "./vpn.js";
 import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
+import { collectMessageKeys } from "./keyDiscovery.js";
 import { db } from "./db.js";
 import {
   clearFolderIndex,
@@ -142,6 +143,135 @@ export async function checkInbox(account) {
       unseen: status.unseen || 0,
       uidNext: status.uidNext || 0,
     };
+  });
+}
+
+function mightContainKey(item) {
+  const headers = item.headers?.toString("utf8") || "";
+  if (/^Autocrypt:/im.test(headers)) return true;
+  if (/pkcs7-signature|smime-type\s*=\s*"?signed-data/i.test(headers))
+    return true;
+  const structure = JSON.stringify(item.bodyStructure || {}).toLowerCase();
+  return /pgp-keys|\.(?:asc|pgp|cer|crt|pem|p7b|p7c)\b/.test(structure);
+}
+
+export async function scanAccountKeys(account, batchSize = 80) {
+  return withImap(account, async (client) => {
+    const folders = (await client.list()).filter(
+      (item) => !item.flags?.has("\\Noselect"),
+    );
+    const checkpoints = new Map(
+      db
+        .prepare("SELECT * FROM key_scan_folders WHERE account_id=?")
+        .all(account.id)
+        .map((item) => [item.folder, item]),
+    );
+    folders.sort(
+      (left, right) =>
+        (checkpoints.get(left.path)?.updated_at || 0) -
+        (checkpoints.get(right.path)?.updated_at || 0),
+    );
+    for (const folder of folders) {
+      const lock = await client.getMailboxLock(folder.path);
+      try {
+        const validity = String(client.mailbox.uidValidity || "");
+        const latest = Number(client.mailbox.uidNext || 1) - 1;
+        const checkpoint = checkpoints.get(folder.path);
+        let lastUid =
+          checkpoint?.uid_validity === validity ? checkpoint.last_uid : 0;
+        if (lastUid >= latest) continue;
+        let inlineUids;
+        if (!checkpoint || checkpoint.uid_validity !== validity) {
+          try {
+            inlineUids =
+              (await client.search(
+                { body: "BEGIN PGP PUBLIC KEY BLOCK" },
+                { uid: true },
+              )) || [];
+          } catch (error) {
+            console.error("Could not search inline PGP keys", {
+              accountId: account.id,
+              folder: folder.path,
+              error: error.message,
+            });
+            inlineUids = [];
+          }
+        } else {
+          inlineUids = JSON.parse(checkpoint.inline_uids || "[]");
+        }
+        const inlineSet = new Set(inlineUids);
+        const all = (await client.search({ all: true }, { uid: true })) || [];
+        const next = all.filter((uid) => uid > lastUid).sort((a, b) => a - b);
+        const selected = next.slice(0, batchSize);
+        if (!selected.length) selected.push(latest);
+        const metadata =
+          selected.length && next.length
+            ? await client.fetchAll(
+                selected,
+                {
+                  uid: true,
+                  size: true,
+                  headers: ["from", "autocrypt", "content-type"],
+                  bodyStructure: true,
+                },
+                { uid: true },
+              )
+            : [];
+        const byUid = new Map(metadata.map((item) => [item.uid, item]));
+        const counts = { scanned: 0, stored: 0, alternate: 0 };
+        for (const uid of selected) {
+          const item = byUid.get(uid);
+          if (
+            item &&
+            item.size <= 25 * 1024 * 1024 &&
+            (mightContainKey(item) || inlineSet.has(uid) || item.size <= 32768)
+          ) {
+            const full = await client.fetchOne(
+              uid,
+              { uid: true, source: true },
+              { uid: true },
+            );
+            try {
+              if (full?.source) {
+                const found = await collectMessageKeys(
+                  db,
+                  account,
+                  full.source,
+                );
+                counts.stored += found.stored;
+                counts.alternate += found.alternate;
+              }
+            } catch (error) {
+              console.error("Could not inspect message keys", {
+                accountId: account.id,
+                folder: folder.path,
+                uid,
+                error: error.message,
+              });
+            }
+          }
+          lastUid = uid;
+          counts.scanned++;
+          db.prepare(
+            `INSERT INTO key_scan_folders (account_id,folder,uid_validity,last_uid,inline_uids,updated_at)
+             VALUES (?,?,?,?,?,?) ON CONFLICT(account_id,folder) DO UPDATE SET
+             uid_validity=excluded.uid_validity,last_uid=excluded.last_uid,
+             inline_uids=excluded.inline_uids,updated_at=excluded.updated_at`,
+          ).run(
+            account.id,
+            folder.path,
+            validity,
+            lastUid,
+            JSON.stringify(inlineUids),
+            Date.now(),
+          );
+        }
+        return { ...counts, folder: folder.path, pending: true };
+      } finally {
+        lock.release();
+      }
+    }
+    return { scanned: 0, stored: 0, alternate: 0, pending: false };
   });
 }
 
