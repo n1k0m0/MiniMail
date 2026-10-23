@@ -211,12 +211,16 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
           baseUrl: "https://ai.example.test/v1",
           model: "local-model",
           apiKey: "test-ai-key",
+          rewriteMaxTokens: 12000,
+          summaryMaxTokens: null,
         })
       ).status,
       200,
     );
     const aiSettings = await admin("/settings/ai");
     assert.equal(aiSettings.data.configured, true);
+    assert.equal(aiSettings.data.rewriteMaxTokens, 12000);
+    assert.equal(aiSettings.data.summaryMaxTokens, null);
     assert.equal(
       JSON.stringify(aiSettings.data).includes("test-ai-key"),
       false,

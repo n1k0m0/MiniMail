@@ -3,6 +3,8 @@ import ipaddr from "ipaddr.js";
 
 const maxInput = 30000;
 const maxInstructions = 3000;
+const defaultRewriteMaxTokens = 8192;
+const defaultSummaryMaxTokens = 4096;
 const commercialHosts = [
   "openai.com",
   "anthropic.com",
@@ -36,6 +38,22 @@ export function initializeAiSettings(database) {
       "UPDATE ai_settings SET api_key_enc=NULL, model='', base_url=''",
     );
   }
+  if (!columns.has("rewrite_max_tokens"))
+    database.exec(
+      `ALTER TABLE ai_settings ADD COLUMN rewrite_max_tokens INTEGER DEFAULT ${defaultRewriteMaxTokens}`,
+    );
+  if (!columns.has("summary_max_tokens"))
+    database.exec(
+      `ALTER TABLE ai_settings ADD COLUMN summary_max_tokens INTEGER DEFAULT ${defaultSummaryMaxTokens}`,
+    );
+}
+
+function validTokenLimit(value) {
+  return (
+    value === undefined ||
+    value === null ||
+    (Number.isSafeInteger(value) && value > 0)
+  );
 }
 
 function normalizeBaseUrl(value) {
@@ -84,12 +102,22 @@ export function aiSettings(database) {
     baseUrl: row?.base_url || "",
     model: row?.model || "",
     hasKey: !!row?.api_key_enc,
+    rewriteMaxTokens: row ? row.rewrite_max_tokens : defaultRewriteMaxTokens,
+    summaryMaxTokens: row ? row.summary_max_tokens : defaultSummaryMaxTokens,
   };
 }
 
 export function saveAiSettings(
   database,
-  { baseUrl, model, apiKey, removeKey, disable },
+  {
+    baseUrl,
+    model,
+    apiKey,
+    removeKey,
+    disable,
+    rewriteMaxTokens,
+    summaryMaxTokens,
+  },
 ) {
   if (disable === true) {
     database.prepare("DELETE FROM ai_settings WHERE id=1").run();
@@ -102,12 +130,16 @@ export function saveAiSettings(
     (apiKey !== undefined &&
       (typeof apiKey !== "string" || apiKey.length > 512 || !apiKey.trim())) ||
     (removeKey !== undefined && typeof removeKey !== "boolean") ||
+    !validTokenLimit(rewriteMaxTokens) ||
+    !validTokenLimit(summaryMaxTokens) ||
     (apiKey && removeKey)
   )
     throw new AiInputError("Ungültige KI-Einstellung.");
   const normalizedUrl = normalizeBaseUrl(baseUrl);
   const existing = database
-    .prepare("SELECT base_url,api_key_enc FROM ai_settings WHERE id=1")
+    .prepare(
+      "SELECT base_url,api_key_enc,rewrite_max_tokens,summary_max_tokens FROM ai_settings WHERE id=1",
+    )
     .get();
   const key = removeKey
     ? null
@@ -118,9 +150,23 @@ export function saveAiSettings(
         : null;
   database
     .prepare(
-      "INSERT INTO ai_settings(id,base_url,api_key_enc,model) VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,api_key_enc=excluded.api_key_enc,model=excluded.model",
+      "INSERT INTO ai_settings(id,base_url,api_key_enc,model,rewrite_max_tokens,summary_max_tokens) VALUES (1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,api_key_enc=excluded.api_key_enc,model=excluded.model,rewrite_max_tokens=excluded.rewrite_max_tokens,summary_max_tokens=excluded.summary_max_tokens",
     )
-    .run(normalizedUrl, key, model);
+    .run(
+      normalizedUrl,
+      key,
+      model,
+      rewriteMaxTokens === undefined
+        ? existing
+          ? existing.rewrite_max_tokens
+          : defaultRewriteMaxTokens
+        : rewriteMaxTokens,
+      summaryMaxTokens === undefined
+        ? existing
+          ? existing.summary_max_tokens
+          : defaultSummaryMaxTokens
+        : summaryMaxTokens,
+    );
   return aiSettings(database);
 }
 
@@ -132,6 +178,8 @@ function credentials(database) {
   return {
     apiKey,
     model: row.model,
+    rewriteMaxTokens: row.rewrite_max_tokens,
+    summaryMaxTokens: row.summary_max_tokens,
     endpoint: `${normalizeBaseUrl(row.base_url)}/chat/completions`,
   };
 }
@@ -162,7 +210,9 @@ export async function requestAi(
     (kind === "summary" && !content)
   )
     throw new AiInputError("KI-Text fehlt oder ist zu lang.");
-  const { apiKey, model, endpoint } = credentials(database);
+  const { apiKey, model, endpoint, rewriteMaxTokens, summaryMaxTokens } =
+    credentials(database);
+  const maxTokens = kind === "rewrite" ? rewriteMaxTokens : summaryMaxTokens;
   const targetLanguage = language === "en" ? "English" : "German";
   const prompt =
     kind === "rewrite"
@@ -188,7 +238,7 @@ export async function requestAi(
                 : `Email:\n${content}`,
           },
         ],
-        max_tokens: kind === "rewrite" ? 8192 : 4096,
+        ...(maxTokens === null ? {} : { max_tokens: maxTokens }),
       }),
       signal: AbortSignal.timeout(180000),
       redirect: "error",
@@ -218,11 +268,9 @@ export async function requestAi(
   const output = textOutput(result);
   if (result.choices?.[0]?.finish_reason === "length")
     throw new AiServiceError(
-      "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.",
+      "KI-Ausgabelimit erreicht. Prüfe das Tokenlimit in den KI-Einstellungen oder auf deinem Server.",
     );
   if (!output)
     throw new AiServiceError("KI hat keinen lesbaren Text geliefert.");
-  if (output.length > 40000)
-    throw new AiServiceError("KI hat keine vollständige Antwort geliefert.");
   return output;
 }

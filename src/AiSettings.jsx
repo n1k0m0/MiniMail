@@ -7,6 +7,8 @@ export default function AiSettings({ request, isAdmin, setError }) {
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [rewriteMaxTokens, setRewriteMaxTokens] = useState("8192");
+  const [summaryMaxTokens, setSummaryMaxTokens] = useState("4096");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     request("/settings/ai")
@@ -14,10 +16,28 @@ export default function AiSettings({ request, isAdmin, setError }) {
         setSettings(value);
         setBaseUrl(value.baseUrl);
         setModel(value.model);
+        setRewriteMaxTokens(value.rewriteMaxTokens?.toString() || "");
+        setSummaryMaxTokens(value.summaryMaxTokens?.toString() || "");
       })
       .catch((error) => setError(error.message));
   }, [request, setError]);
   async function save({ removeKey = false, disable = false } = {}) {
+    const tokenLimit = (value) =>
+      value.trim() === ""
+        ? null
+        : /^[1-9]\d*$/.test(value.trim())
+          ? Number(value.trim())
+          : NaN;
+    const rewriteLimit = tokenLimit(rewriteMaxTokens);
+    const summaryLimit = tokenLimit(summaryMaxTokens);
+    if (
+      !disable &&
+      ((rewriteLimit !== null && !Number.isSafeInteger(rewriteLimit)) ||
+        (summaryLimit !== null && !Number.isSafeInteger(summaryLimit)))
+    ) {
+      setError(t("Bitte eine positive ganze Zahl oder leer eingeben."));
+      return;
+    }
     setBusy(true);
     try {
       const next = await request("/settings/ai", {
@@ -25,6 +45,8 @@ export default function AiSettings({ request, isAdmin, setError }) {
         body: {
           baseUrl: baseUrl.trim(),
           model: model.trim(),
+          rewriteMaxTokens: rewriteLimit,
+          summaryMaxTokens: summaryLimit,
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           removeKey,
           disable,
@@ -33,6 +55,8 @@ export default function AiSettings({ request, isAdmin, setError }) {
       setSettings(next);
       setBaseUrl(next.baseUrl);
       setModel(next.model);
+      setRewriteMaxTokens(next.rewriteMaxTokens?.toString() || "");
+      setSummaryMaxTokens(next.summaryMaxTokens?.toString() || "");
       setApiKey("");
     } catch (error) {
       setError(error.message);
@@ -93,6 +117,35 @@ export default function AiSettings({ request, isAdmin, setError }) {
               autoComplete="off"
             />
           </label>
+          <div className="ai-token-grid">
+            <label>
+              {t("Ausgabetokens: Text überarbeiten")}
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={rewriteMaxTokens}
+                onChange={(event) => setRewriteMaxTokens(event.target.value)}
+                placeholder={t("Kein MiniMail-Limit")}
+              />
+            </label>
+            <label>
+              {t("Ausgabetokens: Zusammenfassen")}
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={summaryMaxTokens}
+                onChange={(event) => setSummaryMaxTokens(event.target.value)}
+                placeholder={t("Kein MiniMail-Limit")}
+              />
+            </label>
+          </div>
+          <p className="ai-token-hint">
+            {t(
+              "Leer lassen: MiniMail setzt kein Tokenlimit. Dein KI-Server kann eigene Grenzen haben.",
+            )}
+          </p>
           <div className="ai-settings-actions">
             <button type="button" disabled={busy} onClick={() => save()}>
               {busy ? <LoaderCircle size={14} className="spin" /> : null}

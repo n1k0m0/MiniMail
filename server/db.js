@@ -54,7 +54,9 @@ db.exec(`
     id INTEGER PRIMARY KEY CHECK(id=1),
     api_key_enc TEXT,
     model TEXT NOT NULL DEFAULT '',
-    base_url TEXT NOT NULL DEFAULT ''
+    base_url TEXT NOT NULL DEFAULT '',
+    rewrite_max_tokens INTEGER DEFAULT 8192,
+    summary_max_tokens INTEGER DEFAULT 4096
   );
 `);
 initializeAiSettings(db);

@@ -155,6 +155,13 @@ const translations = {
   "Modell-ID deiner eigenen KI": "Model ID of your AI server",
   Modell: "Model",
   "API-Schlüssel (falls erforderlich)": "API key (if required)",
+  "Ausgabetokens: Text überarbeiten": "Output tokens: revise text",
+  "Ausgabetokens: Zusammenfassen": "Output tokens: summarize",
+  "Kein MiniMail-Limit": "No MiniMail limit",
+  "Leer lassen: MiniMail setzt kein Tokenlimit. Dein KI-Server kann eigene Grenzen haben.":
+    "Leave blank: MiniMail does not set a token limit. Your AI server may have its own limits.",
+  "Bitte eine positive ganze Zahl oder leer eingeben.":
+    "Enter a positive whole number or leave the field blank.",
   "Optional bei lokaler KI": "Optional for local AI",
   "Schlüssel unverändert lassen": "Leave key unchanged",
   "API-Schlüssel entfernen": "Remove API key",
@@ -177,8 +184,8 @@ const translations = {
   "Ungültige Antwort vom KI-Dienst.": "Invalid response from the AI service.",
   "KI hat keine vollständige Antwort geliefert.":
     "AI did not return a complete response.",
-  "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.":
-    "The AI reached its output limit. Please request a shorter text.",
+  "KI-Ausgabelimit erreicht. Prüfe das Tokenlimit in den KI-Einstellungen oder auf deinem Server.":
+    "The AI reached its output limit. Check the token limit in AI settings or on your server.",
   "KI hat keinen lesbaren Text geliefert.": "AI did not return readable text.",
   "Zu viele KI-Anfragen. Bitte kurz warten.":
     "Too many AI requests. Please wait a moment.",

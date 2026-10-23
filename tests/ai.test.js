@@ -13,7 +13,7 @@ import {
 function database() {
   const db = new DatabaseSync(":memory:");
   db.exec(
-    "CREATE TABLE ai_settings (id INTEGER PRIMARY KEY, base_url TEXT NOT NULL DEFAULT '', api_key_enc TEXT, model TEXT NOT NULL DEFAULT '')",
+    "CREATE TABLE ai_settings (id INTEGER PRIMARY KEY, base_url TEXT NOT NULL DEFAULT '', api_key_enc TEXT, model TEXT NOT NULL DEFAULT '', rewrite_max_tokens INTEGER DEFAULT 8192, summary_max_tokens INTEGER DEFAULT 4096)",
   );
   return db;
 }
@@ -27,6 +27,8 @@ test("AI requests use only the configured self-hosted chat endpoint", async () =
   });
   assert.equal(aiSettings(db).configured, true);
   assert.equal(aiSettings(db).hasKey, true);
+  assert.equal(aiSettings(db).rewriteMaxTokens, 8192);
+  assert.equal(aiSettings(db).summaryMaxTokens, 4096);
   assert.equal(JSON.stringify(aiSettings(db)).includes("test-secret"), false);
   assert.notEqual(
     db.prepare("SELECT api_key_enc FROM ai_settings WHERE id=1").get()
@@ -85,7 +87,8 @@ test("AI requests reject empty input and incomplete output", async () => {
     })),
     {
       name: "Error",
-      message: "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.",
+      message:
+        "KI-Ausgabelimit erreicht. Prüfe das Tokenlimit in den KI-Einstellungen oder auf deinem Server.",
     },
   );
   await requestAi(
@@ -119,6 +122,8 @@ test("legacy commercial key is cleared on migration", () => {
     baseUrl: "",
     model: "",
     hasKey: false,
+    rewriteMaxTokens: 8192,
+    summaryMaxTokens: 4096,
   });
   db.close();
 });
@@ -167,5 +172,88 @@ test("commercial and public HTTP endpoints are rejected", () => {
     );
   }
   assert.equal(aiSettings(db).configured, false);
+  db.close();
+});
+
+test("rewrite and summary token limits can be set separately or omitted", async () => {
+  const db = database();
+  saveAiSettings(db, {
+    baseUrl: "https://ai.example.test/v1",
+    model: "local",
+    rewriteMaxTokens: 12000,
+    summaryMaxTokens: 2000,
+  });
+  assert.equal(aiSettings(db).rewriteMaxTokens, 12000);
+  assert.equal(aiSettings(db).summaryMaxTokens, 2000);
+  const fetcher = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).max_tokens, 12000);
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "Draft" }, finish_reason: "stop" }],
+      }),
+    };
+  };
+  await requestAi(db, { kind: "rewrite", text: "Hello" }, fetcher);
+  saveAiSettings(db, {
+    baseUrl: "https://ai.example.test/v1",
+    model: "local",
+    rewriteMaxTokens: null,
+    summaryMaxTokens: null,
+  });
+  assert.equal(aiSettings(db).rewriteMaxTokens, null);
+  assert.equal(aiSettings(db).summaryMaxTokens, null);
+  saveAiSettings(db, { baseUrl: "https://ai.example.test/v1", model: "local" });
+  assert.equal(aiSettings(db).rewriteMaxTokens, null);
+  assert.equal(aiSettings(db).summaryMaxTokens, null);
+  await requestAi(
+    db,
+    { kind: "summary", text: "Hello" },
+    async (_url, options) => {
+      assert.equal(
+        Object.hasOwn(JSON.parse(options.body), "max_tokens"),
+        false,
+      );
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "Summary" }, finish_reason: "stop" }],
+        }),
+      };
+    },
+  );
+  for (const invalid of [0, -1, 1.5, "1000", Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () =>
+        saveAiSettings(db, {
+          baseUrl: "https://ai.example.test/v1",
+          model: "local",
+          rewriteMaxTokens: invalid,
+        }),
+      AiInputError,
+    );
+  }
+  db.close();
+});
+
+test("existing self-hosted AI settings receive token defaults without losing their key", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(
+    "CREATE TABLE ai_settings (id INTEGER PRIMARY KEY, base_url TEXT NOT NULL, api_key_enc TEXT, model TEXT NOT NULL)",
+  );
+  db.prepare("INSERT INTO ai_settings VALUES (1,?,?,?)").run(
+    "https://ai.example.test/v1",
+    "encrypted-key",
+    "local",
+  );
+  initializeAiSettings(db);
+  assert.deepEqual(aiSettings(db), {
+    configured: true,
+    baseUrl: "https://ai.example.test/v1",
+    model: "local",
+    hasKey: true,
+    rewriteMaxTokens: 8192,
+    summaryMaxTokens: 4096,
+  });
   db.close();
 });
