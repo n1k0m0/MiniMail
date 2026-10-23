@@ -4262,10 +4262,6 @@ function ComposeModal({
         <div className="modal compose-modal">
           <div className="compose-header">
             <div>
-              <div className="eyebrow">
-                {t("\n              VON ")}
-                {senderAccount?.email || t("KEIN POSTFACH")}
-              </div>
               <h2>
                 {reply
                   ? replyAll
@@ -4352,100 +4348,102 @@ function ComposeModal({
                 />
               </div>
             </div>
-            <div className="compose-security">
-              <LockKeyhole size={15} />
-              <select
-                aria-label={t("Verschlüsselungsverfahren")}
-                value={cryptoOptions.mode}
-                onChange={(event) =>
-                  setCryptoOptions({
-                    mode: event.target.value,
-                    sign: false,
-                    encrypt: event.target.value === "none" ? false : "auto",
-                  })
-                }
-              >
-                <option value="none">{t("Ohne Ende-zu-Ende-Schutz")}</option>
-                <option value="pgp">OpenPGP</option>
-                <option value="smime">S/MIME</option>
-              </select>
-              <label>
-                <input
-                  type="checkbox"
-                  disabled={cryptoOptions.mode === "none"}
-                  checked={cryptoOptions.sign}
-                  onChange={(event) =>
-                    setCryptoOptions((current) => ({
-                      ...current,
-                      sign: event.target.checked,
-                    }))
-                  }
-                />{" "}
-                {t("Signieren")}
-              </label>
-              <label>
-                {t("Verschlüsselung")}
+            <div className="compose-tools">
+              <div className="compose-security">
+                <LockKeyhole size={15} />
                 <select
-                  aria-label={t("Verschlüsselung")}
-                  disabled={cryptoOptions.mode === "none"}
-                  value={
-                    cryptoOptions.encrypt === "auto"
-                      ? "auto"
-                      : cryptoOptions.encrypt
-                        ? "on"
-                        : "off"
-                  }
+                  aria-label={t("Verschlüsselungsverfahren")}
+                  value={cryptoOptions.mode}
                   onChange={(event) =>
-                    setCryptoOptions((current) => ({
-                      ...current,
-                      encrypt:
-                        event.target.value === "auto"
-                          ? "auto"
-                          : event.target.value === "on",
-                    }))
+                    setCryptoOptions({
+                      mode: event.target.value,
+                      sign: false,
+                      encrypt: event.target.value === "none" ? false : "auto",
+                    })
                   }
                 >
-                  <option value="off">{t("Aus")}</option>
-                  <option value="auto">{t("Automatisch")}</option>
-                  <option value="on">{t("Erzwingen")}</option>
+                  <option value="none">{t("Ohne Ende-zu-Ende-Schutz")}</option>
+                  <option value="pgp">OpenPGP</option>
+                  <option value="smime">S/MIME</option>
                 </select>
-              </label>
-              {cryptoOptions.encrypt === "auto" && (
-                <span
-                  className={`compose-encryption-status${encryptionStatus?.available ? " available" : encryptionStatus && !encryptionStatus.checking ? " unavailable" : ""}`}
-                  aria-live="polite"
-                >
-                  {encryptionStatus?.checking
-                    ? t("Empfängerschlüssel werden geprüft …")
-                    : encryptionStatus?.available
-                      ? t(
-                          "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
-                        )
-                      : encryptionStatus?.missing?.length
-                        ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
-                        : encryptionStatus?.reason
-                          ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
-                          : t("Empfängerschlüssel werden geprüft …")}
-                </span>
-              )}
-            </div>
-            <div className="compose-ai-actions">
-              <button type="button" onClick={() => setAiOpen(true)}>
-                <Sparkles size={15} />
-                {t("Mit KI überarbeiten")}
-              </button>
-              {aiHistory.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBody(aiHistory.at(-1));
-                    setAiHistory((current) => current.slice(0, -1));
-                  }}
-                >
-                  <Undo2 size={15} />
-                  {t("KI-Änderung rückgängig")}
+                <label>
+                  <input
+                    type="checkbox"
+                    disabled={cryptoOptions.mode === "none"}
+                    checked={cryptoOptions.sign}
+                    onChange={(event) =>
+                      setCryptoOptions((current) => ({
+                        ...current,
+                        sign: event.target.checked,
+                      }))
+                    }
+                  />{" "}
+                  {t("Signieren")}
+                </label>
+                <label>
+                  {t("Verschlüsselung")}
+                  <select
+                    aria-label={t("Verschlüsselung")}
+                    disabled={cryptoOptions.mode === "none"}
+                    value={
+                      cryptoOptions.encrypt === "auto"
+                        ? "auto"
+                        : cryptoOptions.encrypt
+                          ? "on"
+                          : "off"
+                    }
+                    onChange={(event) =>
+                      setCryptoOptions((current) => ({
+                        ...current,
+                        encrypt:
+                          event.target.value === "auto"
+                            ? "auto"
+                            : event.target.value === "on",
+                      }))
+                    }
+                  >
+                    <option value="off">{t("Aus")}</option>
+                    <option value="auto">{t("Automatisch")}</option>
+                    <option value="on">{t("Erzwingen")}</option>
+                  </select>
+                </label>
+                {cryptoOptions.encrypt === "auto" && (
+                  <span
+                    className={`compose-encryption-status${encryptionStatus?.available ? " available" : encryptionStatus && !encryptionStatus.checking ? " unavailable" : ""}`}
+                    aria-live="polite"
+                  >
+                    {encryptionStatus?.checking
+                      ? t("Empfängerschlüssel werden geprüft …")
+                      : encryptionStatus?.available
+                        ? t(
+                            "Alle Empfänger haben passende Schlüssel: Verschlüsselung aktiv.",
+                          )
+                        : encryptionStatus?.missing?.length
+                          ? `${t("Ohne Verschlüsselung: Für diese Empfänger fehlen passende Schlüssel: ")}${encryptionStatus.missing.join(", ")}`
+                          : encryptionStatus?.reason
+                            ? `${t("Ohne Verschlüsselung: ")}${t(encryptionStatus.reason)}`
+                            : t("Empfängerschlüssel werden geprüft …")}
+                  </span>
+                )}
+              </div>
+              <div className="compose-ai-actions">
+                <button type="button" onClick={() => setAiOpen(true)}>
+                  <Sparkles size={15} />
+                  {t("Mit KI überarbeiten")}
                 </button>
-              )}
+                {aiHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBody(aiHistory.at(-1));
+                      setAiHistory((current) => current.slice(0, -1));
+                    }}
+                  >
+                    <Undo2 size={15} />
+                    {t("KI-Änderung rückgängig")}
+                  </button>
+                )}
+              </div>
             </div>
             <textarea
               className="compose-body"

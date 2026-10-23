@@ -3841,3 +3841,112 @@ svg {
     flex-wrap: wrap;
   }
 }
+
+/* Give the message editor the available space while keeping its controls compact. */
+.compose-modal .compose-header {
+  align-items: center;
+  padding: 12px 22px;
+}
+.compose-modal .compose-header h2 {
+  margin: 0;
+}
+.compose-modal .compose-field {
+  height: 43px;
+}
+.compose-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
+  border-bottom: 1px solid #edf0f5;
+}
+.compose-modal .compose-security {
+  flex: 1;
+  min-width: 0;
+  gap: 9px;
+  padding: 7px 0;
+  border: 0;
+}
+.compose-modal .compose-ai-actions {
+  flex: none;
+  padding: 0;
+  border: 0;
+}
+.compose-modal .compose-signature {
+  max-height: 88px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.compose-modal .compose-footer {
+  height: 58px;
+}
+[data-theme="dark"] .compose-tools {
+  border-color: #2b3649;
+}
+
+@media (min-width: 761px) {
+  .compose-modal {
+    height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
+  }
+}
+
+@media (min-width: 1600px) {
+  .wide-layout .compose-modal {
+    width: min(2200px, calc(100vw - 48px));
+    height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
+  }
+  .wide-layout .compose-header {
+    padding: 14px 28px;
+  }
+  .wide-layout .compose-header h2 {
+    font-size: 23px;
+  }
+  .wide-layout .compose-fields {
+    padding: 0 28px;
+  }
+  .wide-layout .compose-modal .compose-field {
+    height: 45px;
+  }
+  .wide-layout .compose-tools {
+    padding: 0 28px;
+  }
+  .wide-layout .compose-security {
+    font-size: 12px;
+  }
+  .wide-layout .compose-modal .compose-signature {
+    max-height: 84px;
+    padding: 7px 28px;
+    font-size: 12px;
+  }
+  .wide-layout .modal textarea.compose-body {
+    padding: 20px 28px;
+    font-size: 18px;
+  }
+  .wide-layout .compose-modal .compose-footer {
+    height: 60px;
+    padding: 0 28px;
+  }
+}
+
+@media (max-width: 760px) {
+  .compose-modal .compose-header {
+    padding: 12px 16px;
+  }
+  .compose-modal .compose-field {
+    height: 44px;
+  }
+  .compose-tools {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 16px 7px;
+  }
+  .compose-modal .compose-security {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  .compose-modal .compose-ai-actions {
+    flex-wrap: wrap;
+  }
+}
