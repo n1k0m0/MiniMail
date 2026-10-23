@@ -208,7 +208,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(
       (
         await admin("/settings/ai", "PUT", {
-          model: "gpt-4.1-mini",
+          baseUrl: "https://ai.example.test/v1",
+          model: "local-model",
           apiKey: "test-ai-key",
         })
       ).status,

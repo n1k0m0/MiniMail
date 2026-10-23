@@ -4,29 +4,35 @@ import { t } from "./i18n.js";
 
 export default function AiSettings({ request, isAdmin, setError }) {
   const [settings, setSettings] = useState(null);
-  const [model, setModel] = useState("gpt-4.1-mini");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     request("/settings/ai")
       .then((value) => {
         setSettings(value);
+        setBaseUrl(value.baseUrl);
         setModel(value.model);
       })
       .catch((error) => setError(error.message));
   }, [request, setError]);
-  async function save(removeKey = false) {
+  async function save({ removeKey = false, disable = false } = {}) {
     setBusy(true);
     try {
       const next = await request("/settings/ai", {
         method: "PUT",
         body: {
+          baseUrl: baseUrl.trim(),
           model: model.trim(),
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           removeKey,
+          disable,
         },
       });
       setSettings(next);
+      setBaseUrl(next.baseUrl);
+      setModel(next.model);
       setApiKey("");
     } catch (error) {
       setError(error.message);
@@ -42,45 +48,72 @@ export default function AiSettings({ request, isAdmin, setError }) {
           <strong>{t("Text überarbeiten und Mails zusammenfassen")}</strong>
           <span>
             {settings?.configured
-              ? t("OpenAI ist eingerichtet.")
-              : t("OpenAI ist noch nicht eingerichtet.")}
+              ? t("Eigene KI ist eingerichtet.")
+              : t("Eigene KI ist noch nicht eingerichtet.")}
           </span>
-          <span>{t("Nur auf Klick wird Mailtext an OpenAI gesendet.")}</span>
+          <span>
+            {t("Nur auf Klick wird Mailtext an deinen KI-Server gesendet.")}
+          </span>
         </div>
         <KeyRound size={19} />
       </div>
       {isAdmin && (
         <div className="ai-settings-form">
           <label>
+            {t("OpenAI-kompatible Basis-URL")}
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder="http://host.docker.internal:11434/v1"
+              maxLength={500}
+              autoComplete="off"
+            />
+          </label>
+          <label>
             {t("Modell")}
             <input
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              maxLength={80}
+              maxLength={128}
+              placeholder={t("Modell-ID deiner eigenen KI")}
             />
           </label>
           <label>
-            {t("OpenAI API-Schlüssel")}
+            {t("API-Schlüssel (falls erforderlich)")}
             <input
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               placeholder={
-                settings?.configured
+                settings?.hasKey
                   ? t("Schlüssel unverändert lassen")
-                  : "sk-…"
+                  : t("Optional bei lokaler KI")
               }
               autoComplete="off"
             />
           </label>
           <div className="ai-settings-actions">
-            <button type="button" disabled={busy} onClick={() => save(false)}>
+            <button type="button" disabled={busy} onClick={() => save()}>
               {busy ? <LoaderCircle size={14} className="spin" /> : null}
               {t("Speichern")}
             </button>
-            {settings?.configured && (
-              <button type="button" disabled={busy} onClick={() => save(true)}>
+            {settings?.hasKey && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => save({ removeKey: true })}
+              >
                 {t("API-Schlüssel entfernen")}
+              </button>
+            )}
+            {settings?.configured && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => save({ disable: true })}
+              >
+                {t("KI deaktivieren")}
               </button>
             )}
           </div>

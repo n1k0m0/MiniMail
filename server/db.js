@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { initializeMailIndex } from "./mailIndex.js";
+import { initializeAiSettings } from "./ai.js";
 
 const dataDir = path.resolve("data");
 fs.mkdirSync(dataDir, { recursive: true });
@@ -52,9 +53,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS ai_settings (
     id INTEGER PRIMARY KEY CHECK(id=1),
     api_key_enc TEXT,
-    model TEXT NOT NULL DEFAULT 'gpt-4.1-mini'
+    model TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT ''
   );
 `);
+initializeAiSettings(db);
 initializeMailIndex(db);
 const userColumns = new Set(
   db

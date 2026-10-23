@@ -1,64 +1,145 @@
 import { decrypt, encrypt } from "./security.js";
+import ipaddr from "ipaddr.js";
 
-const endpoint = "https://api.openai.com/v1/responses";
-const defaultModel = "gpt-4.1-mini";
 const maxInput = 30000;
 const maxInstructions = 3000;
+const commercialHosts = [
+  "openai.com",
+  "anthropic.com",
+  "googleapis.com",
+  "openrouter.ai",
+  "groq.com",
+  "together.xyz",
+  "mistral.ai",
+  "deepseek.com",
+  "x.ai",
+  "fireworks.ai",
+  "cohere.com",
+];
 
 export class AiInputError extends Error {}
 export class AiServiceError extends Error {}
 
+export function initializeAiSettings(database) {
+  const columns = new Set(
+    database
+      .prepare("PRAGMA table_info(ai_settings)")
+      .all()
+      .map(({ name }) => name),
+  );
+  if (!columns.has("base_url")) {
+    database.exec(
+      "ALTER TABLE ai_settings ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
+    );
+    // A key from the former fixed commercial endpoint must never be reused.
+    database.exec(
+      "UPDATE ai_settings SET api_key_enc=NULL, model='', base_url=''",
+    );
+  }
+}
+
+function normalizeBaseUrl(value) {
+  if (typeof value !== "string" || value.length > 500 || !value.trim())
+    throw new AiInputError("Ungültige KI-Einstellung.");
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new AiInputError("Ungültige KI-Einstellung.");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    !/^\d*$/.test(url.port)
+  )
+    throw new AiInputError("Ungültige KI-Einstellung.");
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (
+    commercialHosts.some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+  )
+    throw new AiInputError("Nur eigene KI-Endpunkte sind erlaubt.");
+  if (url.protocol === "http:") {
+    const localName = host === "localhost" || host === "host.docker.internal";
+    const privateIp =
+      ipaddr.isValid(host) &&
+      ["private", "loopback", "linkLocal", "uniqueLocal"].includes(
+        ipaddr.process(host).range(),
+      );
+    if (!localName && !privateIp)
+      throw new AiInputError("HTTP ist nur für lokale KI-Endpunkte erlaubt.");
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
 export function aiSettings(database) {
   const row = database.prepare("SELECT * FROM ai_settings WHERE id=1").get();
   return {
-    configured: !!row?.api_key_enc,
-    model: row?.model || defaultModel,
+    configured: !!(row?.base_url && row?.model),
+    baseUrl: row?.base_url || "",
+    model: row?.model || "",
+    hasKey: !!row?.api_key_enc,
   };
 }
 
-export function saveAiSettings(database, { model, apiKey, removeKey }) {
+export function saveAiSettings(
+  database,
+  { baseUrl, model, apiKey, removeKey, disable },
+) {
+  if (disable === true) {
+    database.prepare("DELETE FROM ai_settings WHERE id=1").run();
+    return aiSettings(database);
+  }
   if (
+    typeof baseUrl !== "string" ||
     typeof model !== "string" ||
-    !/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,79}$/.test(model) ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9._/:-]{0,127}$/.test(model) ||
     (apiKey !== undefined &&
       (typeof apiKey !== "string" || apiKey.length > 512 || !apiKey.trim())) ||
     (removeKey !== undefined && typeof removeKey !== "boolean") ||
     (apiKey && removeKey)
   )
     throw new AiInputError("Ungültige KI-Einstellung.");
+  const normalizedUrl = normalizeBaseUrl(baseUrl);
   const existing = database
-    .prepare("SELECT api_key_enc FROM ai_settings WHERE id=1")
+    .prepare("SELECT base_url,api_key_enc FROM ai_settings WHERE id=1")
     .get();
   const key = removeKey
     ? null
     : apiKey
       ? encrypt(apiKey.trim())
-      : existing?.api_key_enc || null;
+      : existing?.base_url === normalizedUrl
+        ? existing.api_key_enc
+        : null;
   database
     .prepare(
-      "INSERT INTO ai_settings(id,api_key_enc,model) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET api_key_enc=excluded.api_key_enc,model=excluded.model",
+      "INSERT INTO ai_settings(id,base_url,api_key_enc,model) VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,api_key_enc=excluded.api_key_enc,model=excluded.model",
     )
-    .run(key, model);
+    .run(normalizedUrl, key, model);
   return aiSettings(database);
 }
 
 function credentials(database) {
   const row = database.prepare("SELECT * FROM ai_settings WHERE id=1").get();
+  if (!row?.base_url || !row?.model)
+    throw new AiInputError("KI ist noch nicht eingerichtet.");
   const apiKey = row?.api_key_enc ? decrypt(row.api_key_enc) : null;
-  if (!apiKey) throw new AiInputError("KI ist noch nicht eingerichtet.");
-  return { apiKey, model: row?.model || defaultModel };
+  return {
+    apiKey,
+    model: row.model,
+    endpoint: `${normalizeBaseUrl(row.base_url)}/chat/completions`,
+  };
 }
 
 function textOutput(result) {
-  return (result.output || [])
-    .filter((item) => item.type === "message" && item.role === "assistant")
-    .flatMap((item) => item.content || [])
-    .filter(
-      (item) => item.type === "output_text" && typeof item.text === "string",
-    )
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
+  return typeof result?.choices?.[0]?.message?.content === "string"
+    ? result.choices[0].message.content.trim()
+    : "";
 }
 
 export async function requestAi(
@@ -81,7 +162,7 @@ export async function requestAi(
     (kind === "summary" && !content)
   )
     throw new AiInputError("KI-Text fehlt oder ist zu lang.");
-  const { apiKey, model } = credentials(database);
+  const { apiKey, model, endpoint } = credentials(database);
   const targetLanguage = language === "en" ? "English" : "German";
   const prompt =
     kind === "rewrite"
@@ -92,20 +173,25 @@ export async function requestAi(
     response = await fetcher(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model,
-        instructions: prompt,
-        input:
-          kind === "rewrite"
-            ? `Draft:\n${content || "(empty)"}\n\nAdditional instructions:\n${guidance || "(none)"}`
-            : `Email:\n${content}`,
-        max_output_tokens: kind === "rewrite" ? 2500 : 800,
-        store: false,
+        messages: [
+          { role: "system", content: prompt },
+          {
+            role: "user",
+            content:
+              kind === "rewrite"
+                ? `Draft:\n${content || "(empty)"}\n\nAdditional instructions:\n${guidance || "(none)"}`
+                : `Email:\n${content}`,
+          },
+        ],
+        max_tokens: kind === "rewrite" ? 2500 : 800,
       }),
       signal: AbortSignal.timeout(60000),
+      redirect: "error",
     });
   } catch (error) {
     throw new AiServiceError(
@@ -130,7 +216,11 @@ export async function requestAi(
     throw new AiServiceError("Ungültige Antwort vom KI-Dienst.");
   }
   const output = textOutput(result);
-  if (result.status !== "completed" || !output || output.length > 40000)
+  if (
+    result.choices?.[0]?.finish_reason === "length" ||
+    !output ||
+    output.length > 40000
+  )
     throw new AiServiceError("KI hat keine vollständige Antwort geliefert.");
   return output;
 }

@@ -118,8 +118,8 @@ const translations = {
   "Mail-Weg auf Karte anzeigen": "Show mail trace on map",
   "Mit KI zusammenfassen": "Summarize with AI",
   "KI-Zusammenfassung": "AI summary",
-  "Beim Zusammenfassen wird der lesbare Nachrichtentext an OpenAI gesendet. Anhänge werden nicht übertragen.":
-    "Summarizing sends the readable message text to OpenAI. Attachments are not sent.",
+  "Beim Zusammenfassen wird der lesbare Nachrichtentext an deinen KI-Server gesendet. Anhänge werden nicht übertragen.":
+    "Summarizing sends the readable message text to your AI server. Attachments are not sent.",
   "Die Nachricht war sehr lang; nur der Anfang wurde zusammengefasst.":
     "This message was very long; only the beginning was summarized.",
   "Erneut zusammenfassen": "Summarize again",
@@ -128,8 +128,8 @@ const translations = {
   "KI-Änderung rückgängig": "Undo AI change",
   "Text mit KI überarbeiten": "Revise text with AI",
   "Ausgangstext anzeigen": "Show original draft",
-  "Entwurf und Anweisungen werden erst beim Erstellen an OpenAI gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.":
-    "The draft and instructions are sent to OpenAI only when you generate a suggestion. The signature and quoted mail history stay unchanged.",
+  "Entwurf und Anweisungen werden erst beim Erstellen an deinen KI-Server gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.":
+    "The draft and instructions are sent to your AI server only when you generate a suggestion. The signature and quoted mail history stay unchanged.",
   "Zusätzliche Anweisungen oder Stichpunkte":
     "Additional instructions or bullet points",
   "Zum Beispiel: freundlich antworten, Termin am Freitag vorschlagen …":
@@ -146,14 +146,23 @@ const translations = {
   "KI-Funktionen": "AI features",
   "Text überarbeiten und Mails zusammenfassen":
     "Revise text and summarize messages",
-  "OpenAI ist eingerichtet.": "OpenAI is configured.",
-  "OpenAI ist noch nicht eingerichtet.": "OpenAI is not configured yet.",
-  "Nur auf Klick wird Mailtext an OpenAI gesendet.":
-    "Message text is sent to OpenAI only when you request it.",
+  "Eigene KI ist eingerichtet.": "Your AI server is configured.",
+  "Eigene KI ist noch nicht eingerichtet.":
+    "Your AI server is not configured yet.",
+  "Nur auf Klick wird Mailtext an deinen KI-Server gesendet.":
+    "Message text is sent to your AI server only when you request it.",
+  "OpenAI-kompatible Basis-URL": "OpenAI-compatible base URL",
+  "Modell-ID deiner eigenen KI": "Model ID of your AI server",
   Modell: "Model",
-  "OpenAI API-Schlüssel": "OpenAI API key",
+  "API-Schlüssel (falls erforderlich)": "API key (if required)",
+  "Optional bei lokaler KI": "Optional for local AI",
   "Schlüssel unverändert lassen": "Leave key unchanged",
   "API-Schlüssel entfernen": "Remove API key",
+  "KI deaktivieren": "Disable AI",
+  "Nur eigene KI-Endpunkte sind erlaubt.":
+    "Only self-hosted AI endpoints are allowed.",
+  "HTTP ist nur für lokale KI-Endpunkte erlaubt.":
+    "HTTP is allowed only for local AI endpoints.",
   "Ungültige KI-Einstellung.": "Invalid AI setting.",
   "KI ist noch nicht eingerichtet.": "AI is not configured yet.",
   "Ungültige KI-Anfrage.": "Invalid AI request.",

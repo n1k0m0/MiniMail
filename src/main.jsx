@@ -2378,7 +2378,7 @@ function AiSummaryModal({ accountId, folder, uid, onClose }) {
         <div className="ai-modal-content">
           <p className="ai-disclosure">
             {t(
-              "Beim Zusammenfassen wird der lesbare Nachrichtentext an OpenAI gesendet. Anhänge werden nicht übertragen.",
+              "Beim Zusammenfassen wird der lesbare Nachrichtentext an deinen KI-Server gesendet. Anhänge werden nicht übertragen.",
             )}
           </p>
           {error && (
@@ -3961,7 +3961,7 @@ function AiRewriteModal({ body, onApply, onClose }) {
         <div className="ai-modal-content">
           <p className="ai-disclosure">
             {t(
-              "Entwurf und Anweisungen werden erst beim Erstellen an OpenAI gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.",
+              "Entwurf und Anweisungen werden erst beim Erstellen an deinen KI-Server gesendet. Signatur und zitierter Mailverlauf bleiben unverändert.",
             )}
           </p>
           {editable.trim() && (
