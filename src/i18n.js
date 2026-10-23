@@ -76,6 +76,9 @@ const translations = {
   "In diesem Ordner liegen noch keine Nachrichten.":
     "There are no messages in this folder yet.",
   "Breite der Nachrichtenliste": "Message list width",
+  Lesedarstellung: "Reading size",
+  "Mailtext verkleinern": "Decrease message size",
+  "Mailtext vergrößern": "Increase message size",
   Zurück: "Back",
   Antworten: "Reply",
   Archivieren: "Archive",

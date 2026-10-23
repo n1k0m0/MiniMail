@@ -32,6 +32,7 @@ import {
   MailOpen,
   MapPinned,
   Menu,
+  Minus,
   Moon,
   Paperclip,
   PenLine,
@@ -64,6 +65,10 @@ import {
 const PAGE_SIZE = 60;
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
+const SIDEBAR_WIDE_WIDTH_KEY = "minimail-sidebar-wide-width";
+const MESSAGE_WIDE_WIDTH_KEY = "minimail-message-wide-width";
+const READER_ZOOM_KEY = "minimail-reader-zoom";
+const READER_WIDE_ZOOM_KEY = "minimail-reader-wide-zoom";
 const THREAD_VIEW_KEY = "minimail-thread-view";
 
 function storedWidth(key) {
@@ -387,23 +392,39 @@ function App() {
   );
   const [refreshKey, setRefreshKey] = useState(0);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const [sidebarPreference, setSidebarPreference] = useState(() =>
-    storedWidth(SIDEBAR_WIDTH_KEY),
-  );
-  const [messagePreference, setMessagePreference] = useState(() =>
-    storedWidth(MESSAGE_WIDTH_KEY),
-  );
+  const [sidebarPreferences, setSidebarPreferences] = useState(() => ({
+    standard: storedWidth(SIDEBAR_WIDTH_KEY),
+    wide: storedWidth(SIDEBAR_WIDE_WIDTH_KEY),
+  }));
+  const [messagePreferences, setMessagePreferences] = useState(() => ({
+    standard: storedWidth(MESSAGE_WIDTH_KEY),
+    wide: storedWidth(MESSAGE_WIDE_WIDTH_KEY),
+  }));
+  const [readerZoomPreferences, setReaderZoomPreferences] = useState(() => ({
+    standard: storedWidth(READER_ZOOM_KEY),
+    wide: storedWidth(READER_WIDE_ZOOM_KEY),
+  }));
+  const wideDesktop = windowWidth >= 1600;
+  const widthTier = wideDesktop ? "wide" : "standard";
   const narrowDesktop = windowWidth <= 1060;
-  const railWidth = narrowDesktop ? 58 : 72;
-  const defaultSidebarWidth = narrowDesktop ? 210 : 247;
-  const defaultMessageWidth = narrowDesktop ? 265 : 374;
+  const railWidth = narrowDesktop ? 58 : wideDesktop ? 80 : 72;
+  const defaultSidebarWidth = narrowDesktop
+    ? 210
+    : wideDesktop
+      ? Math.min(355, Math.max(280, Math.round(windowWidth * 0.14)))
+      : 247;
+  const defaultMessageWidth = narrowDesktop
+    ? 265
+    : wideDesktop
+      ? Math.min(620, Math.max(420, Math.round(windowWidth * 0.24)))
+      : 374;
   const sidebarMax = Math.max(
     180,
-    Math.min(440, windowWidth - railWidth - 260 - 220),
+    Math.min(wideDesktop ? 560 : 440, windowWidth - railWidth - 260 - 220),
   );
   const sidebarWidth = Math.min(
     sidebarMax,
-    Math.max(180, sidebarPreference ?? defaultSidebarWidth),
+    Math.max(180, sidebarPreferences[widthTier] ?? defaultSidebarWidth),
   );
   const messageMax = Math.max(
     260,
@@ -411,8 +432,32 @@ function App() {
   );
   const messageWidth = Math.min(
     messageMax,
-    Math.max(260, messagePreference ?? defaultMessageWidth),
+    Math.max(260, messagePreferences[widthTier] ?? defaultMessageWidth),
   );
+  const readerZoom = narrowDesktop
+    ? 100
+    : Math.min(
+        175,
+        Math.max(
+          75,
+          readerZoomPreferences[widthTier] ??
+            (wideDesktop
+              ? windowWidth >= 2200
+                ? 135
+                : windowWidth >= 1800
+                  ? 125
+                  : 110
+              : 100),
+        ),
+      );
+  function changeReaderZoom(delta) {
+    const next = Math.min(175, Math.max(75, readerZoom + delta));
+    setReaderZoomPreferences((current) => ({ ...current, [widthTier]: next }));
+    localStorage.setItem(
+      wideDesktop ? READER_WIDE_ZOOM_KEY : READER_ZOOM_KEY,
+      String(next),
+    );
+  }
   const messageScrollRef = useRef(null);
   const contextMessage =
     contextMenu?.type === "message"
@@ -938,10 +983,12 @@ function App() {
     );
   return (
     <div
-      className="app-shell"
+      className={`app-shell${wideDesktop ? " wide-layout" : ""}`}
       style={{
         "--sidebar-width": `${sidebarWidth}px`,
         "--message-width": `${messageWidth}px`,
+        "--reader-zoom": String(readerZoom / 100),
+        "--reader-zoom-width": `${10000 / readerZoom}%`,
       }}
     >
       <div className="icon-rail">
@@ -1223,9 +1270,17 @@ function App() {
           min={180}
           max={sidebarMax}
           defaultWidth={defaultSidebarWidth}
-          onResize={setSidebarPreference}
+          onResize={(width) =>
+            setSidebarPreferences((current) => ({
+              ...current,
+              [widthTier]: width,
+            }))
+          }
           onCommit={(width) =>
-            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width))
+            localStorage.setItem(
+              wideDesktop ? SIDEBAR_WIDE_WIDTH_KEY : SIDEBAR_WIDTH_KEY,
+              String(width),
+            )
           }
         />
       </aside>
@@ -1621,9 +1676,17 @@ function App() {
                 min={260}
                 max={messageMax}
                 defaultWidth={defaultMessageWidth}
-                onResize={setMessagePreference}
+                onResize={(width) =>
+                  setMessagePreferences((current) => ({
+                    ...current,
+                    [widthTier]: width,
+                  }))
+                }
                 onCommit={(width) =>
-                  localStorage.setItem(MESSAGE_WIDTH_KEY, String(width))
+                  localStorage.setItem(
+                    wideDesktop ? MESSAGE_WIDE_WIDTH_KEY : MESSAGE_WIDTH_KEY,
+                    String(width),
+                  )
                 }
               />
             </section>
@@ -1648,6 +1711,7 @@ function App() {
                       <div className="reader-tool-group">
                         <button
                           title={t("Allen antworten")}
+                          aria-label={t("Allen antworten")}
                           onClick={() =>
                             setModal({ type: "reply-all", message: detail })
                           }
@@ -1656,12 +1720,14 @@ function App() {
                         </button>
                         <button
                           title={t("Archivieren")}
+                          aria-label={t("Archivieren")}
                           onClick={() => archive()}
                         >
                           <Archive size={19} />
                         </button>
                         <button
                           title={t("Als ungelesen markieren")}
+                          aria-label={t("Als ungelesen markieren")}
                           onClick={() => {
                             flag(selected, "seen", false);
                             setSelected(null);
@@ -1669,11 +1735,16 @@ function App() {
                         >
                           <Mail size={19} />
                         </button>
-                        <button title={t("Löschen")} onClick={() => remove()}>
+                        <button
+                          title={t("Löschen")}
+                          aria-label={t("Löschen")}
+                          onClick={() => remove()}
+                        >
                           <Trash2 size={19} />
                         </button>
                         <button
                           title={t("Nachrichtenquelltext anzeigen")}
+                          aria-label={t("Nachrichtenquelltext anzeigen")}
                           onClick={() =>
                             setModal({ type: "source", uid: detail.uid })
                           }
@@ -1682,6 +1753,7 @@ function App() {
                         </button>
                         <button
                           title={t("Mail-Weg auf Karte anzeigen")}
+                          aria-label={t("Mail-Weg auf Karte anzeigen")}
                           onClick={() =>
                             setModal({ type: "trace", uid: detail.uid })
                           }
@@ -1690,11 +1762,37 @@ function App() {
                         </button>
                         <button
                           title={t("Mit KI zusammenfassen")}
+                          aria-label={t("Mit KI zusammenfassen")}
                           onClick={() =>
                             setModal({ type: "summary", uid: detail.uid })
                           }
                         >
                           <Sparkles size={19} />
+                        </button>
+                      </div>
+                      <div
+                        className="reader-zoom-controls"
+                        role="group"
+                        aria-label={t("Lesedarstellung")}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => changeReaderZoom(-10)}
+                          disabled={readerZoom <= 75}
+                          title={t("Mailtext verkleinern")}
+                          aria-label={t("Mailtext verkleinern")}
+                        >
+                          <Minus size={17} />
+                        </button>
+                        <span>{readerZoom}%</span>
+                        <button
+                          type="button"
+                          onClick={() => changeReaderZoom(10)}
+                          disabled={readerZoom >= 175}
+                          title={t("Mailtext vergrößern")}
+                          aria-label={t("Mailtext vergrößern")}
+                        >
+                          <Plus size={17} />
                         </button>
                       </div>
                       <span className="reader-position">

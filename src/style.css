@@ -1000,6 +1000,33 @@ svg {
   background: #f0f3fa;
   color: #405bc4;
 }
+.reader-zoom-controls {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: #7787a1;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.reader-zoom-controls span {
+  min-width: 39px;
+  text-align: center;
+}
+.reader-zoom-controls button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+}
+.reader-zoom-controls button:hover {
+  background: #f0f3fa;
+  color: #405bc4;
+}
 .reader-position {
   margin-left: auto;
   color: #a3adbc;
@@ -1066,6 +1093,8 @@ svg {
 }
 .message-body {
   min-height: 220px;
+  width: var(--reader-zoom-width, 100%);
+  zoom: var(--reader-zoom, 1);
   padding: 30px 0;
   color: #47546a;
   font-size: 13px;
@@ -2520,6 +2549,8 @@ svg {
   padding: 19px 22px;
   line-height: 1.7;
   min-height: 120px;
+  font-size: 14px;
+  color: #34425e;
 }
 .compose-signature {
   flex: none;
@@ -3369,4 +3400,276 @@ svg {
 .crypto-expired {
   color: #d97706;
   font-weight: 600;
+}
+
+/* Give large displays readable columns while keeping the compact laptop layout. */
+.wide-layout {
+  grid-template-columns: 80px var(--sidebar-width, 320px) minmax(0, 1fr);
+}
+.wide-layout .icon-rail {
+  gap: 25px;
+}
+.wide-layout .brand-mark {
+  width: 46px;
+  height: 46px;
+}
+.wide-layout .rail-icon {
+  width: 48px;
+  height: 48px;
+}
+.wide-layout .sidebar {
+  padding: 0 17px;
+}
+.wide-layout .sidebar-top {
+  height: 91px;
+}
+.wide-layout .compose-button {
+  height: 51px;
+  font-size: 15px;
+  margin-bottom: 30px;
+}
+.wide-layout .section-label {
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.wide-layout .account-choice {
+  min-height: 67px;
+  padding: 10px;
+}
+.wide-layout .account-badge {
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
+}
+.wide-layout .account-text strong {
+  font-size: 14px;
+}
+.wide-layout .account-text small {
+  font-size: 12px;
+}
+.wide-layout .account-unseen {
+  min-width: 24px;
+  height: 22px;
+  font-size: 11px;
+}
+.wide-layout .folder-search {
+  height: 42px;
+}
+.wide-layout .folder-search input {
+  font-size: 13px;
+}
+.wide-layout .folder-row {
+  min-height: 44px;
+}
+.wide-layout .folder-item {
+  height: 44px;
+  font-size: 14px;
+}
+.wide-layout .folder-item b {
+  font-size: 11px;
+}
+.wide-layout .sidebar-settings {
+  height: 43px;
+  font-size: 14px;
+}
+.wide-layout .topbar {
+  height: 80px;
+  padding: 0 33px;
+}
+.wide-layout .breadcrumb {
+  font-size: 14px;
+}
+.wide-layout .search-box {
+  width: min(500px, 35vw);
+  height: 44px;
+}
+.wide-layout .search-box input {
+  font-size: 14px;
+}
+.wide-layout .search-key {
+  font-size: 13px;
+}
+.wide-layout .list-header {
+  height: 123px;
+  padding: 23px 27px 14px;
+}
+.wide-layout .eyebrow {
+  font-size: 11px;
+}
+.wide-layout .list-header h1 {
+  font-size: 27px;
+}
+.wide-layout .list-header p {
+  font-size: 13px;
+}
+.wide-layout .list-toolbar {
+  height: 42px;
+  padding: 0 27px;
+  font-size: 12px;
+}
+.wide-layout .message-row {
+  min-height: 69px;
+  gap: 11px;
+  padding: 9px 41px 9px 21px;
+}
+.wide-layout .message-row.selected {
+  padding-left: 18px;
+}
+.wide-layout .message-row.thread-child {
+  padding-left: 48px;
+}
+.wide-layout .message-row.thread-child.selected {
+  padding-left: 45px;
+}
+.wide-layout .message-row .row-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+.wide-layout .row-top strong {
+  font-size: 14px;
+}
+.wide-layout .row-top time {
+  font-size: 12px;
+}
+.wide-layout .row-subject {
+  font-size: 13px;
+  margin-top: 5px;
+}
+.wide-layout .pagination {
+  min-height: 53px;
+  font-size: 12px;
+}
+.wide-layout .reader-toolbar {
+  height: 67px;
+  padding: 0 36px;
+}
+.wide-layout .reader-tool-group button {
+  width: 38px;
+  height: 38px;
+}
+.wide-layout .reader-tool-group button svg {
+  width: 21px;
+  height: 21px;
+}
+.wide-layout .reader-zoom-controls {
+  display: flex;
+}
+.wide-layout .reader-position {
+  margin-left: 8px;
+  font-size: 12px;
+}
+.wide-layout .reader-content {
+  max-width: 1120px;
+  padding: 48px 58px 70px;
+}
+.wide-layout .reader-content h2 {
+  font-size: 32px;
+}
+.wide-layout .message-kicker {
+  font-size: 12px;
+}
+.wide-layout .reader-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 17px;
+}
+.wide-layout .sender-details strong {
+  font-size: 14px;
+}
+.wide-layout .sender-details span {
+  font-size: 13px;
+}
+.wide-layout .reader-meta time {
+  font-size: 12px;
+}
+.wide-layout .reply-area button {
+  height: 41px;
+  font-size: 13px;
+}
+.wide-layout .compose-modal {
+  width: min(760px, 100%);
+  height: min(780px, calc(100dvh - 48px));
+}
+.wide-layout .settings-modal {
+  width: min(640px, 100%);
+}
+.wide-layout .modal label {
+  font-size: 12px;
+}
+.wide-layout .modal input:not([type="checkbox"]),
+.wide-layout .modal select,
+.wide-layout .modal textarea {
+  font-size: 13px;
+}
+.wide-layout .modal textarea.compose-body {
+  font-size: 15px;
+}
+[data-theme="dark"] .reader-zoom-controls button:hover {
+  background: #2d3b54;
+  color: #c8d5fb;
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    height: 100dvh;
+  }
+  .message-panel,
+  .reader-panel {
+    height: calc(100dvh - 60px);
+  }
+  .modal {
+    max-height: calc(100dvh - 18px);
+  }
+  .compose-modal {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+  .reader-toolbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  .reader-tool-group {
+    flex: 1;
+    min-width: 0;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .reader-tool-group::-webkit-scrollbar {
+    display: none;
+  }
+  .reader-tool-group button {
+    min-width: 38px;
+    width: 38px;
+    height: 38px;
+  }
+  .reader-position {
+    display: none;
+  }
+  .folder-row {
+    min-height: 44px;
+  }
+  .folder-item {
+    height: 44px;
+  }
+  .message-row {
+    min-height: 68px;
+  }
+  .row-top strong {
+    font-size: 13px;
+  }
+  .row-top time {
+    font-size: 11px;
+  }
+  .row-subject {
+    font-size: 12px;
+  }
+  .message-body {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .reply-area {
+    flex-wrap: wrap;
+  }
 }
