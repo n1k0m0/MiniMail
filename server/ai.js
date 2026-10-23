@@ -188,9 +188,9 @@ export async function requestAi(
                 : `Email:\n${content}`,
           },
         ],
-        max_tokens: kind === "rewrite" ? 2500 : 800,
+        max_tokens: kind === "rewrite" ? 8192 : 4096,
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(180000),
       redirect: "error",
     });
   } catch (error) {
@@ -216,11 +216,13 @@ export async function requestAi(
     throw new AiServiceError("Ungültige Antwort vom KI-Dienst.");
   }
   const output = textOutput(result);
-  if (
-    result.choices?.[0]?.finish_reason === "length" ||
-    !output ||
-    output.length > 40000
-  )
+  if (result.choices?.[0]?.finish_reason === "length")
+    throw new AiServiceError(
+      "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.",
+    );
+  if (!output)
+    throw new AiServiceError("KI hat keinen lesbaren Text geliefert.");
+  if (output.length > 40000)
     throw new AiServiceError("KI hat keine vollständige Antwort geliefert.");
   return output;
 }

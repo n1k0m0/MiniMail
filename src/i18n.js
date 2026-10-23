@@ -177,6 +177,9 @@ const translations = {
   "Ungültige Antwort vom KI-Dienst.": "Invalid response from the AI service.",
   "KI hat keine vollständige Antwort geliefert.":
     "AI did not return a complete response.",
+  "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.":
+    "The AI reached its output limit. Please request a shorter text.",
+  "KI hat keinen lesbaren Text geliefert.": "AI did not return readable text.",
   "Zu viele KI-Anfragen. Bitte kurz warten.":
     "Too many AI requests. Please wait a moment.",
   "Mail-Weg auf Karte": "Mail trace on map",

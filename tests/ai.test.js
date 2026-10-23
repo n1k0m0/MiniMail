@@ -59,6 +59,7 @@ test("AI requests use only the configured self-hosted chat endpoint", async () =
   );
   assert.equal(output, "Revised draft");
   assert.equal(sent.model, "local/model-1:latest");
+  assert.equal(sent.max_tokens, 8192);
   assert.equal(sent.store, undefined);
   assert.match(sent.messages[1].content, /Make it clearer/);
   assert.ok(!JSON.stringify(sent).includes("test-secret"));
@@ -82,7 +83,23 @@ test("AI requests reject empty input and incomplete output", async () => {
         choices: [{ message: { content: "partial" }, finish_reason: "length" }],
       }),
     })),
-    AiServiceError,
+    {
+      name: "Error",
+      message: "KI-Ausgabelimit erreicht. Bitte kürzeren Text anfordern.",
+    },
+  );
+  await requestAi(
+    db,
+    { kind: "summary", text: "Message" },
+    async (_url, options) => {
+      assert.equal(JSON.parse(options.body).max_tokens, 4096);
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "Summary" }, finish_reason: "stop" }],
+        }),
+      };
+    },
   );
   db.close();
 });
