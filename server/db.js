@@ -9,6 +9,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 export const db = new DatabaseSync(path.join(dataDir, "minimail.sqlite"));
 db.exec(`
   PRAGMA journal_mode = WAL;
+  PRAGMA busy_timeout = 10000;
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
     totp_secret TEXT, pending_totp_secret TEXT, created_at INTEGER NOT NULL,
