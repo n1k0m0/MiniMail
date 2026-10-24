@@ -1,4 +1,6 @@
 const translations = {
+  "In Spam verschieben": "Move to spam",
+  "Kein Spam-Ordner auf diesem Postfach gefunden.": "No spam folder found in this mailbox.",
   "Breite ziehen · Doppelklick setzt zurück":
     "Drag to resize · double-click to reset",
   Unbekannt: "Unknown",

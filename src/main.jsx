@@ -1,3 +1,4 @@
+import { findSpamFolder } from "./spamFolder.js";
 import React, {
   useEffect,
   useLayoutEffect,
@@ -42,6 +43,7 @@ import {
   Search,
   Send,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Star,
@@ -382,6 +384,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const [movingToSpam, setMovingToSpam] = useState(false);
   const [modal, setModal] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
@@ -932,6 +935,26 @@ function App() {
       return;
     }
     await move(uid, target.path);
+  }
+  async function moveToSpam(uid = selected) {
+    if (!uid || movingToSpam) return;
+    setMovingToSpam(true);
+    try {
+      // Resolve against this account's current folders, even immediately after
+      // switching accounts or when folders have changed on the mail server.
+      const target = findSpamFolder(
+        await api(`/accounts/${accountId}/folders`),
+      );
+      if (!target) {
+        setError(t("Kein Spam-Ordner auf diesem Postfach gefunden."));
+        return;
+      }
+      await move(uid, target.path);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setMovingToSpam(false);
+    }
   }
   function openContextMenu(event, uid) {
     event.preventDefault();
@@ -1741,6 +1764,14 @@ function App() {
                           <Archive size={19} />
                         </button>
                         <button
+                          title={t("In Spam verschieben")}
+                          aria-label={t("In Spam verschieben")}
+                          disabled={movingToSpam}
+                          onClick={() => moveToSpam()}
+                        >
+                          <ShieldAlert size={19} />
+                        </button>
+                        <button
                           title={t("Als ungelesen markieren")}
                           aria-label={t("Als ungelesen markieren")}
                           onClick={() => {
@@ -2127,6 +2158,17 @@ function App() {
           >
             <Archive size={16} />
             {t(" Archivieren\n          ")}
+          </button>
+          <button
+            role="menuitem"
+            disabled={movingToSpam}
+            onClick={() => {
+              setContextMenu(null);
+              moveToSpam(contextMessage.uid);
+            }}
+          >
+            <ShieldAlert size={16} />
+            {t("In Spam verschieben")}
           </button>
           <div className="context-menu-separator" role="separator" />
           <button
