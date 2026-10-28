@@ -1,3 +1,5 @@
+import { validOutgoingMail } from "./mailInput.js";
+import { registerDraftRoutes } from "./drafts.js";
 import express from "express";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -94,6 +96,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use("/api/drafts", express.json({ limit: "12mb" }));
 app.use("/api/accounts/:id/send", express.json({ limit: "12mb" }));
 app.use("/api/accounts/:id/crypto", express.json({ limit: "2mb" }));
 app.use("/api/contacts/:id/crypto", express.json({ limit: "512kb" }));
@@ -280,6 +283,7 @@ app.post("/api/auth/2fa/verify", authenticated, (req, res) => {
   res.json({ ok: true });
 });
 app.use("/api", authenticated, ready);
+registerDraftRoutes(app, db);
 
 app.patch("/api/settings/contacts", (req, res) => {
   if (typeof req.body?.collectRecipients !== "boolean")
@@ -1252,85 +1256,6 @@ app.post(
     res.json({ ok: true, deleted });
   }),
 );
-const maxAttachmentBytes = 8 * 1024 * 1024;
-function validOutgoingMail(mail) {
-  if (
-    typeof mail.to !== "string" ||
-    ![mail.to, mail.cc, mail.bcc].some(
-      (field) => typeof field === "string" && field.trim(),
-    ) ||
-    mail.to.length > 4096 ||
-    /[\r\n]/.test(mail.to) ||
-    (mail.cc !== undefined &&
-      (typeof mail.cc !== "string" ||
-        mail.cc.length > 4096 ||
-        /[\r\n]/.test(mail.cc))) ||
-    (mail.bcc !== undefined &&
-      (typeof mail.bcc !== "string" ||
-        mail.bcc.length > 4096 ||
-        /[\r\n]/.test(mail.bcc))) ||
-    (mail.subject !== undefined &&
-      (typeof mail.subject !== "string" ||
-        mail.subject.length > 998 ||
-        /[\r\n]/.test(mail.subject))) ||
-    (mail.inReplyTo !== undefined &&
-      (typeof mail.inReplyTo !== "string" ||
-        !/^<[^<>\r\n]{1,998}>$/.test(mail.inReplyTo))) ||
-    (mail.references !== undefined &&
-      (!Array.isArray(mail.references) ||
-        mail.references.length > 30 ||
-        mail.references.some(
-          (id) => typeof id !== "string" || !/^<[^<>\r\n]{1,998}>$/.test(id),
-        ))) ||
-    typeof mail.text !== "string" ||
-    mail.text.length > 500000 ||
-    (mail.crypto !== undefined &&
-      (!mail.crypto ||
-        typeof mail.crypto !== "object" ||
-        Array.isArray(mail.crypto) ||
-        !["none", "pgp", "smime"].includes(mail.crypto.mode) ||
-        typeof mail.crypto.sign !== "boolean" ||
-        ![true, false, "auto"].includes(mail.crypto.encrypt) ||
-        (mail.crypto.mode === "none" &&
-          (mail.crypto.sign || mail.crypto.encrypt)) ||
-        (mail.crypto.mode !== "none" &&
-          !mail.crypto.sign &&
-          !mail.crypto.encrypt))) ||
-    (mail.attachments !== undefined && !Array.isArray(mail.attachments))
-  )
-    return false;
-  const attachments = mail.attachments || [];
-  if (attachments.length > 8) return false;
-  let totalBytes = 0;
-  for (const file of attachments) {
-    const data = file?.data;
-    const padding =
-      typeof data === "string"
-        ? data.endsWith("==")
-          ? 2
-          : data.endsWith("=")
-            ? 1
-            : 0
-        : 0;
-    const content = padding ? data.slice(0, -padding) : data;
-    if (
-      !file ||
-      typeof file.name !== "string" ||
-      !file.name ||
-      file.name.length > 255 ||
-      /[\u0000-\u001f\u007f]/.test(file.name) ||
-      typeof data !== "string" ||
-      data.length > Math.ceil((maxAttachmentBytes * 4) / 3) + 4 ||
-      data.length % 4 !== 0 ||
-      content.includes("=") ||
-      /[^A-Za-z0-9+/]/.test(content)
-    )
-      return false;
-    totalBytes += (data.length / 4) * 3 - padding;
-    if (totalBytes > maxAttachmentBytes) return false;
-  }
-  return true;
-}
 app.post(
   "/api/accounts/:id/send",
   asyncRoute(async (req, res) => {
@@ -1363,6 +1288,16 @@ app.post(
         .status(400)
         .json({ error: "S/MIME-Zertifikat mit Privatschlüssel fehlt." });
     const result = await sendMessage(account, b);
+    if (typeof b.draftId === "string") {
+      try {
+        db.prepare("DELETE FROM drafts WHERE user_id=? AND id=?").run(
+          req.user.id,
+          b.draftId,
+        );
+      } catch {
+        result.draftRemovalFailed = true;
+      }
+    }
     res.json(result);
     if (req.user.collect_recipients) {
       try {

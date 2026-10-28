@@ -579,6 +579,81 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       200,
     );
+    // Incomplete messages, reply metadata, and binary attachments survive saving.
+    const savedDraft = {
+      accountId: ownerAccount.data.id,
+      type: "reply-all",
+      to: "",
+      cc: "",
+      bcc: "",
+      subject: "Private unfinished message",
+      text: "Draft body – not yet sent",
+      inReplyTo: "<original@example.test>",
+      references: ["<original@example.test>"],
+      crypto: { mode: "pgp", sign: false, encrypt: "auto" },
+      attachments: [{ name: "binary.bin", data: "AAH/" }],
+    };
+    assert.equal(
+      (await admin("/drafts/review-draft", "PUT", savedDraft)).status,
+      200,
+    );
+    const restoredDraft = await admin("/drafts/review-draft");
+    assert.equal(restoredDraft.status, 200);
+    assert.deepEqual(restoredDraft.data, { ...savedDraft, id: "review-draft" });
+    assert.equal((await admin("/drafts")).data.length, 1);
+    // Another signed-in user cannot list, read, modify, or delete this draft.
+    assert.deepEqual((await member("/drafts")).data, []);
+    assert.equal((await member("/drafts/review-draft")).status, 404);
+    assert.equal(
+      (await member("/drafts/review-draft", "PUT", savedDraft)).status,
+      400,
+    );
+    assert.equal((await member("/drafts/review-draft", "DELETE")).status, 200);
+    assert.equal((await admin("/drafts/review-draft")).status, 200);
+    const inspectionDb = new DatabaseSync(
+      path.join(cwd, "data", "minimail.sqlite"),
+    );
+    const encryptedDraft = inspectionDb
+      .prepare("SELECT data_enc FROM drafts WHERE id=?")
+      .get("review-draft").data_enc;
+    inspectionDb.close();
+    assert.ok(!encryptedDraft.includes(savedDraft.text));
+    assert.ok(!encryptedDraft.includes(savedDraft.subject));
+    for (const malformed of [
+      { ...savedDraft, attachments: [{ name: "bad.bin", data: "???=" }] },
+      {
+        ...savedDraft,
+        attachments: Array(9).fill({ name: "empty.txt", data: "" }),
+      },
+      { ...savedDraft, references: ["invalid header"] },
+      { ...savedDraft, accountId: -1 },
+      { ...savedDraft, text: "x".repeat(500001) },
+      { ...savedDraft, type: "invalid" },
+    ])
+      assert.equal(
+        (await admin("/drafts/review-draft", "PUT", malformed)).status,
+        400,
+      );
+    assert.equal(
+      (await admin("/drafts/review-draft")).data.text,
+      savedDraft.text,
+    );
+    assert.equal(
+      (
+        await admin("/drafts/review-draft", "PUT", {
+          ...savedDraft,
+          text: "Updated draft",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await admin("/drafts/review-draft")).data.text,
+      "Updated draft",
+    );
+    assert.equal((await admin("/drafts/review-draft", "DELETE")).status, 200);
+    assert.equal((await admin("/drafts/review-draft")).status, 404);
+
     assert.equal((await member("/admin/users")).status, 403);
     assert.equal(
       (await member("/settings/ai", "PUT", { model: "gpt-4.1-mini" })).status,

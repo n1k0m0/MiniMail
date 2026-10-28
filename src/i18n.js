@@ -1,6 +1,30 @@
 const translations = {
   "In Spam verschieben": "Move to spam",
-  "Kein Spam-Ordner auf diesem Postfach gefunden.": "No spam folder found in this mailbox.",
+  "Kein Spam-Ordner auf diesem Postfach gefunden.":
+    "No spam folder found in this mailbox.",
+  "Gespeicherte Entwürfe": "Saved drafts",
+  "Keine gespeicherten Entwürfe.": "No saved drafts.",
+  "Entwurf endgültig löschen?": "Permanently delete this draft?",
+  "Entwurf nicht gefunden.": "Draft not found.",
+  "Ungültiger Entwurf.": "Invalid draft.",
+  "Entwurf speichern": "Save draft",
+  "Entwurf gespeichert.": "Draft saved.",
+  "Ungespeicherte Nachricht": "Unsaved message",
+  "Möchtest du den aktuellen Stand als Entwurf speichern?":
+    "Would you like to save the current message as a draft?",
+  "Weiter bearbeiten": "Keep editing",
+  "Änderungen verwerfen": "Discard changes",
+  "Speichern und schließen": "Save and close",
+  "Nachricht gesendet.": "Message sent.",
+  "Nachricht gesendet. MiniMail konnte keine Kopie im Gesendet-Ordner speichern. Bitte nicht erneut senden; prüfe den Ordner auf dem Mailserver.":
+    "Message sent. MiniMail could not save a copy in the Sent folder. Please do not send it again; check the folder on the mail server.",
+  "Der gespeicherte Entwurf konnte nicht entfernt werden. Bitte lösche ihn unter Gespeicherte Entwürfe.":
+    "The saved draft could not be removed. Please delete it under Saved drafts.",
+  "Höchstens acht Anhänge sind erlaubt.":
+    "A maximum of eight attachments is allowed.",
+  "Bitte Absender wählen": "Please choose a sender",
+  Nachrichtentext: "Message text",
+
   "Breite ziehen · Doppelklick setzt zurück":
     "Drag to resize · double-click to reset",
   Unbekannt: "Unknown",

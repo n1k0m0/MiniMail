@@ -1,3 +1,4 @@
+import { saveSentCopy } from "./sentCopy.js";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import sanitizeHtml from "sanitize-html";
@@ -587,37 +588,24 @@ export async function sendMessage(account, mail) {
   } finally {
     transporter.close();
   }
-  try {
-    await withImap(account, async (client) => {
-      const folders = await client.list();
-      const sent =
-        folders.find((item) => item.specialUse === "\\Sent")?.path ||
-        folders.find((item) => /^sent$/i.test(item.name))?.path;
-      if (sent) {
-        const raw =
-          protectedMessage?.sentRaw ||
-          (await new Promise((resolve, reject) => {
-            nodemailer
-              .createTransport({
-                streamTransport: true,
-                buffer: true,
-                disableFileAccess: true,
-                disableUrlAccess: true,
-              })
-              .sendMail(
-                {
-                  ...outgoing,
-                  messageId: protectedMessage?.messageId || info.messageId,
-                },
-                (error, result) =>
-                  error ? reject(error) : resolve(result.message),
-              );
-          }));
-        await client.append(sent, raw, ["\\Seen"]);
-      }
-    });
-  } catch {
-    /* SMTP succeeded; some servers store Sent automatically or disallow APPEND. */
-  }
-  return { messageId: protectedMessage?.messageId || info.messageId };
+  const sentCopy = await saveSentCopy(
+    (callback) => withImap(account, callback),
+    async () =>
+      protectedMessage?.sentRaw ||
+      (await new Promise((resolve, reject) => {
+        nodemailer
+          .createTransport({
+            streamTransport: true,
+            buffer: true,
+            disableFileAccess: true,
+            disableUrlAccess: true,
+          })
+          .sendMail(
+            { ...outgoing, messageId: info.messageId },
+            (error, result) =>
+              error ? reject(error) : resolve(result.message),
+          );
+      })),
+  );
+  return { messageId: protectedMessage?.messageId || info.messageId, sentCopy };
 }

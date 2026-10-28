@@ -1,12 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  Check,
-  Copy,
-  KeyRound,
-  Plus,
-  RefreshCw,
-  ShieldOff,
-} from "lucide-react";
+import { Check, Copy, KeyRound, Plus, ShieldOff } from "lucide-react";
 import { choose, t } from "./i18n.js";
 
 export default function UserManagement({ request, currentUsername, setError }) {

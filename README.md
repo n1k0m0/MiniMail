@@ -55,6 +55,12 @@ By default, the server checks each connected inbox every five minutes, even when
 
 Choose German or English in **Settings → Appearance → Language**. The choice is stored in your browser.
 
+### Drafts and delivery status
+
+Use **Save draft** in the compose window to keep an unfinished message, including attachments, sender, reply references, and signing/encryption choices. **Saved drafts** in the sidebar opens them again. Drafts belong to the signed-in user and are encrypted in the server database with `APP_ENCRYPTION_KEY`; they are stored in MiniMail rather than the mail server's Drafts folder. Saving is explicit, not automatic. Closing an edited message offers Save and close, Keep editing, or Discard changes; reloading or leaving the page warns about unsaved edits. Clicking the backdrop does not close the composer. Discarding edits to an existing draft keeps its last saved version; use the draft list to delete it entirely.
+
+After SMTP accepts a message, MiniMail reports successful delivery to the SMTP server even if it cannot save the Sent copy. A persistent notice explains the missing copy and asks you to check the mail server's Sent folder before taking further action. Some providers store sent messages themselves. A successfully sent draft is removed from MiniMail.
+
 ### OpenPGP and S/MIME
 
 Open **Settings → Connected mailboxes → Keys** for each sending address. Import an armored OpenPGP private key and its passphrase, or an S/MIME `.p12`/`.pfx` bundle (or PEM certificate and private key). The key identity must match the mailbox address. Private keys and passphrases are encrypted in the server database with `APP_ENCRYPTION_KEY`; the server decrypts them only while processing mail. Back up this key with the database.

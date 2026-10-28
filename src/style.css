@@ -1740,6 +1740,7 @@ svg {
   padding: 24px;
 }
 .compose-modal {
+  position: relative;
   width: min(720px, 100%);
   height: min(790px, calc(100dvh - 48px));
   border-radius: 13px;
@@ -1756,6 +1757,52 @@ svg {
 }
 .compose-modal form {
   flex: 1;
+}
+.compose-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.drafts-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  margin: 0 18px 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+.draft-close-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px;
+  background: #fff;
+}
+.draft-close-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.draft-close-actions button {
+  padding: 10px 12px;
+  border-radius: 7px;
+}
+[data-theme="dark"] .draft-close-dialog {
+  background: #171f31;
+}
+.toast.send-notice {
+  bottom: 85px;
 }
 .compose-fields {
   padding: 0 22px;
@@ -2638,13 +2685,30 @@ svg {
   font: inherit;
 }
 .compose-footer {
-  height: 65px;
+  min-height: 65px;
+  flex-wrap: wrap;
+  gap: 10px;
   flex: none;
   border-top: 1px solid #edf0f5;
-  padding: 0 22px;
+  padding: 10px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.save-draft-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: #eef2fb;
+  color: #3e568c;
+  font-size: 11px;
+}
+[data-theme="dark"] .save-draft-button {
+  background: #26334e;
+  color: #dce6ff;
 }
 .compose-footer > div {
   display: flex;
