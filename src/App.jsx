@@ -290,6 +290,9 @@ export default function App() {
         item.thread?.some((member) => member.uid === selected),
       )
     : null;
+  const selectedMessageIndex = messages.findIndex(
+    (item) => item.uid === (selectedThread?.uid || selected),
+  );
   const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
   const visibleFolders = useMemo(
     () => visibleFolderNodes(folderTree, collapsedFolders, folderFilter),
@@ -1710,14 +1713,12 @@ export default function App() {
                           <Plus size={17} />
                         </button>
                       </div>
-                      <span className="reader-position">
-                        {messages.findIndex(
-                          (item) =>
-                            item.uid === (selectedThread?.uid || selected),
-                        ) + 1}{" "}
-                        {t("\n                        von ")}
-                        {total}
-                      </span>
+                      {selectedMessageIndex >= 0 && (
+                        <span className="reader-position">
+                          {page * PAGE_SIZE + selectedMessageIndex + 1}{" "}
+                          {t("von")} {total}
+                        </span>
+                      )}
                     </div>
                     <div className="reader-scroll">
                       <div className="reader-content">
