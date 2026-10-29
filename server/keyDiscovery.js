@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import * as openpgp from "openpgp";
+import * as openpgp from "./openpgp.js";
 import { simpleParser } from "mailparser";
 import { validContact } from "./contacts.js";
 import {

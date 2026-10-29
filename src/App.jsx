@@ -64,7 +64,6 @@ import SettingsModal from "./SettingsModal.jsx";
 import SourceModal from "./SourceModal.jsx";
 import DraftsModal from "./DraftsModal.jsx";
 import LoginScreen from "./LoginScreen.jsx";
-import MailTrace from "./MailTrace.jsx";
 import CalendarReminders from "./calendar/CalendarReminders.jsx";
 import MailInvitation from "./calendar/MailInvitation.jsx";
 import { setLanguage as updateLanguage } from "./i18n.js";
@@ -72,6 +71,7 @@ import "./style.css";
 import "./settings.css";
 import "./calendar/calendar.css";
 const CalendarView = React.lazy(() => import("./calendar/CalendarView.jsx"));
+const MailTrace = React.lazy(() => import("./MailTrace.jsx"));
 
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
@@ -2296,12 +2296,20 @@ export default function App() {
         />
       )}
       {modal?.type === "trace" && (
-        <MailTrace
-          accountId={accountId}
-          folder={folder}
-          uid={modal.uid}
-          onClose={() => setModal(null)}
-        />
+        <React.Suspense
+          fallback={
+            <div className="modal-backdrop">
+              <LoaderCircle className="spin" size={28} />
+            </div>
+          }
+        >
+          <MailTrace
+            accountId={accountId}
+            folder={folder}
+            uid={modal.uid}
+            onClose={() => setModal(null)}
+          />
+        </React.Suspense>
       )}
       {modal?.type === "summary" && (
         <AiSummaryModal

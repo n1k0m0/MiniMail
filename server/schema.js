@@ -26,6 +26,11 @@ const definitions = [
     INDEX sessions_user (user_id), INDEX sessions_expiry (expires_at),
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS auth_totp_state (
+    user_id BIGINT NOT NULL PRIMARY KEY, secret_hash VARCHAR(64) NOT NULL,
+    last_counter BIGINT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
   `CREATE TABLE IF NOT EXISTS accounts (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL,
     name TEXT NOT NULL, email VARCHAR(254) NOT NULL COLLATE utf8mb4_0900_as_ci,
@@ -96,4 +101,8 @@ export async function initializeSchema(database) {
       `${sql} ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`,
     );
 }
-export const allTableNames = [...tableNames, ...calendarTableNames];
+export const allTableNames = [
+  ...tableNames,
+  "auth_totp_state",
+  ...calendarTableNames,
+];

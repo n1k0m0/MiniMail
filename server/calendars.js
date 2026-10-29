@@ -139,7 +139,12 @@ function calendarInput(body, existing) {
       username: body.username ?? old.username ?? "",
       password: body.clearPassword
         ? ""
-        : body.password || (url === old.url ? old.password : "") || "",
+        : body.password ||
+          (url === old.url &&
+          (body.username ?? old.username ?? "") === (old.username || "")
+            ? old.password
+            : "") ||
+          "",
       ...((body.setupPending ?? old.setupPending)
         ? { setupPending: true }
         : {}),
@@ -162,30 +167,35 @@ function calendarInput(body, existing) {
 }
 export async function createCalendar(db, userId, body, request) {
   await calendarPreferences(db, userId);
-  if (
-    (
-      await db
-        .prepare("SELECT COUNT(*) AS n FROM calendars WHERE user_id=?")
-        .get(userId)
-    ).n >= 30
-  )
-    throw new CalendarError("Pro Benutzer sind höchstens 30 Kalender möglich.");
   const item = calendarInput({ readOnly: true, ...body });
-  const result = await db
-    .prepare(
-      "INSERT INTO calendars(user_id,name,color,kind,config_enc,read_only,visible,timezone,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+  const result = await db.transaction(async () => {
+    await db.prepare("SELECT id FROM users WHERE id=? FOR UPDATE").get(userId);
+    if (
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM calendars WHERE user_id=?")
+          .get(userId)
+      ).n >= 30
     )
-    .run(
-      userId,
-      item.name,
-      item.color,
-      item.kind,
-      item.kind === "local" ? null : encrypt(JSON.stringify(item.config)),
-      Number(item.readOnly),
-      Number(item.visible),
-      item.timezone,
-      Date.now(),
-    );
+      throw new CalendarError(
+        "Pro Benutzer sind höchstens 30 Kalender möglich.",
+      );
+    return db
+      .prepare(
+        "INSERT INTO calendars(user_id,name,color,kind,config_enc,read_only,visible,timezone,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        userId,
+        item.name,
+        item.color,
+        item.kind,
+        item.kind === "local" ? null : encrypt(JSON.stringify(item.config)),
+        Number(item.readOnly),
+        Number(item.visible),
+        item.timezone,
+        Date.now(),
+      );
+  });
   try {
     if (item.kind !== "local" && !item.config.setupPending)
       await syncCalendar(db, userId, result.insertId, request);
@@ -197,12 +207,26 @@ export async function createCalendar(db, userId, body, request) {
   }
   return publicCalendar(await calendarFor(db, userId, result.insertId));
 }
-async function upsertCached(db, calendarId, entry, source = "remote") {
-  const existing = await db
-    .prepare("SELECT * FROM calendar_items WHERE calendar_id=? AND uid_hash=?")
-    .get(calendarId, uidHash(entry.uid));
+async function upsertCached(db, calendarId, entry, source = "remote", cached) {
+  const existing = cached
+    ? cached.get(uidHash(entry.uid))
+    : await db
+        .prepare(
+          "SELECT * FROM calendar_items WHERE calendar_id=? AND uid_hash=?",
+        )
+        .get(calendarId, uidHash(entry.uid));
   if (existing) {
     const changed = decrypt(existing.ical_enc) !== entry.ics;
+    if (!changed) {
+      if (
+        existing.href !== (entry.href || null) ||
+        existing.etag !== (entry.etag || null)
+      )
+        await db
+          .prepare("UPDATE calendar_items SET href=?,etag=? WHERE id=?")
+          .run(entry.href || null, entry.etag || null, existing.id);
+      return;
+    }
     await db
       .prepare(
         "UPDATE calendar_items SET ical_enc=?,href=?,etag=?,version=version+?,updated_at=? WHERE id=? AND version=?",
@@ -263,29 +287,35 @@ async function syncUnlocked(db, calendar, request) {
       throw new CalendarError(
         "Der Online-Kalender enthält mehr als 5000 Einträge.",
       );
-    const others = await db
-      .prepare(
-        "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=? AND calendars.id<>?",
-      )
-      .get(calendar.user_id, calendar.id);
     const bytes = entries.reduce(
       (total, entry) =>
         total + Math.ceil((Buffer.byteLength(entry.ics) + 28) / 3) * 4,
       0,
     );
-    if (
-      others.n + entries.length > 10000 ||
-      others.bytes + bytes > 32 * 1024 * 1024
-    )
-      throw new CalendarError(
-        "Das Kalenderlimit von 10000 Einträgen oder 32 MB pro Benutzer ist erreicht.",
-        413,
-      );
     await db.transaction(async () => {
-      for (const entry of entries) await upsertCached(db, calendar.id, entry);
-      for (const item of await db
-        .prepare("SELECT id,uid_hash FROM calendar_items WHERE calendar_id=?")
-        .all(calendar.id))
+      await db
+        .prepare("SELECT id FROM users WHERE id=? FOR UPDATE")
+        .get(calendar.user_id);
+      const others = await db
+        .prepare(
+          "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=? AND calendars.id<>?",
+        )
+        .get(calendar.user_id, calendar.id);
+      if (
+        others.n + entries.length > 10000 ||
+        others.bytes + bytes > 32 * 1024 * 1024
+      )
+        throw new CalendarError(
+          "Das Kalenderlimit von 10000 Einträgen oder 32 MB pro Benutzer ist erreicht.",
+          413,
+        );
+      const existing = await db
+        .prepare("SELECT * FROM calendar_items WHERE calendar_id=?")
+        .all(calendar.id);
+      const cached = new Map(existing.map((item) => [item.uid_hash, item]));
+      for (const entry of entries)
+        await upsertCached(db, calendar.id, entry, "remote", cached);
+      for (const item of existing)
         if (!seen.has(item.uid_hash))
           await db
             .prepare("DELETE FROM calendar_items WHERE id=?")
@@ -383,6 +413,17 @@ export async function getCalendarEvent(db, userId, id) {
   };
 }
 async function writeItem(db, calendar, raw, old, request) {
+  // All writers share the owner lock, including imports and synchronization.
+  // Counting a quota outside its write transaction lets concurrent calendars
+  // each consume the same remaining budget.
+  return db.transaction(async () => {
+    await db
+      .prepare("SELECT id FROM users WHERE id=? FOR UPDATE")
+      .get(calendar.user_id);
+    return writeLockedItem(db, calendar, raw, old, request);
+  });
+}
+async function writeLockedItem(db, calendar, raw, old, request) {
   if (Buffer.byteLength(raw) > 256 * 1024)
     throw new CalendarError(
       "Ein einzelner Kalendereintrag ist größer als 256 KB.",
@@ -393,11 +434,11 @@ async function writeItem(db, calendar, raw, old, request) {
   const details = await runCalendar("itemDetails", raw);
   const budget = await db
     .prepare(
-      "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=?",
+      "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes,COALESCE(SUM(calendar_items.calendar_id=?),0) AS calendar_n FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=?",
     )
-    .get(calendar.user_id);
+    .get(calendar.id, calendar.user_id);
   if (
-    (!old && budget.n >= 10000) ||
+    (!old && (budget.n >= 10000 || budget.calendar_n >= 5000)) ||
     budget.bytes -
       (old?.ical_enc.length || 0) +
       Math.ceil((Buffer.byteLength(raw) + 28) / 3) * 4 >
@@ -657,13 +698,15 @@ export async function importCalendar(
   raw,
   { replace = false, request } = {},
 ) {
-  const entries = await runCalendar("splitCalendar", raw);
+  const entries = await runCalendar("prepareImport", raw);
   const calendar = await calendarFor(db, userId, calendarId, true);
   if (calendar.kind !== "local" && entries.length > 100)
     throw new CalendarError(
       "Bitte höchstens 100 Termine gleichzeitig in einen Online-Kalender importieren.",
     );
   return exclusive(calendar.id, async () => {
+    if (calendar.kind === "local")
+      return importLocalCalendar(db, userId, calendar.id, entries, replace);
     let imported = 0,
       skipped = 0;
     for (const entry of entries) {
@@ -686,6 +729,55 @@ export async function importCalendar(
       imported++;
     }
     return { imported, skipped };
+  });
+}
+async function importLocalCalendar(db, userId, calendarId, entries, replace) {
+  return db.transaction(async () => {
+    await db.prepare("SELECT id FROM users WHERE id=? FOR UPDATE").get(userId);
+    await calendarFor(db, userId, calendarId, true);
+    const existing = await db
+      .prepare(
+        "SELECT uid_hash,ical_enc FROM calendar_items WHERE calendar_id=?",
+      )
+      .all(calendarId);
+    const cached = new Map(existing.map((row) => [row.uid_hash, row]));
+    const budget = await db
+      .prepare(
+        "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=?",
+      )
+      .get(userId);
+    let count = existing.length,
+      skipped = 0;
+    const writes = [];
+    for (const entry of entries) {
+      const hash = uidHash(entry.uid),
+        old = cached.get(hash);
+      if (old && !replace) {
+        skipped++;
+        continue;
+      }
+      const encrypted = encrypt(entry.ics);
+      budget.bytes += encrypted.length - (old?.ical_enc.length || 0);
+      if (!old) {
+        budget.n++;
+        count++;
+      }
+      writes.push([calendarId, hash, encrypted, Date.now()]);
+    }
+    if (count > 5000 || budget.n > 10000 || budget.bytes > 32 * 1024 * 1024)
+      throw new CalendarError(
+        "Das Kalenderlimit von 5000 Einträgen pro Kalender, 10000 Einträgen oder 32 MB pro Benutzer ist erreicht.",
+        413,
+      );
+    for (let start = 0; start < writes.length; start += 100) {
+      const batch = writes.slice(start, start + 100);
+      await db
+        .prepare(
+          `INSERT INTO calendar_items(calendar_id,uid_hash,ical_enc,updated_at) VALUES ${batch.map(() => "(?,?,?,?)").join(",")} ON DUPLICATE KEY UPDATE ical_enc=VALUES(ical_enc),version=version+1,updated_at=VALUES(updated_at)`,
+        )
+        .run(...batch.flat());
+    }
+    return { imported: writes.length, skipped };
   });
 }
 export async function calendarEvents(db, userId, from, to, zone = "UTC") {

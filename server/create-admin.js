@@ -63,7 +63,7 @@ try {
     .prepare(
       "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'admin',0)",
     )
-    .run(username, hashPassword(password), Date.now());
+    .run(username, await hashPassword(password), Date.now());
   console.log(
     `Admin „${username}“ angelegt. Beim ersten Login wird 2FA eingerichtet.`,
   );

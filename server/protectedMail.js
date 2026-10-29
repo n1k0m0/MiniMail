@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import tls from "node:tls";
-import * as openpgp from "openpgp";
+import * as openpgp from "./openpgp.js";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
 import { db } from "./db.js";

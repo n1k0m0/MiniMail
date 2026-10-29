@@ -1,6 +1,8 @@
 import { MailOperationError } from "./mailActions.js";
 import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
+import { consumeTotp } from "./totp.js";
+import { accountCredentials, AccountInputError } from "./accountCredentials.js";
 import { registerCalendarRoutes, startCalendarSync } from "./calendars.js";
 import express from "express";
 import crypto from "node:crypto";
@@ -40,7 +42,6 @@ import {
   randomToken,
   tokenHash,
   newTotpSecret,
-  verifyTotp,
 } from "./security.js";
 import {
   testAccount,
@@ -283,16 +284,38 @@ app.post(
       typeof password !== "string" ||
       password.length > 1024 ||
       !(await verifyPassword(password, user?.password_hash)) ||
-      !user ||
-      (user.totp_secret && !verifyTotp(decrypt(user.totp_secret), code))
+      !user
     ) {
       failedAttempt(key);
       return res.status(401).json({
         error: "Anmeldedaten oder 2FA-Code stimmen nicht.",
       });
     }
+    const accepted = await db.transaction(async () => {
+      const current = await db
+        .prepare("SELECT * FROM users WHERE id=? FOR UPDATE")
+        .get(user.id);
+      if (
+        !current ||
+        current.password_hash !== user.password_hash ||
+        current.totp_secret !== user.totp_secret
+      )
+        return false;
+      if (
+        current.totp_secret &&
+        !(await consumeTotp(db, current.id, current.totp_secret, code))
+      )
+        return false;
+      await issueSession(res, current.id);
+      return true;
+    });
+    if (!accepted) {
+      failedAttempt(key);
+      return res
+        .status(401)
+        .json({ error: "Anmeldedaten oder 2FA-Code stimmen nicht." });
+    }
     loginAttempts.delete(key);
-    await issueSession(res, user.id);
     res.json({
       ok: true,
     });
@@ -326,12 +349,24 @@ app.post(
         error:
           "Aktuelles Passwort prüfen und ein neues mit mindestens 12 Zeichen wählen.",
       });
-    await db
-      .prepare(
-        "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
-      )
-      .run(hashPassword(newPassword), req.user.id);
-    await rotateSessions(res, req.user.id);
+    const passwordHash = await hashPassword(newPassword);
+    const changed = await db.transaction(async () => {
+      const result = await db
+        .prepare(
+          "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=? AND password_hash=?",
+        )
+        .run(passwordHash, req.user.id, req.user.password_hash);
+      if (!result.changes) return false;
+      await rotateSessions(res, req.user.id);
+      return true;
+    });
+    if (!changed)
+      return res
+        .status(409)
+        .json({
+          error:
+            "Das Passwort wurde inzwischen geändert. Bitte erneut anmelden.",
+        });
     res.json({
       ok: true,
     });
@@ -369,25 +404,38 @@ app.post("/api/auth/2fa/verify", authenticated, async (req, res) => {
     return res.status(429).json({
       error: "Zu viele Versuche. Bitte später erneut versuchen.",
     });
-  const user = await db
-    .prepare("SELECT * FROM users WHERE id=?")
-    .get(req.user.id);
-  if (
-    !user.pending_totp_secret ||
-    !verifyTotp(decrypt(user.pending_totp_secret), req.body?.code)
-  ) {
+  const accepted = await db.transaction(async () => {
+    const user = await db
+      .prepare("SELECT * FROM users WHERE id=? FOR UPDATE")
+      .get(req.user.id);
+    if (
+      !user ||
+      user.must_change_password ||
+      user.totp_secret ||
+      !user.pending_totp_secret ||
+      !(await consumeTotp(
+        db,
+        user.id,
+        user.pending_totp_secret,
+        req.body?.code,
+      ))
+    )
+      return false;
+    await db
+      .prepare(
+        "UPDATE users SET totp_secret=pending_totp_secret,pending_totp_secret=NULL WHERE id=?",
+      )
+      .run(user.id);
+    await rotateSessions(res, user.id);
+    return true;
+  });
+  if (!accepted) {
     failedAttempt(attemptKey);
     return res.status(400).json({
       error: "Der Code ist ungültig.",
     });
   }
   loginAttempts.delete(attemptKey);
-  await db
-    .prepare(
-      "UPDATE users SET totp_secret=pending_totp_secret,pending_totp_secret=NULL WHERE id=?",
-    )
-    .run(user.id);
-  await rotateSessions(res, user.id);
   res.json({
     ok: true,
   });
@@ -756,7 +804,7 @@ app.post("/api/admin/users", adminOnly, async (req, res) => {
     .prepare(
       "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'user',1)",
     )
-    .run(username, hashPassword(temporaryPassword), Date.now());
+    .run(username, await hashPassword(temporaryPassword), Date.now());
   res.status(201).json({
     user: publicUser(
       await db
@@ -783,7 +831,7 @@ app.post("/api/admin/users/:id/reset-password", adminOnly, async (req, res) => {
     .prepare(
       "UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?",
     )
-    .run(hashPassword(temporaryPassword), user.id);
+    .run(await hashPassword(temporaryPassword), user.id);
   await db.prepare("DELETE FROM sessions WHERE user_id=?").run(user.id);
   res.json({
     temporaryPassword,
@@ -1042,7 +1090,6 @@ app.delete("/api/accounts/:id/crypto/:kind", async (req, res) => {
     ok: true,
   });
 });
-class AccountInputError extends Error {}
 function validateAccount(body, role) {
   const fields = ["name", "email", "imap_host", "smtp_host", "username"];
   for (const field of fields)
@@ -1123,15 +1170,7 @@ app.post(
           .prepare("SELECT * FROM accounts WHERE id=? AND user_id=?")
           .get(Number(req.body.id), req.user.id)
       : null;
-    const password =
-      req.body.password || (existing && decrypt(existing.password_enc));
-    const smtp_password =
-      req.body.smtp_password ||
-      (existing?.smtp_password_enc && decrypt(existing.smtp_password_enc));
-    if (!password)
-      return res.status(400).json({
-        error: "Postfach-Passwort fehlt.",
-      });
+    const { password, smtp_password } = accountCredentials(req.body, existing);
     await testAccount({
       ...req.body,
       password,
@@ -1202,6 +1241,7 @@ app.put(
     if (!existing) return;
     validateAccount(req.body || {}, req.user.role);
     const b = req.body;
+    const credentials = accountCredentials(b, existing);
     await db
       .prepare(
         "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,sender_name=?,signature=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
@@ -1216,9 +1256,9 @@ app.put(
         Number(b.smtp_port),
         b.smtp_secure ? 1 : 0,
         b.username.trim(),
-        b.password ? encrypt(b.password) : existing.password_enc,
+        encrypt(credentials.password),
         b.smtp_username?.trim() || null,
-        b.smtp_password ? encrypt(b.smtp_password) : existing.smtp_password_enc,
+        credentials.smtp_password ? encrypt(credentials.smtp_password) : null,
         b.check_interval_minutes === undefined
           ? existing.check_interval_minutes
           : Number(b.check_interval_minutes),

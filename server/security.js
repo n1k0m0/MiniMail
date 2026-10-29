@@ -41,34 +41,36 @@ export function decrypt(value) {
     decipher.final(),
   ]).toString("utf8");
 }
-export function hashPassword(password) {
+export async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
-  const derived = crypto.scryptSync(password, salt, 64);
+  const derived = await passwordKey(password, salt);
   return `${salt.toString("hex")}:${derived.toString("hex")}`;
 }
 export class PasswordBusyError extends Error {}
 let passwordChecks = 0;
+async function passwordKey(password, salt) {
+  if (passwordChecks >= 4) throw new PasswordBusyError("Password checks busy");
+  passwordChecks++;
+  try {
+    return await new Promise((resolve, reject) => {
+      crypto.scrypt(password, salt, 64, (error, key) =>
+        error ? reject(error) : resolve(key),
+      );
+    });
+  } finally {
+    passwordChecks--;
+  }
+}
 export async function verifyPassword(password, stored) {
   if (typeof password !== "string" || password.length > 1024) return false;
-  if (passwordChecks >= 4) throw new PasswordBusyError("Password checks busy");
   const validStored = /^[a-f0-9]{32}:[a-f0-9]{128}$/i.test(String(stored));
   const [salt, expected] = validStored
     ? stored.split(":")
     : ["00".repeat(16), "00".repeat(64)];
-  passwordChecks++;
-  try {
-    const actual = await new Promise((resolve, reject) => {
-      crypto.scrypt(password, Buffer.from(salt, "hex"), 64, (error, key) =>
-        error ? reject(error) : resolve(key),
-      );
-    });
-    return (
-      validStored &&
-      crypto.timingSafeEqual(actual, Buffer.from(expected, "hex"))
-    );
-  } finally {
-    passwordChecks--;
-  }
+  const actual = await passwordKey(password, Buffer.from(salt, "hex"));
+  return (
+    validStored && crypto.timingSafeEqual(actual, Buffer.from(expected, "hex"))
+  );
 }
 export function randomToken() {
   return crypto.randomBytes(32).toString("base64url");
@@ -108,11 +110,16 @@ function base32Decode(input) {
   return Buffer.from(bytes);
 }
 export function verifyTotp(secret, code, now = Date.now()) {
-  if (!/^\d{6}$/.test(String(code))) return false;
+  return matchingTotpCounter(secret, code, now) !== null;
+}
+export function matchingTotpCounter(secret, code, now = Date.now()) {
+  if (!/^\d{6}$/.test(String(code))) return null;
   const secretBytes = base32Decode(secret);
-  for (let offset = -1; offset <= 1; offset++) {
+  for (let offset = 1; offset >= -1; offset--) {
     const counter = Buffer.alloc(8);
-    counter.writeBigUInt64BE(BigInt(Math.floor(now / 30000) + offset));
+    const step = Math.floor(now / 30000) + offset;
+    if (step < 0) continue;
+    counter.writeBigUInt64BE(BigInt(step));
     const digest = crypto
       .createHmac("sha1", secretBytes)
       .update(counter)
@@ -125,7 +132,7 @@ export function verifyTotp(secret, code, now = Date.now()) {
         Buffer.from(String(code)),
       )
     )
-      return true;
+      return step;
   }
-  return false;
+  return null;
 }

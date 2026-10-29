@@ -46,6 +46,27 @@ export function calendarTextColor(color) {
     ? "#142039"
     : "#ffffff";
 }
+export function calendarEventInput(event) {
+  return {
+    id: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    allDay: event.allDay,
+    backgroundColor: event.color,
+    borderColor: event.color,
+    textColor: calendarTextColor(event.color),
+    editable: !event.readOnly,
+    classNames:
+      event.selfResponse === "DECLINED"
+        ? ["calendar-declined"]
+        : event.status === "TENTATIVE"
+          ? ["calendar-tentative"]
+          : [],
+    // Keep imported URLs as editor data, never as FullCalendar navigation URLs.
+    extendedProps: { ...event },
+  };
+}
 export const timezones = () => [
   "UTC",
   "floating",

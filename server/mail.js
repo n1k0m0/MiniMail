@@ -8,7 +8,7 @@ import sanitizeHtml from "sanitize-html";
 import { decrypt, encrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
 import { groupMessages } from "./threading.js";
-import { vpnProxy } from "./vpn.js";
+import { mailDestination } from "./mailNetwork.js";
 import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
 import { collectMessageKeys } from "./keyDiscovery.js";
 import { db } from "./db.js";
@@ -34,14 +34,15 @@ function settings(account) {
       : account.smtp_password || password,
   };
 }
-function imapClient(account) {
+async function imapClient(account) {
   const a = settings(account);
+  const destination = await mailDestination(a, "imap");
   return new ImapFlow({
-    host: a.imap_host,
+    ...destination,
     port: Number(a.imap_port),
     secure: !!a.imap_secure,
     doSTARTTLS: a.imap_secure ? undefined : true,
-    proxy: vpnProxy(a),
+    disableCompression: true,
     auth: {
       user: a.username,
       pass: a.password,
@@ -53,7 +54,7 @@ function imapClient(account) {
   });
 }
 async function withImap(account, callback) {
-  const client = imapClient(account);
+  const client = await imapClient(account);
   try {
     await client.connect();
     return await callback(client);
@@ -97,12 +98,13 @@ export async function testAccount(account) {
     throw error;
   }
   const a = settings(account);
+  const destination = await mailDestination(a, "smtp");
   const transporter = nodemailer.createTransport({
-    host: a.smtp_host,
+    ...destination,
+    tls: { servername: destination.servername },
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
-    proxy: vpnProxy(a),
     auth: {
       user: a.smtp_username,
       pass: a.smtp_password,
@@ -726,12 +728,13 @@ export async function emptyTrash(account, folder) {
 }
 export async function sendMessage(account, mail, calendarInvite = null) {
   const a = settings(account);
+  const destination = await mailDestination(a, "smtp");
   const transporter = nodemailer.createTransport({
-    host: a.smtp_host,
+    ...destination,
+    tls: { servername: destination.servername },
     port: Number(a.smtp_port),
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
-    proxy: vpnProxy(a),
     auth: {
       user: a.smtp_username,
       pass: a.smtp_password,

@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import ipaddr from "ipaddr.js";
 import { XMLParser } from "fast-xml-parser";
 import { CalendarError } from "./calendarIcs.js";
+import { untilAborted } from "./networkLimits.js";
 
 export function calendarUrl(input) {
   let url;
@@ -42,6 +43,7 @@ export async function remoteRequest(
   extra = {},
   target = config.url,
   redirects = 0,
+  signal = AbortSignal.timeout(20000),
 ) {
   const url = calendarUrl(target),
     origin = calendarUrl(config.url);
@@ -57,7 +59,10 @@ export async function remoteRequest(
     .includes(hostname.toLowerCase());
   let addresses;
   try {
-    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    addresses = await untilAborted(
+      dns.lookup(hostname, { all: true, verbatim: true }),
+      signal,
+    );
   } catch {
     throw new CalendarError(
       "Der Kalenderserver konnte im DNS nicht gefunden werden.",
@@ -103,6 +108,7 @@ export async function remoteRequest(
               ? callback(null, [pinned])
               : callback(null, pinned.address, pinned.family),
           timeout: 20000,
+          signal,
         },
         (res) => {
           const chunks = [];
@@ -153,6 +159,7 @@ export async function remoteRequest(
       extra,
       new URL(response.headers.location, url).href,
       redirects + 1,
+      signal,
     );
   }
   if ([401, 403].includes(response.status))

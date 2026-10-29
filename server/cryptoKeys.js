@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import * as openpgp from "openpgp";
+import * as openpgp from "./openpgp.js";
 
 const execFileAsync = promisify(execFile);
 const openssl = process.env.OPENSSL_BIN || "openssl";

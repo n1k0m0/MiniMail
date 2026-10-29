@@ -120,6 +120,12 @@ export function splitCalendar(raw) {
     };
   });
 }
+export function prepareImport(raw) {
+  const entries = splitCalendar(raw);
+  // Validate the complete import in one bounded worker before writing anything.
+  for (const entry of entries) itemDetails(entry.ics);
+  return entries;
+}
 function dateString(time) {
   if (!time) return "";
   return time.isDate

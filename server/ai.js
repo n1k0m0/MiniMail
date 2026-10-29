@@ -1,6 +1,7 @@
 import { decrypt, encrypt } from "./security.js";
 import { parseRecipients, validContact } from "./contacts.js";
 import ipaddr from "ipaddr.js";
+import { limitedJson } from "./networkLimits.js";
 const maxInput = 30000;
 const maxInstructions = 3000;
 const defaultRewriteMaxTokens = 8192;
@@ -303,6 +304,7 @@ export async function requestAi(
     );
   }
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     if (response.status === 401 || response.status === 403)
       throw new AiServiceError("KI-API-Schlüssel wurde abgelehnt.");
     if (response.status === 429)
@@ -313,9 +315,11 @@ export async function requestAi(
   }
   let result;
   try {
-    result = await response.json();
+    result = await limitedJson(response);
   } catch {
-    throw new AiServiceError("Ungültige Antwort vom KI-Dienst.");
+    throw new AiServiceError(
+      "Die Antwort vom KI-Dienst ist ungültig oder größer als 2 MB.",
+    );
   }
   const output = textOutput(result);
   if (result.choices?.[0]?.finish_reason === "length")

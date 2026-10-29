@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { groupMessages, messageReferences } from "../server/threading.js";
 
 const message = (uid, fields = {}) => ({
@@ -9,6 +10,26 @@ const message = (uid, fields = {}) => ({
   seen: true,
   from: [{ address: "sender@example.test" }],
   ...fields,
+});
+
+test("long reply chains cannot overflow the stack", (t) => {
+  const items = Array.from({ length: 30000 }, (_, i) => ({
+    uid: i + 1,
+    messageId: `<${i + 1}@example.test>`,
+    inReplyTo: i ? `<${i}@example.test>` : "",
+    date: "2026-01-01",
+    seen: i !== 0,
+  }));
+  const start = performance.now();
+  const groups = groupMessages(items);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].thread.length, items.length);
+  assert.equal(groups[0].uid, 30000);
+  assert.equal(groups[0].threadUnread, true);
+  assert.equal(groupMessages(items, { unreadOnly: true })[0].thread.length, 1);
+  t.diagnostic(
+    `Grouped 30000 linked messages in ${Math.round(performance.now() - start)} ms`,
+  );
 });
 
 test("groups replies across a whole folder and displays the newest message first", () => {

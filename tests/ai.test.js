@@ -58,19 +58,16 @@ test("AI requests use only the configured self-hosted chat endpoint", async (t) 
       assert.equal(options.headers.Authorization, "Bearer test-secret");
       assert.equal(options.redirect, "error");
       sent = JSON.parse(options.body);
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: "Revised draft",
-              },
-              finish_reason: "stop",
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: "Revised draft",
             },
-          ],
-        }),
-      };
+            finish_reason: "stop",
+          },
+        ],
+      });
     },
   );
   assert.equal(output, "Revised draft");
@@ -107,9 +104,8 @@ test("AI requests reject empty input and incomplete output", async (t) => {
         kind: "rewrite",
         text: "draft",
       },
-      async () => ({
-        ok: true,
-        json: async () => ({
+      async () =>
+        Response.json({
           choices: [
             {
               message: {
@@ -119,7 +115,6 @@ test("AI requests reject empty input and incomplete output", async (t) => {
             },
           ],
         }),
-      }),
     ),
     {
       name: "Error",
@@ -135,19 +130,16 @@ test("AI requests reject empty input and incomplete output", async (t) => {
     },
     async (_url, options) => {
       assert.equal(JSON.parse(options.body).max_tokens, 4096);
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: "Summary",
-              },
-              finish_reason: "stop",
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: "Summary",
             },
-          ],
-        }),
-      };
+            finish_reason: "stop",
+          },
+        ],
+      });
     },
   );
   await db.close();
@@ -173,19 +165,16 @@ test("changing the endpoint never reuses its previous key", async (t) => {
     async (url, options) => {
       assert.equal(url, "https://second.example.test/v1/chat/completions");
       assert.equal(options.headers.Authorization, undefined);
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: "Hi",
-              },
-              finish_reason: "stop",
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: "Hi",
             },
-          ],
-        }),
-      };
+            finish_reason: "stop",
+          },
+        ],
+      });
     },
   );
   await db.close();
@@ -223,19 +212,16 @@ test("rewrite and summary token limits can be set separately or omitted", async 
   assert.equal((await aiSettings(db)).summaryMaxTokens, 2000);
   const fetcher = async (_url, options) => {
     assert.equal(JSON.parse(options.body).max_tokens, 12000);
-    return {
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: "Draft",
-            },
-            finish_reason: "stop",
+    return Response.json({
+      choices: [
+        {
+          message: {
+            content: "Draft",
           },
-        ],
-      }),
-    };
+          finish_reason: "stop",
+        },
+      ],
+    });
   };
   await requestAi(
     db,
@@ -270,19 +256,16 @@ test("rewrite and summary token limits can be set separately or omitted", async 
         Object.hasOwn(JSON.parse(options.body), "max_tokens"),
         false,
       );
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: "Summary",
-              },
-              finish_reason: "stop",
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: "Summary",
             },
-          ],
-        }),
-      };
+            finish_reason: "stop",
+          },
+        ],
+      });
     },
   );
   for (const invalid of [0, -1, 1.5, "1000", Number.MAX_SAFE_INTEGER + 1]) {

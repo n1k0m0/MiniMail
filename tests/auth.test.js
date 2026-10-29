@@ -13,7 +13,7 @@ import * as openpgp from "openpgp";
 const serverPath = fileURLToPath(
   new URL("../server/index.js", import.meta.url),
 );
-function totp(secret) {
+function totp(secret, offset = 0) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = 0,
     value = 0;
@@ -24,7 +24,7 @@ function totp(secret) {
     if (bits >= 8) bytes.push((value >>> (bits -= 8)) & 255);
   }
   const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
   const digest = crypto
     .createHmac("sha1", Buffer.from(bytes))
     .update(counter)
@@ -248,6 +248,32 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await adminOther("/accounts")).status, 401);
     assert.equal((await admin("/accounts")).status, 200);
+    const freshCode = totp(admin2fa.data.secret, 1);
+    const concurrentLogins = await Promise.all(
+      [client(), client()].map((request) =>
+        request("/auth/login", "POST", {
+          username: "owner",
+          password: "long-admin-password",
+          code: freshCode,
+        }),
+      ),
+    );
+    assert.deepEqual(
+      concurrentLogins.map((result) => result.status).sort(),
+      [200, 401],
+      "only one concurrent request can consume a 2FA code",
+    );
+    assert.equal(
+      (
+        await client()("/auth/login", "POST", {
+          username: "owner",
+          password: "long-admin-password",
+          code: freshCode,
+        })
+      ).status,
+      401,
+      "accepted codes cannot be replayed",
+    );
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
     assert.equal((await admin("/auth/me")).data.user.collectRecipients, true);
     assert.equal((await admin("/settings/ai")).status, 200);
@@ -546,6 +572,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           check_interval_minutes: 0,
         })
       ).data.check_interval_minutes,
@@ -555,6 +583,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           signature: "Updated signature",
         })
       ).data.signature,
@@ -564,6 +594,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           sender_name: "Invalid\nName",
         })
       ).status,
@@ -573,6 +605,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           check_interval_minutes: 2.5,
         })
       ).status,
@@ -582,6 +616,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           vpn_profile: "private",
         })
       ).data.vpn_profile,
@@ -591,6 +627,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (
         await admin(`/accounts/${ownerAccount.data.id}`, "PUT", {
           ...account("owner"),
+          smtp_username: "owner-smtp",
+          smtp_password: "separate-smtp-password",
           vpn_profile: "unknown",
         })
       ).status,
@@ -650,7 +688,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(
       (
         await member("/auth/2fa/verify", "POST", {
-          code: totp(member2fa.data.secret),
+          code: totp(member2fa.data.secret, -1),
         })
       ).status,
       200,

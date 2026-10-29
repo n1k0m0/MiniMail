@@ -21,15 +21,24 @@ function orderByDate(a, b) {
 
 export function groupMessages(items, { unreadOnly = false } = {}) {
   const parents = new Map(items.map((item) => [item.uid, item.uid]));
+  const sizes = new Map(items.map((item) => [item.uid, 1]));
   const find = (uid) => {
-    const parent = parents.get(uid);
-    if (parent !== uid) parents.set(uid, find(parent));
-    return parents.get(uid);
+    let root = uid;
+    while (parents.get(root) !== root) root = parents.get(root);
+    while (uid !== root) {
+      const next = parents.get(uid);
+      parents.set(uid, root);
+      uid = next;
+    }
+    return root;
   };
   const join = (left, right) => {
-    const a = find(left);
-    const b = find(right);
-    if (a !== b) parents.set(b, a);
+    let a = find(left),
+      b = find(right);
+    if (a === b) return;
+    if (sizes.get(a) < sizes.get(b)) [a, b] = [b, a];
+    parents.set(b, a);
+    sizes.set(a, sizes.get(a) + sizes.get(b));
   };
   const byMessageId = new Map();
   const byThreadId = new Map();

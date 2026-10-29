@@ -27,7 +27,7 @@ import {
   CalendarError,
   uidHash,
 } from "../server/calendarIcs.js";
-import { decrypt } from "../server/security.js";
+import { decrypt, encrypt } from "../server/security.js";
 
 const event = {
   title: "Private meeting",
@@ -36,6 +36,147 @@ const event = {
   timezone: "Europe/Berlin",
   reminder: 15,
 };
+
+test("parallel writes to different calendars cannot exceed the shared entry quota", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  const first = (await listCalendars(db, 1)).calendars[0];
+  const calendars = [first];
+  for (let i = 0; i < 3; i++)
+    calendars.push(
+      await createCalendar(db, 1, { name: `Synthetic ${i}`, kind: "local" }),
+    );
+  for (let offset = 0; offset < 9999; offset += 200) {
+    const rows = Array.from(
+      { length: Math.min(200, 9999 - offset) },
+      (_, index) => {
+        const number = offset + index,
+          uid = `quota-${number}@example.test`;
+        const raw = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:${uid}\r\nDTSTART:20261101T090000Z\r\nSUMMARY:Synthetic quota fixture\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
+        return [
+          calendars[number < 5000 ? 0 : 1].id,
+          uidHash(uid),
+          encrypt(raw),
+          1,
+        ];
+      },
+    );
+    await db
+      .prepare(
+        `INSERT INTO calendar_items(calendar_id,uid_hash,ical_enc,updated_at) VALUES ${rows.map(() => "(?,?,?,?)").join(",")}`,
+      )
+      .run(...rows.flat());
+  }
+  const result = await Promise.allSettled(
+    calendars
+      .slice(2)
+      .map((calendar) => saveCalendarEvent(db, 1, calendar.id, event)),
+  );
+  assert.equal(
+    result.filter((entry) => entry.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    result.find((entry) => entry.status === "rejected").reason.status,
+    413,
+  );
+  assert.equal(
+    (await db.prepare("SELECT COUNT(*) AS n FROM calendar_items").get()).n,
+    10000,
+  );
+});
+
+test("parallel calendar creation cannot bypass the per-user calendar limit", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  await listCalendars(db, 1);
+  for (let i = 0; i < 28; i++)
+    await createCalendar(db, 1, { name: `Synthetic ${i}`, kind: "local" });
+  const result = await Promise.allSettled(
+    [1, 2].map((number) =>
+      createCalendar(db, 1, { name: `Concurrent ${number}`, kind: "local" }),
+    ),
+  );
+  assert.equal(
+    result.filter((entry) => entry.status === "fulfilled").length,
+    1,
+  );
+  assert.equal((await listCalendars(db, 1)).calendars.length, 30);
+});
+
+test("local bulk imports use batches, skip duplicates and roll back completely on a failed write", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  const calendar = (await listCalendars(db, 1)).calendars[0];
+  const raw =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
+    Array.from(
+      { length: 250 },
+      (_, i) =>
+        `BEGIN:VEVENT\r\nUID:bulk-${i}@example.test\r\nDTSTART:20261101T090000Z\r\nDTEND:20261101T100000Z\r\nSUMMARY:Synthetic ${i}\r\nEND:VEVENT\r\n`,
+    ).join("") +
+    "END:VCALENDAR\r\n";
+  let inserts = 0;
+  const instrumented = {
+    ...db,
+    prepare(sql) {
+      if (sql.startsWith("INSERT INTO calendar_items(")) inserts++;
+      return db.prepare(sql);
+    },
+  };
+  assert.deepEqual(await importCalendar(instrumented, 1, calendar.id, raw), {
+    imported: 250,
+    skipped: 0,
+  });
+  assert.equal(
+    inserts,
+    3,
+    "one write per 100 records instead of one worker and quota scan per record",
+  );
+  assert.deepEqual(await importCalendar(db, 1, calendar.id, raw), {
+    imported: 0,
+    skipped: 250,
+  });
+  const before = await db
+    .prepare(
+      "SELECT id,version,ical_enc FROM calendar_items WHERE calendar_id=? ORDER BY id",
+    )
+    .all(calendar.id);
+  let writes = 0;
+  const failing = {
+    ...db,
+    prepare(sql) {
+      const statement = db.prepare(sql);
+      if (sql.startsWith("INSERT INTO calendar_items("))
+        return {
+          ...statement,
+          run: async (...args) => {
+            if (++writes === 2) throw new Error("Synthetic storage failure");
+            return statement.run(...args);
+          },
+        };
+      return statement;
+    },
+  };
+  await assert.rejects(
+    importCalendar(
+      failing,
+      1,
+      calendar.id,
+      raw.replaceAll("Synthetic", "Replacement"),
+      { replace: true },
+    ),
+    /Synthetic storage failure/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        "SELECT id,version,ical_enc FROM calendar_items WHERE calendar_id=? ORDER BY id",
+      )
+      .all(calendar.id),
+    before,
+  );
+});
 test("prepared calendars keep credentials empty and do not connect until explicitly activated", async (t) => {
   const db = await testDatabase(t);
   await insertTestUser(db);
@@ -107,6 +248,88 @@ test("prepared calendars keep credentials empty and do not connect until explici
   assert.equal(ready.hasPassword, true);
   assert.equal(ready.password, undefined);
   assert.equal(calls, 2);
+  await assert.rejects(
+    updateCalendar(
+      db,
+      1,
+      calendar.id,
+      { username: "another-user" },
+      async (config) => {
+        assert.equal(
+          config.password,
+          "",
+          "a stored password is never reused for a changed username",
+        );
+        throw new CalendarError("Synthetic missing credentials", 502);
+      },
+    ),
+    { status: 502 },
+  );
+  assert.equal(
+    (await listCalendars(db, 1)).calendars.find(
+      (item) => item.id === calendar.id,
+    ).username,
+    "owner",
+  );
+});
+
+test("unchanged calendar syncs keep ciphertext and versions without per-item database writes", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  const raw =
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
+    Array.from(
+      { length: 100 },
+      (_, i) =>
+        `BEGIN:VEVENT\r\nUID:sync-${i}@example.test\r\nDTSTART:20261101T090000Z\r\nDTEND:20261101T100000Z\r\nSUMMARY:Synthetic ${i}\r\nEND:VEVENT\r\n`,
+    ).join("") +
+    "END:VCALENDAR\r\n";
+  const request = async () => ({
+    status: 200,
+    headers: { etag: '"1"' },
+    body: raw,
+  });
+  const calendar = await createCalendar(
+    db,
+    1,
+    {
+      kind: "ics",
+      name: "Synthetic subscription",
+      url: "https://calendar.example.test/feed.ics",
+    },
+    request,
+  );
+  const before = await db
+    .prepare(
+      "SELECT id,version,ical_enc,updated_at FROM calendar_items WHERE calendar_id=? ORDER BY id",
+    )
+    .all(calendar.id);
+  let writes = 0,
+    itemReads = 0;
+  const measured = {
+    ...db,
+    prepare(sql) {
+      if (/^(?:INSERT INTO|UPDATE) calendar_items/.test(sql)) writes++;
+      if (/^SELECT .* FROM calendar_items WHERE calendar_id=/.test(sql))
+        itemReads++;
+      return db.prepare(sql);
+    },
+  };
+  await syncCalendar(measured, 1, calendar.id, request);
+  assert.equal(writes, 0);
+  assert.equal(
+    itemReads,
+    1,
+    "load cached rows once instead of SELECT per event",
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        "SELECT id,version,ical_enc,updated_at FROM calendar_items WHERE calendar_id=? ORDER BY id",
+      )
+      .all(calendar.id),
+    before,
+  );
 });
 test("calendars isolate users, encrypt data, detect stale edits, and import/export without duplicates", async (t) => {
   const db = await testDatabase(t);

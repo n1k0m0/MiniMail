@@ -13,7 +13,12 @@ test("password verification stays asynchronous, bounded and compatible with stor
   try {
     const { hashPassword, verifyPassword, PasswordBusyError } =
       await import("../server/security.js");
-    const stored = hashPassword("synthetic-long-password");
+    let yielded = false;
+    setImmediate(() => {
+      yielded = true;
+    });
+    const stored = await hashPassword("synthetic-long-password");
+    assert.equal(yielded, true, "hashing leaves the event loop responsive");
     assert.equal(await verifyPassword("synthetic-long-password", stored), true);
     assert.equal(await verifyPassword("wrong-password", stored), false);
     assert.equal(await verifyPassword("wrong-password", undefined), false);
@@ -35,6 +40,22 @@ test("password verification stays asynchronous, bounded and compatible with stor
           result.reason instanceof PasswordBusyError,
       ).length,
       8,
+    );
+    const mixed = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, index) =>
+        index % 2
+          ? hashPassword("synthetic-long-password")
+          : verifyPassword("synthetic-long-password", stored),
+      ),
+    );
+    assert.equal(
+      mixed.filter((result) => result.status === "fulfilled").length,
+      4,
+    );
+    assert.ok(
+      mixed
+        .filter((result) => result.status === "rejected")
+        .every((result) => result.reason instanceof PasswordBusyError),
     );
   } finally {
     process.chdir(previousCwd);

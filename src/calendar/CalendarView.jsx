@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { api } from "../mailUi.js";
 import { t, choose, getLanguage, dateLocale } from "../i18n.js";
-import { browserZone, calendarTextColor, formTime } from "./calendarUi.js";
+import { browserZone, calendarEventInput, formTime } from "./calendarUi.js";
 import EventEditor from "./EventEditor.jsx";
 import CalendarConnection from "./CalendarConnection.jsx";
 import { loadCalendarData } from "./calendarLoad.js";
@@ -306,21 +306,7 @@ export default function CalendarView({
       .toLowerCase()
       .includes(query.trim().toLowerCase());
   const displayed = useMemo(
-    () =>
-      events.filter(matches).map((event) => ({
-        ...event,
-        backgroundColor: event.color,
-        borderColor: event.color,
-        textColor: calendarTextColor(event.color),
-        editable: !event.readOnly,
-        classNames:
-          event.selfResponse === "DECLINED"
-            ? ["calendar-declined"]
-            : event.status === "TENTATIVE"
-              ? ["calendar-tentative"]
-              : [],
-        extendedProps: { ...event },
-      })),
+    () => events.filter(matches).map(calendarEventInput),
     [events, query],
   );
   const visibleTasks = tasks
@@ -764,12 +750,13 @@ export default function CalendarView({
                 newEvent("vevent", selection);
                 selection.view.calendar.unselect();
               }}
-              eventClick={(info) =>
+              eventClick={(info) => {
+                info.jsEvent.preventDefault();
                 openEvent(
                   info.event.extendedProps.eventId,
                   info.event.extendedProps,
-                )
-              }
+                );
+              }}
               eventDrop={changeDates}
               eventResize={changeDates}
               noEventsText={t("Keine Termine in diesem Zeitraum.")}

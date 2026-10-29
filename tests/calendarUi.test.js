@@ -3,8 +3,36 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
-import { eventForm, calendarTextColor } from "../src/calendar/calendarUi.js";
+import {
+  eventForm,
+  calendarTextColor,
+  calendarEventInput,
+} from "../src/calendar/calendarUi.js";
 import { loadCalendarData } from "../src/calendar/calendarLoad.js";
+
+test("imported event URLs remain editor data and cannot become navigation links", () => {
+  for (const url of [
+    "https://outside.example.test/phishing",
+    "javascript:alert(1)",
+    "data:text/html,test",
+  ]) {
+    const event = {
+      id: "1-20261101",
+      eventId: 1,
+      title: "External",
+      start: "2026-11-01",
+      allDay: true,
+      color: "#123456",
+      url,
+      readOnly: true,
+    };
+    const input = calendarEventInput(event);
+    assert.equal(input.url, undefined);
+    assert.equal(input.extendedProps.url, url);
+    assert.equal(input.extendedProps.eventId, 1);
+    assert.equal(input.editable, false);
+  }
+});
 
 test("a failed event request does not hide updated connection status or tasks", async () => {
   const calendars = {

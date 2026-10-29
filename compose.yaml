@@ -18,6 +18,7 @@ services:
       MYSQL_USER: minimail
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
       CALENDAR_ALLOWED_HOSTS: ${CALENDAR_ALLOWED_HOSTS:-}
+      MAIL_ALLOWED_HOSTS: ${MAIL_ALLOWED_HOSTS:-}
     depends_on:
       database:
         condition: service_healthy
