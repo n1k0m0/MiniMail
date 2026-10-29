@@ -1,5 +1,6 @@
 import https from "node:https";
 import dns from "node:dns/promises";
+import crypto from "node:crypto";
 import ipaddr from "ipaddr.js";
 import { XMLParser } from "fast-xml-parser";
 import { CalendarError } from "./calendarIcs.js";
@@ -141,7 +142,7 @@ export async function remoteRequest(
   if (
     [301, 302, 307, 308].includes(response.status) &&
     response.headers.location &&
-    method === "GET"
+    ["GET", "PROPFIND", "REPORT"].includes(method)
   ) {
     if (redirects >= 3)
       throw new CalendarError("Der Kalender leitet zu oft weiter.", 502);
@@ -378,12 +379,17 @@ export async function putRemoteItem(
   { ics, href, etag, uid },
   request = remoteRequest,
 ) {
+  const collection = calendarUrl(config.url);
+  collection.pathname = `${collection.pathname.replace(/\/+$/, "")}/`;
+  // Resource names are independent from iCalendar UIDs. An imported UID must
+  // never become a path (including encoded separators) on a remote server.
   const target = href
     ? calendarHref(config.url, href, true)
-    : new URL(
-        `${encodeURIComponent(uid)}.ics`,
-        config.url.endsWith("/") ? config.url : `${config.url}/`,
-      ).href;
+    : calendarHref(
+        config.url,
+        new URL(`${crypto.randomUUID()}.ics`, collection).href,
+        true,
+      );
   const response = await request(
     config,
     "PUT",

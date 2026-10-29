@@ -17,6 +17,7 @@ import {
   calendarUrl,
   fetchRemoteCalendar,
   discoverCalendars,
+  putRemoteItem,
 } from "../server/calendarRemote.js";
 import { runCalendar } from "../server/calendarWorker.js";
 
@@ -246,4 +247,15 @@ test("calendar networking rejects private addresses and collection escapes", asy
     async () => ({ status: 207, body: '<d:multistatus xmlns:d="DAV:"/>' }),
   );
   assert.deepEqual(empty.items, []);
+  const created = await putRemoteItem(
+    { url: "https://example.test/cal" },
+    { uid: "../../secret/entry", ics: "synthetic" },
+    async (_config, method, _body, headers, target) => {
+      assert.equal(method, "PUT");
+      assert.equal(headers["If-None-Match"], "*");
+      assert.match(target, /^https:\/\/example\.test\/cal\/[a-f0-9-]+\.ics$/);
+      return { headers: { etag: '"new"' } };
+    },
+  );
+  assert.ok(created.href.startsWith("https://example.test/cal/"));
 });
