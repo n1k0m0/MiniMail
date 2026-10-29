@@ -43,6 +43,40 @@ test("subject matches alone do not merge unrelated mail", () => {
   assert.equal(groups.length, 2);
 });
 
+test("unread conversations retain read bridges but display only unread members in date order", () => {
+  const groups = groupMessages(
+    [
+      message(1, { messageId: "<root@example.test>", seen: false }),
+      message(2, {
+        messageId: "<bridge@example.test>",
+        inReplyTo: "<root@example.test>",
+      }),
+      message(3, {
+        messageId: "<reply@example.test>",
+        inReplyTo: "<bridge@example.test>",
+        seen: false,
+      }),
+      message(4, { messageId: "<unrelated@example.test>", seen: false }),
+      message(5, { inReplyTo: "<reply@example.test>" }),
+      message(6, { messageId: "<all-read@example.test>" }),
+    ],
+    { unreadOnly: true },
+  );
+  assert.deepEqual(
+    groups.map((group) => group.uid),
+    [4, 3],
+  );
+  assert.deepEqual(
+    groups[1].thread.map((item) => item.uid),
+    [1, 3],
+  );
+  assert.ok(
+    groups.every(
+      (group) => group.threadUnread && group.thread.every((item) => !item.seen),
+    ),
+  );
+});
+
 test("uses provider thread IDs and parses folded References headers", () => {
   assert.deepEqual(
     messageReferences(

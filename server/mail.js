@@ -1,3 +1,4 @@
+import { listMessagePage, messageSearchCriteria } from "./messageList.js";
 import { normalizeReferences } from "./mailInput.js";
 import { requireMailResult } from "./mailActions.js";
 import { saveSentCopy } from "./sentCopy.js";
@@ -321,6 +322,7 @@ export async function listMessages(
   query,
   page = 0,
   threaded = false,
+  unreadOnly = false,
 ) {
   return inFolder(account, folder, async (client) => {
     const path = folder || "INBOX";
@@ -329,30 +331,12 @@ export async function listMessages(
       await syncThreadIndex(db, account.id, path, client, summary);
       const items = await indexedMessages(db, account.id, path);
       const matches = query
-        ? (await client.search(
-            {
-              or: [
-                {
-                  subject: query,
-                },
-                {
-                  from: query,
-                },
-                {
-                  to: query,
-                },
-                {
-                  body: query,
-                },
-              ],
-            },
-            {
-              uid: true,
-            },
-          )) || []
+        ? (await client.search(messageSearchCriteria(query, unreadOnly), {
+            uid: true,
+          })) || []
         : null;
       const matchSet = matches ? new Set(matches) : null;
-      const groups = groupMessages(items).filter(
+      const groups = groupMessages(items, { unreadOnly }).filter(
         (group) =>
           !matchSet || group.thread.some((member) => matchSet.has(member.uid)),
       );
@@ -396,62 +380,15 @@ export async function listMessages(
       return {
         messages: visible,
         total: groups.length,
-        messageTotal: matches ? matches.length : items.length,
+        messageTotal: matches
+          ? matches.length
+          : unreadOnly
+            ? items.filter((item) => !item.seen).length
+            : items.length,
         page,
       };
     }
-    const criteria = query
-      ? {
-          or: [
-            {
-              subject: query,
-            },
-            {
-              from: query,
-            },
-            {
-              to: query,
-            },
-            {
-              body: query,
-            },
-          ],
-        }
-      : {
-          all: true,
-        };
-    const matches =
-      (await client.search(criteria, {
-        uid: true,
-      })) || [];
-    const sorted = [...matches].sort((a, b) => b - a);
-    const uids = sorted.slice(page * pageSize, (page + 1) * pageSize);
-    if (!uids.length)
-      return {
-        messages: [],
-        total: sorted.length,
-        page,
-      };
-    const messages = await client.fetchAll(
-      uids,
-      {
-        uid: true,
-        envelope: true,
-        flags: true,
-        internalDate: true,
-        size: true,
-        bodyStructure: true,
-      },
-      {
-        uid: true,
-      },
-    );
-    const byUid = new Map(messages.map((item) => [item.uid, summary(item)]));
-    return {
-      messages: uids.map((uid) => byUid.get(uid)).filter(Boolean),
-      total: sorted.length,
-      page,
-    };
+    return listMessagePage(client, summary, { query, page, unreadOnly });
   });
 }
 async function parsedMessage(client, uid, account) {

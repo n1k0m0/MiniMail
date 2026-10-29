@@ -12,6 +12,7 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 - Optional AI-assisted writing and summaries through an administrator-configured self-hosted OpenAI-compatible endpoint.
 - Raw message source and relay trace inspection, with optional offline IP geolocation.
 - German and English interfaces, light/dark themes and responsive layouts.
+- Optional unread-only view with correct search/pagination, plus stronger unread styling for messages, mailboxes and folders. Read emails remain visible by default.
 - Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
 
 ## Requirements
@@ -94,6 +95,12 @@ docker compose start minimail
 ```
 
 The Docker image runs as an unprivileged user, with a read-only application filesystem, no application capabilities and a built-in HTTP health check. The named `mysql-data` volume contains all application tables in MySQL/InnoDB. MySQL is reachable only through the internal Docker database network and has no host port mapping. `minimail-data` is retained for local key files and legacy SQLite imports; deleting it does not migrate its contents. The application health check also queries MySQL, so a database outage makes the application unhealthy. The `Dockerfile` uses a separate frontend build stage and installs only production dependencies into the runtime image. No third-party geolocation download is required during image builds.
+
+### Show or hide read emails
+
+Read messages are visible by default. Use **Settings → Appearance → Hide read emails**, or the **Unread only** toggle above the message list, to hide them. The choice is saved separately for each MiniMail user in the current browser and applies to all of that user's mailboxes. Turn the toggle off to show read mail again.
+
+The filter is applied before pagination and combines with search. In conversation view, only unread members are shown while the complete thread relationships are retained. Opening a message marks it read as usual: it leaves the filtered list, but stays open in the reader. Unread folders and mailboxes use the same darker, bolder text as unread messages; parent folders also remain emphasized while a subfolder has unread mail.
 
 ## Optional generic VPN
 
@@ -294,4 +301,4 @@ Passwords use scrypt; credentials, TOTP secrets, private keys and drafts use AES
 
 Give web accounts only to people you trust: authenticated users can choose IMAP/SMTP destinations. Restrict container egress at the network/firewall level when internal services must be unreachable. DNS hostname checks alone do not provide that restriction. VPN profiles and AI endpoints are administrator-controlled server configuration.
 
-See [the security review](docs/SECURITY-REVIEW.md) for the reviewed scope, corrected findings and remaining limitations. The review and test suite are not a guarantee that the software has no vulnerabilities. Keep dependencies, the reverse proxy and the host updated.
+The test suite is not a guarantee that the software has no vulnerabilities. Keep dependencies, the reverse proxy and the host updated.

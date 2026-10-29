@@ -40,7 +40,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { api, fmtAddress, fullAddress, dateLabel } from "./mailUi.js";
+import {
+  PAGE_SIZE,
+  api,
+  fmtAddress,
+  fullAddress,
+  dateLabel,
+} from "./mailUi.js";
 import { t, choose, dateLocale, getLanguage } from "./i18n.js";
 import { findSpamFolder } from "./spamFolder.js";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
@@ -68,6 +74,8 @@ const MESSAGE_WIDE_WIDTH_KEY = "minimail-message-wide-width";
 const READER_ZOOM_KEY = "minimail-reader-zoom";
 const READER_WIDE_ZOOM_KEY = "minimail-reader-wide-zoom";
 const THREAD_VIEW_KEY = "minimail-thread-view";
+const hideReadKey = (username) =>
+  `minimail-hide-read:${encodeURIComponent(username)}`;
 
 function storedWidth(key) {
   const value = Number(localStorage.getItem(key));
@@ -166,6 +174,7 @@ export default function App() {
   const [threaded, setThreaded] = useState(
     () => localStorage.getItem(THREAD_VIEW_KEY) === "1",
   );
+  const [hideRead, setHideRead] = useState(false);
   const [expandedThreads, setExpandedThreads] = useState(new Set());
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -291,6 +300,9 @@ export default function App() {
     const identity = next?.user?.username || null;
     if (authIdentityRef.current !== identity) {
       authIdentityRef.current = identity;
+      setHideRead(
+        identity ? localStorage.getItem(hideReadKey(identity)) === "1" : false,
+      );
       setAccounts([]);
       setAccountId(null);
       setFolders([]);
@@ -341,6 +353,17 @@ export default function App() {
     setSelected(null);
     setExpandedThreads(new Set());
   }
+  function selectHideRead(next) {
+    setHideRead(next);
+    if (authIdentityRef.current)
+      localStorage.setItem(
+        hideReadKey(authIdentityRef.current),
+        next ? "1" : "0",
+      );
+    setPage(0);
+    setSelected(null);
+    setExpandedThreads(new Set());
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
@@ -374,7 +397,10 @@ export default function App() {
       scroll?.removeEventListener("scroll", close);
     };
   }, [contextMenu]);
-  useEffect(() => setContextMenu(null), [accountId, folder, page, search]);
+  useEffect(
+    () => setContextMenu(null),
+    [accountId, folder, page, search, hideRead],
+  );
   useEffect(() => {
     let cancelled = false;
     let retry;
@@ -485,6 +511,15 @@ export default function App() {
       .then((data) => {
         if (!active) return;
         setFolders(data);
+        const inbox = data.find((item) => item.path.toUpperCase() === "INBOX");
+        if (inbox)
+          setAccounts((current) =>
+            current.map((item) =>
+              item.id === accountId
+                ? { ...item, inbox_unseen: inbox.unseen }
+                : item,
+            ),
+          );
         setFolder((current) =>
           data.some((item) => item.path === current)
             ? current
@@ -510,12 +545,17 @@ export default function App() {
     let active = true;
     setLoading(true);
     api(
-      `/accounts/${accountId}/messages?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(search)}&page=${page}&threaded=${threaded ? "1" : "0"}`,
+      `/accounts/${accountId}/messages?folder=${encodeURIComponent(folder)}&q=${encodeURIComponent(search)}&page=${page}&threaded=${threaded ? "1" : "0"}&unread=${hideRead ? "1" : "0"}`,
     )
       .then((data) => {
         if (active) {
-          setMessages(data.messages);
           setTotal(data.total);
+          const lastPage = Math.max(0, Math.ceil(data.total / PAGE_SIZE) - 1);
+          if (page > lastPage) {
+            setPage(lastPage);
+            return;
+          }
+          setMessages(data.messages);
         }
       })
       .catch((err) => {
@@ -534,6 +574,7 @@ export default function App() {
     search,
     page,
     threaded,
+    hideRead,
     refreshKey,
   ]);
   useEffect(() => {
@@ -885,7 +926,7 @@ export default function App() {
               {accounts.map((account) => (
                 <button
                   key={account.id}
-                  className={`account-choice ${account.id === accountId ? "selected" : ""}`}
+                  className={`account-choice ${account.inbox_unseen > 0 ? "unread" : "read"} ${account.id === accountId ? "selected" : ""}`}
                   onClick={() => {
                     setAccountId(account.id);
                     setFolder("INBOX");
@@ -977,7 +1018,7 @@ export default function App() {
                   return (
                     <div
                       key={node.path}
-                      className={`folder-row ${folder === node.path ? "current" : ""} ${dropFolder === node.path ? "drop-target" : ""}`}
+                      className={`folder-row ${node.hasUnread ? "unread" : "read"} ${folder === node.path ? "current" : ""} ${dropFolder === node.path ? "drop-target" : ""}`}
                       style={{
                         paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
                       }}
@@ -1250,16 +1291,33 @@ export default function App() {
                 </div>
               </div>
               <div className="list-toolbar">
-                <button
-                  type="button"
-                  className="thread-mode-button"
-                  aria-pressed={threaded}
-                  title={t("Konversationsansicht umschalten")}
-                  onClick={() => selectThreaded(!threaded)}
-                >
-                  {threaded ? t("Konversationen") : t("Alle Nachrichten")}
-                  <ChevronDown size={13} />
-                </button>
+                <div className="list-view-controls">
+                  <button
+                    type="button"
+                    className="thread-mode-button"
+                    aria-pressed={threaded}
+                    title={t("Konversationsansicht umschalten")}
+                    onClick={() => selectThreaded(!threaded)}
+                  >
+                    {threaded
+                      ? t("Konversationen")
+                      : hideRead
+                        ? t("Nachrichten")
+                        : t("Alle Nachrichten")}
+                    <ChevronDown size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className="read-filter-button"
+                    aria-pressed={hideRead}
+                    aria-label={t("Gelesene E-Mails ausblenden")}
+                    title={t("Gelesene E-Mails ausblenden")}
+                    onClick={() => selectHideRead(!hideRead)}
+                  >
+                    <Mail size={14} />
+                    <span>{t("Nur ungelesene")}</span>
+                  </button>
+                </div>
                 <PaginationControls
                   page={page}
                   total={total}
@@ -1485,15 +1543,29 @@ export default function App() {
                       <MailOpen size={27} />
                     </div>
                     <h3>
-                      {search
-                        ? t("Keine Treffer gefunden")
-                        : t("Hier ist alles erledigt")}
+                      {hideRead
+                        ? t("Keine ungelesenen Nachrichten")
+                        : search
+                          ? t("Keine Treffer gefunden")
+                          : t("Hier ist alles erledigt")}
                     </h3>
                     <p>
-                      {search
-                        ? t("Versuche einen anderen Suchbegriff.")
-                        : t("In diesem Ordner liegen noch keine Nachrichten.")}
+                      {hideRead
+                        ? t("Gelesene E-Mails sind ausgeblendet.")
+                        : search
+                          ? t("Versuche einen anderen Suchbegriff.")
+                          : t(
+                              "In diesem Ordner liegen noch keine Nachrichten.",
+                            )}
                     </p>
+                    {hideRead && (
+                      <button
+                        className="show-read-button"
+                        onClick={() => selectHideRead(false)}
+                      >
+                        {t("Alle Nachrichten anzeigen")}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2035,6 +2107,8 @@ export default function App() {
           onLanguageChange={selectLanguage}
           threaded={threaded}
           onThreadedChange={selectThreaded}
+          hideRead={hideRead}
+          onHideReadChange={selectHideRead}
           setError={setError}
           onDeleted={async (id) => {
             const data = await api("/accounts");

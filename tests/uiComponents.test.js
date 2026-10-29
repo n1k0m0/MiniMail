@@ -67,16 +67,27 @@ test("extracted dialogs render and saved drafts retain all compose modes", async
       ["DraftsModal", {}],
     ]) {
       const component = (await vite.ssrLoadModule(`/src/${name}.jsx`)).default;
-      assert.ok(
-        renderToStaticMarkup(
-          React.createElement(component, {
-            onClose: noop,
-            setError: noop,
-            ...props,
-          }),
-        ),
-        name,
+      const html = renderToStaticMarkup(
+        React.createElement(component, {
+          onClose: noop,
+          setError: noop,
+          ...props,
+        }),
       );
+      assert.ok(html, name);
+      if (name === "SettingsModal") {
+        assert.match(
+          html,
+          /aria-label="Gelesene E-Mails ausblenden" aria-pressed="false"/,
+        );
+        const filtered = renderToStaticMarkup(
+          React.createElement(component, { ...props, hideRead: true }),
+        );
+        assert.match(
+          filtered,
+          /aria-label="Gelesene E-Mails ausblenden" aria-pressed="true"/,
+        );
+      }
     }
   } finally {
     await vite.close();

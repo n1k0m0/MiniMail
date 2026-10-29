@@ -19,7 +19,7 @@ function orderByDate(a, b) {
   return difference || a.uid - b.uid;
 }
 
-export function groupMessages(items) {
+export function groupMessages(items, { unreadOnly = false } = {}) {
   const parents = new Map(items.map((item) => [item.uid, item.uid]));
   const find = (uid) => {
     const parent = parents.get(uid);
@@ -59,7 +59,13 @@ export function groupMessages(items) {
     groups.get(root).push(item);
   }
   return [...groups.values()]
-    .map((members) => {
+    .map((allMembers) => {
+      // Build the complete conversation first: a read message can connect two
+      // unread replies. Then show only unread members when filtering is enabled.
+      const members = unreadOnly
+        ? allMembers.filter((member) => !member.seen)
+        : allMembers;
+      if (!members.length) return null;
       members.sort(orderByDate);
       const latest = members.at(-1);
       return {
@@ -70,6 +76,7 @@ export function groupMessages(items) {
         threadUnread: members.some((member) => !member.seen),
       };
     })
+    .filter(Boolean)
     .sort((a, b) => orderByDate(b, a));
 }
 

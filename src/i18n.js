@@ -1,4 +1,11 @@
 const translations = {
+  "Gelesene E-Mails ausblenden": "Hide read emails",
+  "Nur ungelesene E-Mails anzeigen. Gilt für alle Postfächer in diesem Browser.":
+    "Show only unread emails. Applies to all mailboxes in this browser.",
+  "Nur ungelesene": "Unread only",
+  "Keine ungelesenen Nachrichten": "No unread messages",
+  "Gelesene E-Mails sind ausgeblendet.": "Read emails are hidden.",
+  "Alle Nachrichten anzeigen": "Show all messages",
   "Ungültige Nachricht.": "Invalid message.",
   "Bitte mindestens einen Empfänger in An, Cc oder Bcc eingeben.":
     "Enter at least one recipient in To, Cc or Bcc.",

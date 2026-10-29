@@ -31,6 +31,8 @@ export default function SettingsModal({
   onLanguageChange,
   threaded,
   onThreadedChange,
+  hideRead = false,
+  onHideReadChange,
   setError,
   onDeleted,
   onPrimary,
@@ -238,6 +240,24 @@ export default function SettingsModal({
               onClick={() => onThreadedChange(!threaded)}
             >
               {threaded ? t("Ein") : t("Aus")}
+            </button>
+          </div>
+          <div className="settings-row">
+            <div>
+              <strong>{t("Gelesene E-Mails ausblenden")}</strong>
+              <span>
+                {t(
+                  "Nur ungelesene E-Mails anzeigen. Gilt für alle Postfächer in diesem Browser.",
+                )}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-label={t("Gelesene E-Mails ausblenden")}
+              aria-pressed={hideRead}
+              onClick={() => onHideReadChange(!hideRead)}
+            >
+              {hideRead ? t("Ein") : t("Aus")}
             </button>
           </div>
           <h3>{t("Sicherheit")}</h3>

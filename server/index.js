@@ -1274,7 +1274,13 @@ app.get(
   asyncRoute(async (req, res) => {
     const account = await accountFor(req, res);
     if (!account) return;
-    res.json(await listFolders(account));
+    const folders = await listFolders(account);
+    const inbox = folders.find((item) => item.path.toUpperCase() === "INBOX");
+    if (inbox)
+      await db
+        .prepare("UPDATE accounts SET inbox_unseen=? WHERE id=? AND user_id=?")
+        .run(inbox.unseen, account.id, req.user.id);
+    res.json(folders);
   }),
 );
 app.patch(
@@ -1312,6 +1318,7 @@ app.get(
         String(req.query.q || "").slice(0, 200),
         Math.max(0, Math.floor(Number(req.query.page) || 0)),
         req.query.threaded === "1",
+        req.query.unread === "1",
       ),
     );
   }),

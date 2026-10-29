@@ -2,6 +2,8 @@
 @import "@fontsource/dm-sans/latin-500.css";
 @import "@fontsource/dm-sans/latin-600.css";
 @import "@fontsource/dm-sans/latin-700.css";
+@import "@fontsource/dm-sans/latin-800.css";
+@import "@fontsource/dm-sans/latin-900.css";
 @import "@fontsource/manrope/latin-500.css";
 @import "@fontsource/manrope/latin-600.css";
 @import "@fontsource/manrope/latin-700.css";
@@ -11,6 +13,8 @@
   color: #202943;
   background: #eef2f8;
   font-synthesis: none;
+  --mail-read-color: #5d6b81;
+  --mail-unread-color: #192642;
 }
 * {
   box-sizing: border-box;
@@ -46,6 +50,8 @@ svg {
   color-scheme: dark;
   background: #101522;
   color: #e8ecf7;
+  --mail-read-color: #aab8cf;
+  --mail-unread-color: #f1f5ff;
 }
 #root {
   min-height: 100vh;
@@ -229,6 +235,8 @@ svg {
   flex: 1;
 }
 .account-text strong {
+  color: var(--mail-read-color);
+  font-weight: 500;
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -242,6 +250,10 @@ svg {
 }
 .account-name-line strong {
   min-width: 0;
+}
+.account-choice.unread .account-text strong {
+  color: var(--mail-unread-color);
+  font-weight: 800;
 }
 .account-name-line svg {
   flex: none;
@@ -353,16 +365,20 @@ svg {
   padding: 0 4px;
   border-radius: 9px;
   background: transparent;
-  color: #60708d;
+  color: var(--mail-read-color);
   text-align: left;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .folder-item:hover {
   background: transparent;
 }
 .folder-row.current .folder-item {
-  color: #3452c2;
+  color: var(--mail-read-color);
+  font-weight: 500;
+}
+.folder-row.unread .folder-item {
+  color: var(--mail-unread-color);
   font-weight: 800;
 }
 .folder-toggle {
@@ -640,6 +656,52 @@ svg {
   color: #66748d;
   font-weight: 800;
 }
+.list-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.message-panel {
+  container: mail-list / inline-size;
+}
+.read-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  color: #66748d;
+  font-size: inherit;
+  white-space: nowrap;
+}
+.read-filter-button[aria-pressed="true"],
+.read-filter-button:hover {
+  background: #e4eafd;
+  color: #3452c2;
+}
+.show-read-button {
+  margin-top: 10px;
+  border-radius: 7px;
+  padding: 8px 12px;
+  color: #3452c2;
+  background: #e4eafd;
+}
+@container mail-list (max-width: 430px) {
+  .read-filter-button span {
+    display: none;
+  }
+}
+@container mail-list (max-width: 360px) {
+  .list-toolbar {
+    padding: 0 8px;
+  }
+  .list-view-controls {
+    gap: 4px;
+  }
+}
 .page-controls {
   display: flex;
   align-items: center;
@@ -866,7 +928,7 @@ svg {
   gap: 6px;
 }
 .row-top strong {
-  color: #3c4860;
+  color: var(--mail-read-color);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
@@ -875,8 +937,11 @@ svg {
 }
 .unread .row-top strong,
 .unread .row-subject {
-  color: #1d2947;
+  color: var(--mail-unread-color);
   font-weight: 800;
+}
+.unread .row-top strong {
+  font-weight: 900;
 }
 .row-top time {
   color: #a6b0be;
@@ -884,7 +949,7 @@ svg {
   white-space: nowrap;
 }
 .row-subject {
-  color: #47526b;
+  color: var(--mail-read-color);
   font-size: 11px;
   margin-top: 3px;
   display: flex;
@@ -2812,7 +2877,7 @@ svg {
   color: #d7e0f4;
 }
 [data-theme="dark"] .folder-item {
-  color: #d7e0f4;
+  color: var(--mail-read-color);
 }
 [data-theme="dark"] .account-choice {
   color: #d7e0f4;
@@ -2822,18 +2887,30 @@ svg {
   color: #aebbd1;
 }
 [data-theme="dark"] .folder-row.current .folder-item {
-  color: #f1f4ff;
+  color: var(--mail-read-color);
+}
+[data-theme="dark"] .folder-row.unread .folder-item {
+  color: var(--mail-unread-color);
 }
 [data-theme="dark"] .folder-toggle {
   color: #b8c5df;
 }
 [data-theme="dark"] .message-row:not(.unread) .row-top strong,
 [data-theme="dark"] .message-row:not(.unread) .row-subject {
-  color: #b9c5d9;
+  color: var(--mail-read-color);
 }
 [data-theme="dark"] .message-row.unread .row-top strong,
 [data-theme="dark"] .message-row.unread .row-subject {
-  color: #eef3ff;
+  color: var(--mail-unread-color);
+}
+[data-theme="dark"] .read-filter-button {
+  color: #b8c5df;
+}
+[data-theme="dark"] .read-filter-button[aria-pressed="true"],
+[data-theme="dark"] .read-filter-button:hover,
+[data-theme="dark"] .show-read-button {
+  background: #273450;
+  color: #d1ddff;
 }
 [data-theme="dark"] .message-row:hover,
 [data-theme="dark"] .message-row.selected,

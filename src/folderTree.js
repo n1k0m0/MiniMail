@@ -35,7 +35,12 @@ export function buildFolderTree(folders) {
     nodes.sort(
       (a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name, "de"),
     );
-    nodes.forEach((node) => sort(node.children));
+    nodes.forEach((node) => {
+      sort(node.children);
+      node.hasUnread =
+        node.folder?.unseen > 0 ||
+        node.children.some((child) => child.hasUnread);
+    });
   }
   sort(roots, true);
   return roots;
