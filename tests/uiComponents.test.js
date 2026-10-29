@@ -6,7 +6,7 @@ import { createServer } from "vite";
 
 test("extracted dialogs render and saved drafts retain all compose modes", async () => {
   const vite = await createServer({
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, hmr: false },
     appType: "custom",
   });
   const noop = () => {};
@@ -54,7 +54,11 @@ test("extracted dialogs render and saved drafts retain all compose modes", async
       ["EmptyTrashModal", { path: "Trash" }],
       [
         "SettingsModal",
-        { accounts: [], auth: { user: { role: "admin", username: "review" } } },
+        {
+          accounts: [],
+          page: "appearance",
+          auth: { user: { role: "admin", username: "review" } },
+        },
       ],
       ["AddressBookModal", {}],
       ["CryptoSettingsModal", { account }],

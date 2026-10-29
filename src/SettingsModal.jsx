@@ -1,23 +1,41 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Info,
+  ChevronRight,
   Contact,
+  Globe,
+  Inbox,
   LockKeyhole,
-  Moon,
-  Plus,
+  Monitor,
   ShieldCheck,
-  Star,
-  Sun,
-  Trash2,
+  Sparkles,
+  Users,
   X,
 } from "lucide-react";
+import { t } from "./i18n.js";
 import { api } from "./mailUi.js";
-import { t, choose, dateLocale } from "./i18n.js";
+import { settingsPage, settingsPages } from "./settingsPages.js";
 import AiSettings from "./AiSettings.jsx";
 import UserManagement from "./UserManagement.jsx";
+import MailboxSettings from "./settings/MailboxSettings.jsx";
+import ContactSettings from "./settings/ContactSettings.jsx";
+import AppearanceSettings from "./settings/AppearanceSettings.jsx";
+import SecuritySettings from "./settings/SecuritySettings.jsx";
+
+const icons = {
+  mailboxes: Inbox,
+  contacts: Contact,
+  appearance: Monitor,
+  security: ShieldCheck,
+  ai: Sparkles,
+  users: Users,
+};
 
 export default function SettingsModal({
   accounts,
   auth,
+  page = "mailboxes",
+  onPageChange = () => {},
   onClose,
   onEdit,
   onCrypto,
@@ -26,10 +44,10 @@ export default function SettingsModal({
   onCollectRecipientsChange,
   onLogout,
   setTheme,
-  theme,
-  language,
+  theme = "light",
+  language = "de",
   onLanguageChange,
-  threaded,
+  threaded = false,
   onThreadedChange,
   hideRead = false,
   onHideReadChange,
@@ -37,244 +55,254 @@ export default function SettingsModal({
   onDeleted,
   onPrimary,
 }) {
-  const [primaryBusy, setPrimaryBusy] = useState(false);
-  const [collectBusy, setCollectBusy] = useState(false);
-  async function toggleCollection() {
-    if (collectBusy) return;
-    setCollectBusy(true);
-    try {
-      await onCollectRecipientsChange(!auth.user.collectRecipients);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCollectBusy(false);
-    }
-  }
-  async function makePrimary(id) {
-    if (primaryBusy) return;
-    setPrimaryBusy(true);
-    try {
-      await onPrimary(id);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setPrimaryBusy(false);
-    }
-  }
-  async function remove(account) {
-    if (
-      !window.confirm(
-        choose(
-          `Postfach „${account.name}“ aus MiniMail entfernen? E-Mails auf dem Server bleiben erhalten.`,
-          `Remove mailbox “${account.name}” from MiniMail? Messages on the mail server will remain.`,
+  const role = auth.user.role;
+  const isAdmin = role === "admin";
+  const available = settingsPages(role);
+  const current = settingsPage(role, page);
+  const PageIcon = icons[current.id];
+  const [visited, setVisited] = useState(() => new Set([current.id]));
+  const panel = useRef(null);
+  const dialog = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialog.current?.querySelector('[aria-current="page"]')?.focus();
+    function keydown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const controls = [
+        ...dialog.current.querySelectorAll(
+          'button:not(:disabled),select:not(:disabled),input:not(:disabled),a[href],[tabindex="0"]',
         ),
-      )
-    )
-      return;
-    try {
-      await api(`/accounts/${account.id}`, { method: "DELETE" });
-      onDeleted(account.id);
-    } catch (err) {
-      setError(err.message);
+      ].filter((element) => element.getClientRects().length);
+      const first = controls[0],
+        last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.removeEventListener("keydown", keydown);
+      previous?.focus?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (panel.current) panel.current.scrollTop = 0;
+  }, [current.id]);
+
+  function navigate(id) {
+    setVisited((value) => new Set([...value, id]));
+    onPageChange(id);
   }
+  const footerHint =
+    current.id === "appearance"
+      ? t("Änderungen werden sofort übernommen.")
+      : current.id === "ai" && isAdmin
+        ? t("KI-Änderungen mit Speichern übernehmen.")
+        : current.group === "shared"
+          ? t(
+              "Die Verwaltung gemeinsamer Einstellungen ist Administratoren vorbehalten.",
+            )
+          : t(
+              "Deine persönlichen Daten bleiben deinem Benutzerkonto zugeordnet.",
+            );
+
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop settings-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal settings-modal">
-        <div className="modal-header">
+      <div
+        className="modal settings-modal settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        ref={dialog}
+      >
+        <div className="modal-header settings-header">
           <div>
-            <div className="eyebrow">{t("MINIMAIL")}</div>
-            <h2>{t("Einstellungen")}</h2>
-            <p>{t("Postfächer, Benutzer und Darstellung verwalten.")}</p>
+            <div className="eyebrow">MINIMAIL</div>
+            <h2 id="settings-title">{t("Einstellungen")}</h2>
+            <p>{t("Persönliche Einstellungen und Verwaltung an einem Ort.")}</p>
           </div>
-          <button className="icon-button" onClick={onClose}>
-            <X size={20} />
-          </button>
+          <div className="settings-header-actions">
+            <div className="settings-user">
+              <strong>{auth.user.username}</strong>
+              <span>{isAdmin ? t("Administrator") : t("Benutzer")}</span>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("Einstellungen schließen")}
+              onClick={onClose}
+            >
+              <X size={21} />
+            </button>
+          </div>
         </div>
-        <div className="settings-body">
-          <h3>{t("Verbundene Postfächer")}</h3>
-          {accounts.map((account) => (
-            <div className="settings-account" key={account.id}>
-              <div className="account-badge">
-                {account.name[0]?.toUpperCase()}
-              </div>
-              <div>
-                <strong>{account.name}</strong>
-                <span>{account.email}</span>
-                <span>
-                  {account.check_interval_minutes === 0
-                    ? t("Automatischer Abruf aus")
-                    : choose(
-                        `Alle ${account.check_interval_minutes} Minuten`,
-                        `Every ${account.check_interval_minutes} minutes`,
-                      ) +
-                      ` · ${
-                        account.check_failed
-                          ? t("Prüfung fehlgeschlagen")
-                          : account.last_checked_at
-                            ? choose("zuletzt", "last checked") +
-                              ` ${new Date(account.last_checked_at).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" })}`
-                            : t("noch nicht geprüft")
-                      }`}
-                </span>
-              </div>
-              <button
-                className={`primary-account-button ${account.is_primary ? "is-primary" : ""}`}
-                title={
-                  account.is_primary
-                    ? t("Primärpostfach")
-                    : t("Als Primärpostfach festlegen")
-                }
-                onClick={() => makePrimary(account.id)}
-                disabled={account.is_primary || primaryBusy}
-              >
-                <Star
-                  size={14}
-                  fill={account.is_primary ? "currentColor" : "none"}
-                />
-                {account.is_primary ? t("Primär") : t("Als primär")}
-              </button>
-              <button onClick={() => onEdit(account)}>{t("Bearbeiten")}</button>
-              <button
-                onClick={() => onCrypto(account)}
-                title={t("Verschlüsselung und Schlüssel")}
-              >
-                <LockKeyhole size={14} /> {t("Schlüssel")}
-              </button>
-              <button
-                className="danger-icon"
-                title={t("Entfernen")}
-                onClick={() => remove(account)}
-              >
-                <Trash2 size={17} />
-              </button>
-            </div>
-          ))}
-          <button className="settings-add" onClick={onAdd}>
-            <Plus size={17} />
-            {t(" Weiteres Postfach verbinden\n          ")}
-          </button>
-          <h3>{t("Adressbuch")}</h3>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Kontakte verwalten")}</strong>
-              <span>{t("Adressen suchen, hinzufügen und bearbeiten.")}</span>
-            </div>
-            <button type="button" onClick={onOpenContacts}>
-              <Contact size={16} /> {t("Öffnen")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Gesendete Empfänger automatisch merken")}</strong>
+        <div className="settings-layout">
+          <aside className="settings-navigation">
+            <nav aria-label={t("Einstellungsbereiche")}>
+              {[
+                ["personal", t("Mein Bereich")],
+                ["shared", isAdmin ? t("Administration") : t("Funktionen")],
+              ].map(([group, title]) => (
+                <div className="settings-nav-group" key={group}>
+                  <div className="settings-nav-label">{title}</div>
+                  {available
+                    .filter((entry) => entry.group === group)
+                    .map((entry) => {
+                      const Icon = icons[entry.id];
+                      return (
+                        <button
+                          type="button"
+                          key={entry.id}
+                          aria-current={
+                            current.id === entry.id ? "page" : undefined
+                          }
+                          aria-controls={
+                            visited.has(entry.id) || entry.id === current.id
+                              ? `settings-page-${entry.id}`
+                              : undefined
+                          }
+                          onClick={() => navigate(entry.id)}
+                        >
+                          <Icon size={18} />
+                          <span>{t(entry.title)}</span>
+                          <ChevronRight size={14} />
+                        </button>
+                      );
+                    })}
+                </div>
+              ))}
+            </nav>
+            <div className="settings-nav-footer">
+              <ShieldCheck size={17} />
               <span>
-                {t(
-                  "Neue Adressen nach erfolgreichem Senden im Adressbuch speichern.",
-                )}
+                {t("Persönliches und gemeinsame Einstellungen sind getrennt.")}
               </span>
             </div>
-            <button
-              type="button"
-              aria-pressed={!!auth.user.collectRecipients}
-              disabled={collectBusy}
-              onClick={toggleCollection}
-            >
-              {auth.user.collectRecipients ? t("Ein") : t("Aus")}
-            </button>
+          </aside>
+          <div className="settings-main" ref={panel}>
+            {available
+              .filter(
+                (entry) => visited.has(entry.id) || entry.id === current.id,
+              )
+              .map((entry) => (
+                <section
+                  className="settings-page"
+                  id={`settings-page-${entry.id}`}
+                  key={entry.id}
+                  hidden={entry.id !== current.id}
+                  aria-labelledby={`settings-heading-${entry.id}`}
+                >
+                  <header className="settings-page-heading">
+                    <div>
+                      <span
+                        className={`settings-scope ${entry.group === "shared" ? "shared" : ""}`}
+                      >
+                        {entry.group === "shared" ? (
+                          <Globe size={12} />
+                        ) : (
+                          <LockKeyhole size={12} />
+                        )}
+                        {t(entry.scope)}
+                      </span>
+                      <h3 id={`settings-heading-${entry.id}`}>
+                        {t(entry.title)}
+                      </h3>
+                      <p>{t(entry.description)}</p>
+                    </div>
+                    {entry.id === current.id && (
+                      <div className="settings-page-icon">
+                        <PageIcon size={26} />
+                      </div>
+                    )}
+                  </header>
+                  {entry.id === "mailboxes" && (
+                    <MailboxSettings
+                      accounts={accounts}
+                      onAdd={onAdd}
+                      onEdit={onEdit}
+                      onCrypto={onCrypto}
+                      onPrimary={onPrimary}
+                      onDeleted={onDeleted}
+                      setError={setError}
+                    />
+                  )}
+                  {entry.id === "contacts" && (
+                    <ContactSettings
+                      auth={auth}
+                      onOpenContacts={onOpenContacts}
+                      onCollectRecipientsChange={onCollectRecipientsChange}
+                      setError={setError}
+                    />
+                  )}
+                  {entry.id === "appearance" && (
+                    <AppearanceSettings
+                      theme={theme}
+                      setTheme={setTheme}
+                      language={language}
+                      onLanguageChange={onLanguageChange}
+                      threaded={threaded}
+                      onThreadedChange={onThreadedChange}
+                      hideRead={hideRead}
+                      onHideReadChange={onHideReadChange}
+                    />
+                  )}
+                  {entry.id === "security" && (
+                    <SecuritySettings auth={auth} onLogout={onLogout} />
+                  )}
+                  {entry.id === "ai" && (
+                    <>
+                      <div className="settings-note">
+                        <Globe size={17} />
+                        <p>
+                          {t(
+                            "Die KI-Verbindung gilt für alle Benutzer. Nur Administratoren können sie ändern; andere Benutzer sehen nur die Verfügbarkeit.",
+                          )}
+                        </p>
+                      </div>
+                      <AiSettings
+                        request={api}
+                        isAdmin={isAdmin}
+                        setError={setError}
+                        showHeading={false}
+                      />
+                    </>
+                  )}
+                  {entry.id === "users" && isAdmin && (
+                    <UserManagement
+                      request={api}
+                      currentUsername={auth.user.username}
+                      setError={setError}
+                      showHeading={false}
+                    />
+                  )}
+                </section>
+              ))}
           </div>
-          <AiSettings
-            request={api}
-            isAdmin={auth.user.role === "admin"}
-            setError={setError}
-          />
-          {auth.user.role === "admin" && (
-            <UserManagement
-              request={api}
-              currentUsername={auth.user.username}
-              setError={setError}
-            />
-          )}
-          <h3>{t("Darstellung")}</h3>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Farbschema")}</strong>
-              <span>{t("Wähle deinen bevorzugten Modus.")}</span>
-            </div>
-            <button
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            >
-              {theme === "light" ? <Sun size={17} /> : <Moon size={17} />}{" "}
-              {theme === "light" ? t("Hell") : t("Dunkel")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Sprache")}</strong>
-              <span>{t("Wähle die Sprache der Oberfläche.")}</span>
-            </div>
-            <select
-              className="language-select"
-              aria-label={t("Sprache")}
-              value={language}
-              onChange={(event) => onLanguageChange(event.target.value)}
-            >
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
-            </select>
-          </div>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Konversationsansicht")}</strong>
-              <span>
-                {t("Zusammengehörige E-Mails als aufklappbare Kette anzeigen.")}
-              </span>
-            </div>
-            <button
-              type="button"
-              aria-pressed={threaded}
-              onClick={() => onThreadedChange(!threaded)}
-            >
-              {threaded ? t("Ein") : t("Aus")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Gelesene E-Mails ausblenden")}</strong>
-              <span>
-                {t(
-                  "Nur ungelesene E-Mails anzeigen. Gilt für alle Postfächer in diesem Browser.",
-                )}
-              </span>
-            </div>
-            <button
-              type="button"
-              aria-label={t("Gelesene E-Mails ausblenden")}
-              aria-pressed={hideRead}
-              onClick={() => onHideReadChange(!hideRead)}
-            >
-              {hideRead ? t("Ein") : t("Aus")}
-            </button>
-          </div>
-          <h3>{t("Sicherheit")}</h3>
-          <div className="settings-row">
-            <div>
-              <strong>{t("Zwei-Faktor-Anmeldung")}</strong>
-              <span>
-                {choose(
-                  `Für ${auth.user.username} aktiviert`,
-                  `Enabled for ${auth.user.username}`,
-                )}
-              </span>
-            </div>
-            <ShieldCheck size={20} className="secure-green" />
-          </div>
-          <button className="logout-button" onClick={onLogout}>
-            {t("\n            Abmelden\n          ")}
+        </div>
+        <div className="settings-footer">
+          <p>
+            <Info size={14} />
+            {footerHint}
+          </p>
+          <button type="button" className="settings-close" onClick={onClose}>
+            {t("Schließen")}
           </button>
         </div>
       </div>

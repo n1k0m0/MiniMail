@@ -403,7 +403,10 @@ app.patch("/api/settings/contacts", async (req, res) => {
   });
 });
 app.get("/api/settings/ai", async (req, res) => {
-  res.json(await aiSettings(db));
+  const settings = await aiSettings(db);
+  res.json(
+    req.user.role === "admin" ? settings : { configured: settings.configured },
+  );
 });
 app.put("/api/settings/ai", adminOnly, async (req, res) => {
   try {

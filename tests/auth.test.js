@@ -265,6 +265,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     const aiSettings = await admin("/settings/ai");
     assert.equal(aiSettings.data.configured, true);
+    assert.equal(aiSettings.data.baseUrl, "https://ai.example.test/v1");
+    assert.equal(aiSettings.data.model, "local-model");
     assert.equal(aiSettings.data.rewriteMaxTokens, 12000);
     assert.equal(aiSettings.data.summaryMaxTokens, null);
     assert.equal(
@@ -815,6 +817,9 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     await quotaDb.prepare("DELETE FROM drafts WHERE id='quota-large'").run();
     assert.equal((await member("/admin/users")).status, 403);
+    const memberAi = await member("/settings/ai");
+    assert.equal(memberAi.status, 200);
+    assert.deepEqual(memberAi.data, { configured: true });
     assert.equal(
       (
         await member("/settings/ai", "PUT", {

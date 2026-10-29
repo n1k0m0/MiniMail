@@ -1,18 +1,34 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, KeyRound, Plus, ShieldOff } from "lucide-react";
+import {
+  Check,
+  Copy,
+  KeyRound,
+  LoaderCircle,
+  Plus,
+  ShieldOff,
+} from "lucide-react";
 import { choose, t } from "./i18n.js";
 
-export default function UserManagement({ request, currentUsername, setError }) {
+export default function UserManagement({
+  request,
+  currentUsername,
+  setError,
+  showHeading = true,
+}) {
   const [users, setUsers] = useState([]);
   const [username, setUsername] = useState("");
   const [temporary, setTemporary] = useState(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
   async function reload() {
+    setLoading(true);
     try {
       setUsers(await request("/admin/users"));
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
   useEffect(() => {
@@ -98,7 +114,7 @@ export default function UserManagement({ request, currentUsername, setError }) {
   }
   return (
     <section className="user-management">
-      <h3>{t("Benutzerverwaltung")}</h3>
+      {showHeading && <h3>{t("Benutzerverwaltung")}</h3>}
       <p>
         {t(
           "\n        Nur Admins können Benutzerkonten anlegen. Jeder Benutzer verwaltet\n        eigene Postfächer.\n      ",
@@ -141,7 +157,13 @@ export default function UserManagement({ request, currentUsername, setError }) {
           </div>
         </div>
       )}
-      <div className="user-list">
+      <div className="user-list" aria-busy={loading}>
+        {loading && (
+          <p className="settings-loading">
+            <LoaderCircle size={17} className="spin" />
+            {t("Benutzer werden geladen …")}
+          </p>
+        )}
         {users.map((user) => (
           <div className="user-row" key={user.id}>
             <div className="account-badge">

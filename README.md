@@ -102,6 +102,21 @@ Read messages are visible by default. Use **Settings → Appearance → Hide rea
 
 The filter is applied before pagination and combines with search. In conversation view, only unread members are shown while the complete thread relationships are retained. Opening a message marks it read as usual: it leaves the filtered list, but stays open in the reader. Unread folders and mailboxes use the same darker, bolder text as unread messages; parent folders also remain emphasized while a subfolder has unread mail.
 
+## Settings and permissions
+
+The settings window has separate pages for **Mailboxes**, **Address book**, **Appearance**, **Security**, **AI features** and, for administrators, **User management**. Each page states whether its settings are personal, stored in this browser, or shared by the installation. Switching pages keeps unfinished forms in memory while the window stays open.
+
+| Area                                                      | Access                                                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mailboxes, sender identities, signatures and mailbox keys | Each user manages only their own mailboxes, including administrators.                                                                                           |
+| Contacts, collected recipients and saved drafts           | Scoped to the signed-in user. Contacts and recipient collection follow that user across devices.                                                                |
+| Theme, language and conversation view                     | Stored in the current browser. The read-email filter is additionally separated by user.                                                                         |
+| Shared AI connection, model, key status and output limits | Administrators can view and change these. Other users see availability only and can use the configured AI features. The saved API key itself is never returned. |
+| Users, password resets and 2FA resets                     | Administrators only. These controls do not directly open another user's mailbox.                                                                                |
+| VPN profile selection                                     | Administrators only; server profiles and credentials are provisioned outside the web interface.                                                                 |
+
+The mail APIs enforce ownership on the server; hiding controls is not the access boundary. Administrators can reset another user's credentials and 2FA, and operators with database access and the application encryption key can technically recover encrypted stored credentials, keys and drafts. MiniMail does not protect these stored values from its own server operator.
+
 ## Optional generic VPN
 
 Only the selected mailbox's IMAP and SMTP traffic use the tunnel. VPN profiles and credentials are provisioned by the administrator on the Docker host; they cannot be uploaded through the web interface.

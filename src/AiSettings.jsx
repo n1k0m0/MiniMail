@@ -2,7 +2,12 @@ import React, { useEffect, useState } from "react";
 import { KeyRound, LoaderCircle } from "lucide-react";
 import { t } from "./i18n.js";
 
-export default function AiSettings({ request, isAdmin, setError }) {
+export default function AiSettings({
+  request,
+  isAdmin,
+  setError,
+  showHeading = true,
+}) {
   const [settings, setSettings] = useState(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
@@ -10,18 +15,30 @@ export default function AiSettings({ request, isAdmin, setError }) {
   const [rewriteMaxTokens, setRewriteMaxTokens] = useState("8192");
   const [summaryMaxTokens, setSummaryMaxTokens] = useState("4096");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
+    let active = true;
     request("/settings/ai")
       .then((value) => {
+        if (!active) return;
         setSettings(value);
-        setBaseUrl(value.baseUrl);
-        setModel(value.model);
+        setBaseUrl(value.baseUrl || "");
+        setModel(value.model || "");
         setRewriteMaxTokens(value.rewriteMaxTokens?.toString() || "");
         setSummaryMaxTokens(value.summaryMaxTokens?.toString() || "");
       })
-      .catch((error) => setError(error.message));
+      .catch((error) => {
+        if (active) setError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [request, setError]);
   async function save({ removeKey = false, disable = false } = {}) {
+    if (busy || loading) return;
     const tokenLimit = (value) =>
       value.trim() === ""
         ? null
@@ -66,14 +83,16 @@ export default function AiSettings({ request, isAdmin, setError }) {
   }
   return (
     <>
-      <h3>{t("KI-Funktionen")}</h3>
+      {showHeading && <h3>{t("KI-Funktionen")}</h3>}
       <div className="settings-row">
         <div>
           <strong>{t("Text überarbeiten und Mails zusammenfassen")}</strong>
           <span>
-            {settings?.configured
-              ? t("Eigene KI ist eingerichtet.")
-              : t("Eigene KI ist noch nicht eingerichtet.")}
+            {loading
+              ? t("Einstellungen werden geladen …")
+              : settings?.configured
+                ? t("Eigene KI ist eingerichtet.")
+                : t("Eigene KI ist noch nicht eingerichtet.")}
           </span>
           <span>
             {t("Nur auf Klick wird Mailtext an deinen KI-Server gesendet.")}
@@ -81,8 +100,8 @@ export default function AiSettings({ request, isAdmin, setError }) {
         </div>
         <KeyRound size={19} />
       </div>
-      {isAdmin && (
-        <div className="ai-settings-form">
+      {isAdmin && !loading && (
+        <fieldset className="ai-settings-form" disabled={busy}>
           <label>
             {t("OpenAI-kompatible Basis-URL")}
             <input
@@ -170,7 +189,7 @@ export default function AiSettings({ request, isAdmin, setError }) {
               </button>
             )}
           </div>
-        </div>
+        </fieldset>
       )}
     </>
   );

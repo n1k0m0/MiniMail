@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t } from "./i18n.js";
-import App from "./App.jsx";
 
 export default function AccountModal({ account, onClose, onSaved, setError }) {
   const [form, setForm] = useState(

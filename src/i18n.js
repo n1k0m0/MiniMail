@@ -1,4 +1,65 @@
 const translations = {
+  "Änderungen werden sofort übernommen.": "Changes take effect immediately.",
+  "KI-Änderungen mit Speichern übernehmen.": "Apply AI changes with Save.",
+  "Die Verwaltung gemeinsamer Einstellungen ist Administratoren vorbehalten.":
+    "Only administrators can manage shared settings.",
+  "Deine persönlichen Daten bleiben deinem Benutzerkonto zugeordnet.":
+    "Your personal data stays associated with your user account.",
+  "Persönliche Einstellungen und Verwaltung an einem Ort.":
+    "Personal settings and administration in one place.",
+  Administrator: "Administrator",
+  "Einstellungen schließen": "Close settings",
+  Einstellungsbereiche: "Settings sections",
+  "Mein Bereich": "My settings",
+  Administration: "Administration",
+  Funktionen: "Features",
+  "Persönliches und gemeinsame Einstellungen sind getrennt.":
+    "Personal and shared settings are kept separate.",
+  "Die KI-Verbindung gilt für alle Benutzer. Nur Administratoren können sie ändern; andere Benutzer sehen nur die Verfügbarkeit.":
+    "The AI connection is shared by all users. Only administrators can change it; other users see availability only.",
+  Postfächer: "Mailboxes",
+  "Verbindungen, Absender und Schlüssel deiner Postfächer verwalten.":
+    "Manage connections, sender identities and keys for your mailboxes.",
+  "Nur für dich": "Only for you",
+  "Deine Kontakte und das automatische Merken von Empfängern.":
+    "Your contacts and automatic recipient collection.",
+  "Design, Sprache und die Anzeige deiner Nachrichten anpassen.":
+    "Customize the theme, language and message display.",
+  "Dieser Browser": "This browser",
+  "Deine Anmeldung und die Zugriffsrechte in MiniMail.":
+    "Your sign-in and access permissions in MiniMail.",
+  "Dein Benutzerkonto": "Your user account",
+  "Verfügbarkeit und gemeinsame Konfiguration der KI-Funktionen.":
+    "Availability and shared configuration of AI features.",
+  "Für alle Benutzer": "For all users",
+  "Benutzer anlegen und den Zugang bei Bedarf zurücksetzen.":
+    "Create users and reset access when needed.",
+  "Nur Administratoren": "Administrators only",
+  Oberfläche: "Interface",
+  "Nachrichten lesen": "Reading messages",
+  "Design, Sprache und Konversationsansicht werden in diesem Browser gespeichert. Der Filter für gelesene E-Mails wird zusätzlich je Benutzer gespeichert.":
+    "Theme, language and conversation view are saved in this browser. The read-email filter is also saved separately for each user.",
+  "Adressbuch öffnen": "Open address book",
+  "Dein Adressbuch und diese Einstellung gehören zu deinem Benutzerkonto und gelten auch auf anderen Geräten.":
+    "Your address book and this setting belong to your user account and also apply on other devices.",
+  "Zugangsdaten fehlen": "Credentials required",
+  "Postfach entfernen": "Remove mailbox",
+  "Verbinde dein erstes Postfach, um E-Mails zu lesen und zu senden.":
+    "Connect your first mailbox to read and send email.",
+  "Hier siehst und verwaltest du ausschließlich deine eigenen Postfächer. Absender, Signaturen und Verschlüsselung findest du beim jeweiligen Postfach.":
+    "You can view and manage only your own mailboxes here. Sender identities, signatures and encryption are managed for each mailbox.",
+  "Angemeldet als": "Signed in as",
+  "Die Zwei-Faktor-Anmeldung ist für MiniMail verpflichtend.":
+    "Two-factor authentication is required for MiniMail.",
+  Aktiviert: "Enabled",
+  "Noch nicht eingerichtet": "Not configured yet",
+  "Wer kann was sehen?": "Who can see what?",
+  "Benutzer sehen ihre eigenen Postfächer, Kontakte und Entwürfe. Administratoren verwalten zusätzlich Benutzer und gemeinsame KI-Einstellungen.":
+    "Users see their own mailboxes, contacts and drafts. Administrators also manage users and shared AI settings.",
+  "Administratoren können Passwörter und 2FA zurücksetzen. Personen mit direktem Serverzugriff können technisch auf gespeicherte Daten zugreifen.":
+    "Administrators can reset passwords and 2FA. People with direct server access can technically access stored data.",
+  "Einstellungen werden geladen …": "Loading settings …",
+  "Benutzer werden geladen …": "Loading users …",
   "Gelesene E-Mails ausblenden": "Hide read emails",
   "Nur ungelesene E-Mails anzeigen. Gilt für alle Postfächer in diesem Browser.":
     "Show only unread emails. Applies to all mailboxes in this browser.",

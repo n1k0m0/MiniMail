@@ -66,6 +66,7 @@ import LoginScreen from "./LoginScreen.jsx";
 import MailTrace from "./MailTrace.jsx";
 import { setLanguage as updateLanguage } from "./i18n.js";
 import "./style.css";
+import "./settings.css";
 
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
@@ -188,6 +189,7 @@ export default function App() {
   const [movingToSpam, setMovingToSpam] = useState(false);
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(null);
+  const [settingsSection, setSettingsSection] = useState("mailboxes");
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
   const contextTriggerRef = useRef(null);
@@ -322,6 +324,7 @@ export default function App() {
       setLoading(false);
       setDetailLoading(false);
       setModal(null);
+      setSettingsSection("mailboxes");
       setContextMenu(null);
       draggedMessageRef.current = null;
       setDraggingUid(null);
@@ -2070,27 +2073,33 @@ export default function App() {
           </button>
         </div>
       )}
-      {modal === "account" && (
+      {(modal === "account" || modal?.type === "settings-add-account") && (
         <AccountModal
-          onClose={() => setModal(null)}
+          onClose={() =>
+            setModal(modal?.type === "settings-add-account" ? "settings" : null)
+          }
           onSaved={async (newAccount) => {
             const data = await api("/accounts");
             setAccounts(data);
             setAccountId(newAccount.id);
-            setModal(null);
+            setModal(
+              modal?.type === "settings-add-account" ? "settings" : null,
+            );
           }}
           setError={setError}
         />
       )}
       {modal === "settings" && (
         <SettingsModal
+          page={settingsSection}
+          onPageChange={setSettingsSection}
           accounts={accounts}
           auth={auth}
           onClose={() => setModal(null)}
           onEdit={(account) => setModal({ type: "edit", account })}
           onCrypto={(account) => setModal({ type: "crypto", account })}
-          onAdd={() => setModal("account")}
-          onOpenContacts={() => setModal("contacts")}
+          onAdd={() => setModal({ type: "settings-add-account" })}
+          onOpenContacts={() => setModal({ type: "settings-contacts" })}
           onCollectRecipientsChange={async (enabled) => {
             await api("/settings/contacts", {
               method: "PATCH",
@@ -2179,8 +2188,13 @@ export default function App() {
           onClose={() => setModal(null)}
         />
       )}
-      {modal === "contacts" && (
-        <AddressBookModal onClose={() => setModal(null)} setError={setError} />
+      {(modal === "contacts" || modal?.type === "settings-contacts") && (
+        <AddressBookModal
+          onClose={() =>
+            setModal(modal?.type === "settings-contacts" ? "settings" : null)
+          }
+          setError={setError}
+        />
       )}
       {modal === "drafts" && (
         <DraftsModal
