@@ -20,6 +20,12 @@ try {
     Write-Output 'PowerShell installer tests passed.'
 } finally {
     Remove-Item Function:\docker -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $fixture '.env'), (Join-Path $fixture 'compose.yaml'), (Join-Path $fixture 'scripts/install.ps1'), $testLog -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $fixture 'scripts'), $fixture, $testRoot -ErrorAction SilentlyContinue
+    # .NET also removes Unix dotfiles without prompting; directories are deleted
+    # only when empty, so unexpected fixture contents cannot be removed silently.
+    foreach ($file in @((Join-Path $fixture '.env'), (Join-Path $fixture 'compose.yaml'), (Join-Path $fixture 'scripts/install.ps1'), $testLog)) {
+        [IO.File]::Delete($file)
+    }
+    foreach ($directory in @((Join-Path $fixture 'scripts'), $fixture, $testRoot)) {
+        [IO.Directory]::Delete($directory)
+    }
 }
