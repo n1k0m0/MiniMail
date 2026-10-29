@@ -160,6 +160,10 @@
   line-height: 1.5;
   margin: 7px 0 0;
 }
+.calendar-list-item > .calendar-setup-pending {
+  flex-basis: 100%;
+  margin-top: 6px;
+}
 .calendar-mail-preferences,
 .calendar-import-export {
   padding-top: 18px;

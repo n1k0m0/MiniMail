@@ -122,6 +122,8 @@ The mail APIs enforce ownership on the server; hiding controls is not the access
 
 Open the **Calendar** icon in the left rail. A personal calendar is created for each user. Use **Add calendar** to create another local calendar, subscribe to an iCalendar/Webcal URL, or connect a CalDAV collection. Each calendar has its own color, visibility and read-only setting. Removing an online connection removes MiniMail's cache; it does not delete that collection on the provider. Local calendars and their events are deleted when removed, so export them first if you need a copy.
 
+Choose **Set up connection later** to save the name, address, username, color and read-only setting before entering credentials. These prepared connections remain paused, including background synchronization. Use **Add credentials** beside the calendar to complete setup. Entering an app password clears the pending flag; saving validates the connection and starts synchronization. Failed validation leaves the prepared connection intact.
+
 ### Connect Nextcloud
 
 1. In Nextcloud Calendar, copy the calendar's **private CalDAV address**. Use a collection address such as `https://cloud.example.org/remote.php/dav/calendars/USERNAME/personal/`, rather than a public ICS subscription if you want to edit events.

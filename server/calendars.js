@@ -43,6 +43,7 @@ export function publicCalendar(row) {
     url: config.url || "",
     username: config.username || "",
     hasPassword: !!config.password,
+    setupPending: !!config.setupPending,
   };
 }
 export async function calendarFor(db, userId, id, writable = false) {
@@ -52,6 +53,11 @@ export async function calendarFor(db, userId, id, writable = false) {
   if (!row) throw new CalendarError("Kalender nicht gefunden.", 404);
   if (writable && row.read_only)
     throw new CalendarError("Dieser Kalender ist schreibgeschützt.", 403);
+  if (writable && configOf(row).setupPending)
+    throw new CalendarError(
+      "Bitte zuerst die Zugangsdaten des Kalenders ergänzen.",
+      409,
+    );
   return row;
 }
 export async function calendarPreferences(db, userId) {
@@ -96,6 +102,10 @@ function calendarInput(body, existing) {
     throw new CalendarError(
       "Kalendersichtbarkeit und Schreibschutz müssen ein- oder ausgeschaltet sein.",
     );
+  if (body.setupPending !== undefined && typeof body.setupPending !== "boolean")
+    throw new CalendarError(
+      "Der Einrichtungsstatus des Kalenders ist ungültig.",
+    );
   const kind = existing?.kind || body.kind;
   const name = body.name ?? existing?.name,
     color = body.color ?? existing?.color ?? "#5267df",
@@ -130,6 +140,9 @@ function calendarInput(body, existing) {
       password: body.clearPassword
         ? ""
         : body.password || (url === old.url ? old.password : "") || "",
+      ...((body.setupPending ?? old.setupPending)
+        ? { setupPending: true }
+        : {}),
     };
     if (/[\r\n]/.test(config.username))
       throw new CalendarError("Der Kalender-Benutzername ist ungültig.");
@@ -174,7 +187,7 @@ export async function createCalendar(db, userId, body, request) {
       Date.now(),
     );
   try {
-    if (item.kind !== "local")
+    if (item.kind !== "local" && !item.config.setupPending)
       await syncCalendar(db, userId, result.insertId, request);
   } catch (error) {
     await db
@@ -220,6 +233,11 @@ async function upsertCached(db, calendarId, entry, source = "remote") {
 }
 async function syncUnlocked(db, calendar, request) {
   if (calendar.kind === "local") return;
+  if (configOf(calendar).setupPending)
+    throw new CalendarError(
+      "Bitte zuerst die Zugangsdaten des Kalenders ergänzen.",
+      409,
+    );
   try {
     const remote = await fetchRemoteCalendar(
       configOf(calendar),
@@ -306,10 +324,12 @@ export async function updateCalendar(db, userId, id, body, request) {
     // Connection edits are verified before replacing the existing connection.
     if (
       item.kind !== "local" &&
+      !item.config.setupPending &&
       (body.url !== undefined ||
         body.username !== undefined ||
         body.password ||
-        body.clearPassword)
+        body.clearPassword ||
+        (configOf(old).setupPending && body.setupPending === false))
     )
       await fetchRemoteCalendar(item.config, item.kind, request);
     await db
@@ -328,6 +348,7 @@ export async function updateCalendar(db, userId, id, body, request) {
       );
     if (
       item.kind !== "local" &&
+      !item.config.setupPending &&
       JSON.stringify(configOf(old)) !== JSON.stringify(item.config)
     )
       await syncUnlocked(db, await calendarFor(db, userId, id), request);
@@ -1301,10 +1322,11 @@ export function startCalendarSync(db) {
     try {
       const due = await db
         .prepare(
-          "SELECT id,user_id FROM calendars WHERE kind<>'local' AND (last_sync IS NULL OR last_sync<?)",
+          "SELECT id,user_id,config_enc FROM calendars WHERE kind<>'local' AND (last_sync IS NULL OR last_sync<?)",
         )
         .all(Date.now() - 300000);
       for (const calendar of due) {
+        if (configOf(calendar).setupPending) continue;
         try {
           await syncCalendar(db, calendar.user_id, calendar.id);
         } catch {}

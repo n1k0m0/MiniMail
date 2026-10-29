@@ -84,7 +84,7 @@ export default function CalendarView({
   const [importTarget, setImportTarget] = useState("");
   const calendarRef = useRef(null),
     importRef = useRef(null);
-  const writable = calendars.filter((c) => !c.readOnly);
+  const writable = calendars.filter((c) => !c.readOnly && !c.setupPending);
   const target =
     importTarget || preferences.defaultCalendarId || writable[0]?.id || "";
   const reload = useCallback(async () => {
@@ -208,7 +208,9 @@ export default function CalendarView({
   async function syncAll() {
     setBusy(true);
     try {
-      for (const calendar of calendars.filter((c) => c.kind !== "local"))
+      for (const calendar of calendars.filter(
+        (c) => c.kind !== "local" && !c.setupPending,
+      ))
         await api(`/calendar/calendars/${calendar.id}/sync`, {
           method: "POST",
         });
@@ -418,6 +420,14 @@ export default function CalendarView({
               </button>
               {calendar.syncError && (
                 <p className="calendar-sync-error">{calendar.syncError}</p>
+              )}
+              {calendar.setupPending && (
+                <button
+                  className="calendar-setup-pending"
+                  onClick={() => setConnection(calendar)}
+                >
+                  {t("Zugangsdaten ergänzen")}
+                </button>
               )}
             </div>
           ))}

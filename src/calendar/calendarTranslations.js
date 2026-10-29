@@ -1,4 +1,10 @@
 export const calendarTranslations = {
+  "Zugangsdaten ergänzen": "Add credentials",
+  "Verbindung später einrichten": "Set up connection later",
+  "Dieser Kalender ist vorbereitet. Ergänze das App-Passwort und speichere, um die Verbindung zu aktivieren.":
+    "This calendar is prepared. Add the app password and save to activate the connection.",
+  "Bitte zuerst die Zugangsdaten des Kalenders ergänzen.":
+    "Please add the calendar credentials first.",
   "Ungespeicherte Kalenderänderungen verwerfen?":
     "Discard unsaved calendar changes?",
   "Bitte Änderungen zuerst speichern.": "Please save your changes first.",

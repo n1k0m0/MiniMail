@@ -61,6 +61,24 @@ test("calendar views and editors render with writable/read-only controls and tas
     );
     assert.ok(readOnly.includes('fieldset disabled=""'));
     assert.ok(readOnly.includes("Kopieren"));
+    const { default: Connection } = await vite.ssrLoadModule(
+      "/src/calendar/CalendarConnection.jsx",
+    );
+    const prepared = renderToStaticMarkup(
+      React.createElement(Connection, {
+        calendar: {
+          id: 1,
+          kind: "caldav",
+          name: "Prepared",
+          url: "https://calendar.example.test/",
+          username: "owner",
+          setupPending: true,
+          hasPassword: false,
+        },
+      }),
+    );
+    assert.ok(prepared.includes("Dieser Kalender ist vorbereitet."));
+    assert.ok(prepared.includes('type="password"'));
   } finally {
     await vite.close();
   }

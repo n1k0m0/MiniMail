@@ -36,6 +36,78 @@ const event = {
   timezone: "Europe/Berlin",
   reminder: 15,
 };
+test("prepared calendars keep credentials empty and do not connect until explicitly activated", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  let calls = 0;
+  const request = async () => {
+    calls++;
+    return {
+      status: 207,
+      headers: {},
+      body: '<d:multistatus xmlns:d="DAV:"/>',
+    };
+  };
+  const calendar = await createCalendar(
+    db,
+    1,
+    {
+      name: "Prepared",
+      kind: "caldav",
+      url: "https://calendar.example.test/cal/",
+      username: "owner",
+      setupPending: true,
+      readOnly: false,
+    },
+    request,
+  );
+  assert.equal(calendar.setupPending, true);
+  assert.equal(calendar.hasPassword, false);
+  assert.equal(calls, 0);
+  await updateCalendar(
+    db,
+    1,
+    calendar.id,
+    { name: "Still prepared", color: "#123456" },
+    request,
+  );
+  await assert.rejects(syncCalendar(db, 1, calendar.id, request), {
+    status: 409,
+  });
+  await assert.rejects(
+    saveCalendarEvent(db, 1, calendar.id, event, null, request),
+    { status: 409 },
+  );
+  assert.equal(calls, 0);
+  await assert.rejects(
+    updateCalendar(
+      db,
+      1,
+      calendar.id,
+      { setupPending: false, password: "wrong" },
+      async () => {
+        throw new CalendarError("Rejected", 502);
+      },
+    ),
+    { status: 502 },
+  );
+  const pending = (await listCalendars(db, 1)).calendars.find(
+    (c) => c.id === calendar.id,
+  );
+  assert.equal(pending.setupPending, true);
+  assert.equal(pending.hasPassword, false);
+  const ready = await updateCalendar(
+    db,
+    1,
+    calendar.id,
+    { setupPending: false, password: "synthetic-app-password" },
+    request,
+  );
+  assert.equal(ready.setupPending, false);
+  assert.equal(ready.hasPassword, true);
+  assert.equal(ready.password, undefined);
+  assert.equal(calls, 2);
+});
 test("calendars isolate users, encrypt data, detect stale edits, and import/export without duplicates", async (t) => {
   const db = await testDatabase(t);
   await insertTestUser(db, 1);

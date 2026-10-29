@@ -18,6 +18,7 @@ export default function CalendarConnection({
     url: "",
     username: "",
     password: "",
+    setupPending: false,
     readOnly: false,
     timezone: browserZone(),
     ...calendar,
@@ -88,6 +89,13 @@ export default function CalendarConnection({
     >
       <form className="calendar-editor" onSubmit={save}>
         <div className="calendar-dialog-content">
+          {calendar?.setupPending && (
+            <p className="calendar-note">
+              {t(
+                "Dieser Kalender ist vorbereitet. Ergänze das App-Passwort und speichere, um die Verbindung zu aktivieren.",
+              )}
+            </p>
+          )}
           <fieldset className="calendar-fields" disabled={busy}>
             <label className="calendar-full">
               {t("Name")}
@@ -126,6 +134,14 @@ export default function CalendarConnection({
             </label>
             {form.kind !== "local" && (
               <>
+                <label className="calendar-checkbox calendar-full">
+                  <input
+                    type="checkbox"
+                    checked={form.setupPending}
+                    onChange={(e) => set("setupPending", e.target.checked)}
+                  />
+                  {t("Verbindung später einrichten")}
+                </label>
                 {form.kind === "caldav" && (
                   <p className="calendar-note calendar-full">
                     {t(
@@ -169,7 +185,13 @@ export default function CalendarConnection({
                         ? t("Gespeichertes Passwort bleibt erhalten")
                         : ""
                     }
-                    onChange={(e) => set("password", e.target.value)}
+                    onChange={(e) =>
+                      setForm((old) => ({
+                        ...old,
+                        password: e.target.value,
+                        setupPending: e.target.value ? false : old.setupPending,
+                      }))
+                    }
                   />
                 </label>
                 {calendar?.hasPassword && (

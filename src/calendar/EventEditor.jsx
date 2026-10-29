@@ -302,7 +302,9 @@ export default function EventEditor({
               >
                 {calendars
                   .filter(
-                    (c) => !c.readOnly || c.id === Number(form.calendarId),
+                    (c) =>
+                      (!c.readOnly && !c.setupPending) ||
+                      c.id === Number(form.calendarId),
                   )
                   .map((c) => (
                     <option key={c.id} value={c.id}>
