@@ -6,6 +6,7 @@ import { createServer } from "vite";
 
 test("extracted dialogs render and saved drafts retain all compose modes", async () => {
   const vite = await createServer({
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true, hmr: false },
     appType: "custom",
   });

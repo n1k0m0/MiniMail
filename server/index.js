@@ -1,6 +1,7 @@
 import { MailOperationError } from "./mailActions.js";
 import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
+import { registerCalendarRoutes, startCalendarSync } from "./calendars.js";
 import express from "express";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -48,6 +49,7 @@ import {
   getMessage,
   getMessageSource,
   getAttachment,
+  getInvitationParts,
   updateFlags,
   markFolderRead,
   moveMessage,
@@ -124,10 +126,12 @@ app.use(
     "/api/settings",
     "/api/ai",
     "/api/vpn-profiles",
+    "/api/calendar",
   ],
   authenticated,
   ready,
 );
+app.use("/api/calendar", express.json({ inflate: false, limit: "8mb" }));
 app.use(
   "/api/drafts",
   express.json({
@@ -390,6 +394,11 @@ app.post("/api/auth/2fa/verify", authenticated, async (req, res) => {
 });
 app.use("/api", authenticated, ready);
 registerDraftRoutes(app, db);
+registerCalendarRoutes(app, db, {
+  accountFor,
+  getInvitationParts,
+  sendMessage,
+});
 app.patch("/api/settings/contacts", async (req, res) => {
   if (typeof req.body?.collectRecipients !== "boolean")
     return res.status(400).json({
@@ -1639,3 +1648,4 @@ app.listen(port, host, () =>
   console.log(`MiniMail server: http://${host}:${port}`),
 );
 if (process.env.DISABLE_MAIL_CHECKS !== "1") startMailChecks();
+if (process.env.DISABLE_MAIL_CHECKS !== "1") startCalendarSync(db);

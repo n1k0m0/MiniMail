@@ -1,4 +1,5 @@
-// Stable order for import and backup verification.
+import { calendarDefinitions, calendarTableNames } from "./calendarSchema.js";
+// Stable order of the legacy SQLite tables, for import verification.
 export const tableNames = [
   "users",
   "sessions",
@@ -90,8 +91,9 @@ const definitions = [
 ];
 
 export async function initializeSchema(database) {
-  for (const sql of definitions)
+  for (const sql of [...definitions, ...calendarDefinitions])
     await database.exec(
       `${sql} ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`,
     );
 }
+export const allTableNames = [...tableNames, ...calendarTableNames];

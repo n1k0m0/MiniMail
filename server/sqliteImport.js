@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { tableNames } from "./schema.js";
+import { tableNames, allTableNames } from "./schema.js";
 
 const primaryKeys = {
   users: ["id"],
@@ -89,7 +89,7 @@ export async function importSqlite(
         throw new Error("Another database import is running.");
       try {
         if (!verifyOnly) {
-          for (const table of tableNames) {
+          for (const table of allTableNames) {
             const row = await database
               .prepare(`SELECT COUNT(*) AS n FROM ${quoted(table)}`)
               .get();

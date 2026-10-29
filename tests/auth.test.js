@@ -820,6 +820,59 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     const memberAi = await member("/settings/ai");
     assert.equal(memberAi.status, 200);
     assert.deepEqual(memberAi.data, { configured: true });
+    const ownerCalendars = await admin("/calendar/calendars");
+    const memberCalendars = await member("/calendar/calendars");
+    assert.equal(ownerCalendars.status, 200);
+    assert.equal(memberCalendars.status, 200);
+    const ownerCalendarId = ownerCalendars.data.calendars[0].id;
+    assert.ok(
+      !memberCalendars.data.calendars.some((c) => c.id === ownerCalendarId),
+    );
+    const calendarEvent = await admin(
+      `/calendar/calendars/${ownerCalendarId}/events`,
+      "POST",
+      {
+        title: "Private appointment",
+        start: "2026-11-01T10:00",
+        end: "2026-11-01T11:00",
+        timezone: "UTC",
+      },
+    );
+    assert.equal(calendarEvent.status, 201);
+    assert.equal(
+      (await member(`/calendar/events/${calendarEvent.data.id}`)).status,
+      404,
+    );
+    assert.equal(
+      (
+        await member(`/calendar/events/${calendarEvent.data.id}`, "DELETE", {
+          version: calendarEvent.data.version,
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await member(`/calendar/calendars/${ownerCalendarId}/export`)).status,
+      404,
+    );
+    assert.equal(
+      (
+        await member(`/calendar/calendars/${ownerCalendarId}/events`, "POST", {
+          title: "forged",
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await admin(`/calendar/events/${calendarEvent.data.id}`, "PATCH", {
+          title: "stale",
+          version: 0,
+        })
+      ).status,
+      409,
+    );
+    assert.equal((await fetch(base + "/calendar/calendars")).status, 401);
     assert.equal(
       (
         await member("/settings/ai", "PUT", {

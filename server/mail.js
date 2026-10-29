@@ -12,6 +12,7 @@ import { vpnProxy } from "./vpn.js";
 import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
 import { collectMessageKeys } from "./keyDiscovery.js";
 import { db } from "./db.js";
+import { calendarPreferences, importMailInvitations } from "./calendars.js";
 import {
   clearFolderIndex,
   indexedMessages,
@@ -148,6 +149,14 @@ export async function checkInbox(account) {
     });
     if (!status)
       throw new Error("Der Posteingang konnte nicht geprüft werden.");
+    // Calendar parsing must not make an otherwise healthy mail check fail.
+    try {
+      await scanInboxInvitations(client, account, status.uidNext || 1);
+    } catch {
+      console.error("Calendar invitation scan deferred", {
+        accountId: account.id,
+      });
+    }
     return {
       unseen: status.unseen || 0,
       uidNext: status.uidNext || 0,
@@ -435,6 +444,15 @@ export async function getMessage(account, folder, uid) {
     const result = await parsedMessage(client, uid, account);
     if (!result) return null;
     const { item, parsed, security } = result;
+    let calendarInvitations = [];
+    try {
+      calendarInvitations = await importMailInvitations(
+        db,
+        account,
+        parsed.attachments,
+        address(parsed.from?.value),
+      );
+    } catch {}
     return {
       uid: item.uid,
       subject: parsed.subject || "(Kein Betreff)",
@@ -453,6 +471,12 @@ export async function getMessage(account, folder, uid) {
       cc: address(parsed.cc?.value),
       bcc: address(parsed.bcc?.value),
       security,
+      calendarInvitations,
+      hasInvitations: parsed.attachments.some(
+        (part) =>
+          /text\/calendar/i.test(part.contentType || "") ||
+          /\.ics$/i.test(part.filename || ""),
+      ),
       text: parsed.text || "",
       html: parsed.html
         ? sanitizeHtml(parsed.html, {
@@ -491,6 +515,72 @@ export async function getAttachment(account, folder, uid, index) {
     const result = await parsedMessage(client, uid, account);
     return result?.parsed.attachments[index] || null;
   });
+}
+export async function getInvitationParts(account, folder, uid) {
+  return inFolder(account, folder, async (client) => {
+    const result = await parsedMessage(client, uid, account);
+    return {
+      attachments: result?.parsed.attachments || [],
+      from: address(result?.parsed.from?.value),
+    };
+  });
+}
+async function scanInboxInvitations(client, account, uidNext) {
+  const preferences = await calendarPreferences(db, account.user_id);
+  if (!preferences.autoImport || !preferences.defaultCalendarId) return;
+  const lock = await client.getMailboxLock("INBOX");
+  try {
+    const validity = String(client.mailbox.uidValidity);
+    const checkpoint = await db
+      .prepare("SELECT * FROM calendar_mail_scan WHERE account_id=?")
+      .get(account.id);
+    let cursor =
+      checkpoint?.uid_validity === validity ? checkpoint.last_uid : null;
+    if (cursor === null) {
+      const recent = await client.search(
+        { since: new Date(Date.now() - 30 * 86400000) },
+        { uid: true },
+      );
+      cursor = recent.length ? Math.min(...recent) - 1 : uidNext - 1;
+    }
+    const end = Math.min(uidNext - 1, cursor + 1000);
+    if (end > cursor) {
+      const uids = (
+        await client.search({ uid: `${cursor + 1}:${end}` }, { uid: true })
+      ).slice(0, 80);
+      for (const uid of uids) {
+        const metadata = await client.fetchOne(
+          uid,
+          { bodyStructure: true, size: true },
+          { uid: true },
+        );
+        if (
+          metadata &&
+          metadata.size <= 1024 * 1024 &&
+          /text\/calendar|\.ics\b/i.test(
+            JSON.stringify(metadata.bodyStructure || {}),
+          )
+        ) {
+          const result = await parsedMessage(client, uid, account);
+          if (result)
+            await importMailInvitations(
+              db,
+              account,
+              result.parsed.attachments,
+              address(result.parsed.from?.value),
+            );
+        }
+      }
+      cursor = uids.length === 80 ? uids.at(-1) : end;
+    }
+    await db
+      .prepare(
+        "INSERT INTO calendar_mail_scan(account_id,uid_validity,last_uid,updated_at) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE uid_validity=VALUES(uid_validity),last_uid=VALUES(last_uid),updated_at=VALUES(updated_at)",
+      )
+      .run(account.id, validity, cursor, Date.now());
+  } finally {
+    lock.release();
+  }
 }
 export async function getMessageSource(account, folder, uid) {
   return inFolder(account, folder, async (client) => {
@@ -632,7 +722,7 @@ export async function emptyTrash(account, folder) {
   if (result !== null) await clearFolderIndex(db, account.id, folder);
   return result;
 }
-export async function sendMessage(account, mail) {
+export async function sendMessage(account, mail, calendarInvite = null) {
   const a = settings(account);
   const transporter = nodemailer.createTransport({
     host: a.smtp_host,
@@ -662,6 +752,7 @@ export async function sendMessage(account, mail) {
     inReplyTo: mail.inReplyTo || undefined,
     references: mail.references?.length ? mail.references : undefined,
     text: mail.text || "",
+    ...(calendarInvite ? { icalEvent: calendarInvite } : {}),
     attachments: (mail.attachments || []).map((file) => ({
       filename: file.name,
       content: Buffer.from(file.data, "base64"),

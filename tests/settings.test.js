@@ -17,6 +17,7 @@ test("settings navigation limits administration to admins and rejects unknown pa
 
 test("settings pages render separately for each role without exposing admin controls", async () => {
   const vite = await createServer({
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true, hmr: false },
     appType: "custom",
   });

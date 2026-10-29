@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Contact,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   Download,
@@ -64,9 +65,13 @@ import SourceModal from "./SourceModal.jsx";
 import DraftsModal from "./DraftsModal.jsx";
 import LoginScreen from "./LoginScreen.jsx";
 import MailTrace from "./MailTrace.jsx";
+import CalendarReminders from "./calendar/CalendarReminders.jsx";
+import MailInvitation from "./calendar/MailInvitation.jsx";
 import { setLanguage as updateLanguage } from "./i18n.js";
 import "./style.css";
 import "./settings.css";
+import "./calendar/calendar.css";
+const CalendarView = React.lazy(() => import("./calendar/CalendarView.jsx"));
 
 const SIDEBAR_WIDTH_KEY = "minimail-sidebar-width";
 const MESSAGE_WIDTH_KEY = "minimail-message-width";
@@ -190,6 +195,8 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(null);
   const [settingsSection, setSettingsSection] = useState("mailboxes");
+  const [appView, setAppView] = useState("mail");
+  const [calendarEventId, setCalendarEventId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
   const contextTriggerRef = useRef(null);
@@ -325,6 +332,8 @@ export default function App() {
       setDetailLoading(false);
       setModal(null);
       setSettingsSection("mailboxes");
+      setAppView("mail");
+      setCalendarEventId(null);
       setContextMenu(null);
       draggedMessageRef.current = null;
       setDraggingUid(null);
@@ -862,7 +871,7 @@ export default function App() {
     );
   return (
     <div
-      className={`app-shell${wideDesktop ? " wide-layout" : ""}`}
+      className={`app-shell${wideDesktop ? " wide-layout" : ""}${appView === "calendar" ? " calendar-open" : ""}`}
       style={{
         "--sidebar-width": `${sidebarWidth}px`,
         "--message-width": `${messageWidth}px`,
@@ -874,8 +883,21 @@ export default function App() {
         <div className="brand-mark">
           <img src="/favicon.svg" width="40" height="40" alt="MiniMail" />
         </div>
-        <button className="rail-icon active" title={t("E-Mail")}>
+        <button
+          className={`rail-icon${appView === "mail" ? " active" : ""}`}
+          title={t("E-Mail")}
+          aria-label={t("E-Mail")}
+          onClick={() => setAppView("mail")}
+        >
           <Mail size={21} />
+        </button>
+        <button
+          className={`rail-icon${appView === "calendar" ? " active" : ""}`}
+          title={t("Kalender")}
+          aria-label={t("Kalender")}
+          onClick={() => setAppView("calendar")}
+        >
+          <CalendarDays size={21} />
         </button>
         <button
           className="rail-icon"
@@ -900,1001 +922,1102 @@ export default function App() {
         >
           <Settings size={21} />
         </button>
-        <div className="avatar" title={auth.user.username}>
-          {auth.user.username.slice(0, 1).toUpperCase()}
-        </div>
-      </div>
-      <aside className={`sidebar ${mobileSidebar ? "sidebar-open" : ""}`}>
-        <div className="sidebar-top">
-          <div className="logo-word">
-            {t("\n            minimail")}
-            <span className="logo-dot">.</span>
-          </div>
-          <button
-            className="icon-button close-mobile"
-            onClick={() => setMobileSidebar(false)}
-          >
-            <X size={19} />
-          </button>
-        </div>
-        <button className="compose-button" onClick={() => setModal("compose")}>
-          <PenLine size={18} />
-          <span>{t("Neue Nachricht")}</span>
-          <Plus size={17} className="compose-plus" />
-        </button>
-        <button className="drafts-button" onClick={() => setModal("drafts")}>
-          <FileText size={16} /> {t("Gespeicherte Entwürfe")}
-        </button>
-        <div className="sidebar-content">
-          <div className="section-label">{t("POSTFÄCHER")}</div>
-          {accounts.length ? (
-            <div className="account-list">
-              {accounts.map((account) => (
-                <button
-                  key={account.id}
-                  className={`account-choice ${account.inbox_unseen > 0 ? "unread" : "read"} ${account.id === accountId ? "selected" : ""}`}
-                  onClick={() => {
-                    setAccountId(account.id);
-                    setFolder("INBOX");
-                    setFolderFilter("");
-                    setCollapsedFolders(new Set());
-                    setSelected(null);
-                    setPage(0);
-                  }}
-                >
-                  <div className="account-badge">
-                    {account.name[0]?.toUpperCase()}
-                  </div>
-                  <span className="account-text">
-                    <span className="account-name-line">
-                      <strong>{account.name}</strong>
-                      {account.is_primary && (
-                        <Star
-                          size={12}
-                          fill="currentColor"
-                          aria-label={t("Primärpostfach")}
-                        />
-                      )}
-                    </span>
-                    <small>
-                      {account.needsCredentials
-                        ? t("Passwort ergänzen")
-                        : account.email}
-                    </small>
-                  </span>
-                  {account.inbox_unseen > 0 && !account.needsCredentials && (
-                    <b
-                      className="account-unseen"
-                      title={choose(
-                        `${account.inbox_unseen} ungelesene Nachrichten im Posteingang`,
-                        `${account.inbox_unseen} unread messages in the inbox`,
-                      )}
-                    >
-                      {account.inbox_unseen > 99 ? "99+" : account.inbox_unseen}
-                    </b>
-                  )}
-                  {account.id === accountId && <ChevronDown size={15} />}
-                </button>
-              ))}
-            </div>
+        <button
+          type="button"
+          className="rail-icon rail-logout"
+          title={`${auth.user.username}: ${t("Abmelden")}`}
+          aria-label={loggingOut ? t("Abmelden …") : t("Abmelden")}
+          onClick={logout}
+          disabled={loggingOut}
+        >
+          {loggingOut ? (
+            <LoaderCircle className="spin" size={21} />
           ) : (
-            <button
-              className="add-account-side"
-              onClick={() => setModal("account")}
-            >
-              <Plus size={16} />
-              {t(" Postfach verbinden\n            ")}
-            </button>
+            <LogOut size={21} />
           )}
-          {accountId && (
-            <>
-              <div className="section-label folder-heading">
-                <span>
-                  {t("\n                  ORDNER ")}
-                  <small>{folders.length}</small>
-                </span>
-                <button onClick={refresh} title={t("Ordner aktualisieren")}>
-                  <RefreshCw size={14} />
-                </button>
+        </button>
+      </div>
+      {appView === "calendar" ? (
+        <React.Suspense
+          fallback={
+            <div className="boot">
+              <LoaderCircle className="spin" size={28} />
+            </div>
+          }
+        >
+          <CalendarView
+            key={auth.user.username}
+            username={auth.user.username}
+            accounts={accounts}
+            onMail={() => setAppView("mail")}
+            onSettings={() => setModal("settings")}
+            setError={setError}
+            notify={setNotice}
+            openEventId={calendarEventId}
+            onEventOpened={() => setCalendarEventId(null)}
+          />
+        </React.Suspense>
+      ) : (
+        <>
+          <aside className={`sidebar ${mobileSidebar ? "sidebar-open" : ""}`}>
+            <div className="sidebar-top">
+              <div className="logo-word">
+                {t("\n            minimail")}
+                <span className="logo-dot">.</span>
               </div>
-              {folders.length > 8 && (
-                <div className="folder-search">
-                  <Search size={15} />
-                  <input
-                    value={folderFilter}
-                    onChange={(event) => setFolderFilter(event.target.value)}
-                    placeholder={t("Ordner finden …")}
-                    aria-label={t("Ordner finden")}
-                  />
-                  {folderFilter && (
+              <button
+                className="icon-button close-mobile"
+                onClick={() => setMobileSidebar(false)}
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <button
+              className="compose-button"
+              onClick={() => setModal("compose")}
+            >
+              <PenLine size={18} />
+              <span>{t("Neue Nachricht")}</span>
+              <Plus size={17} className="compose-plus" />
+            </button>
+            <button
+              className="drafts-button"
+              onClick={() => setModal("drafts")}
+            >
+              <FileText size={16} /> {t("Gespeicherte Entwürfe")}
+            </button>
+            <div className="sidebar-content">
+              <div className="section-label">{t("POSTFÄCHER")}</div>
+              {accounts.length ? (
+                <div className="account-list">
+                  {accounts.map((account) => (
                     <button
-                      onClick={() => setFolderFilter("")}
-                      aria-label={t("Ordnerfilter löschen")}
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              )}
-              <nav className="folder-list">
-                {visibleFolders.map(({ node, depth }) => {
-                  const item = node.folder;
-                  const meta = folderMeta(item || node),
-                    Icon = meta.icon;
-                  return (
-                    <div
-                      key={node.path}
-                      className={`folder-row ${node.hasUnread ? "unread" : "read"} ${folder === node.path ? "current" : ""} ${dropFolder === node.path ? "drop-target" : ""}`}
-                      style={{
-                        paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
-                      }}
-                      onContextMenu={(event) => {
-                        if (item) openFolderContextMenu(event, node.path);
-                      }}
-                      onDragOver={(event) => {
-                        const dragged = draggedMessageRef.current;
-                        if (
-                          !item ||
-                          !dragged ||
-                          dragged.accountId !== accountId ||
-                          dragged.sourceFolder === node.path
-                        )
-                          return;
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        if (dropFolder !== node.path) setDropFolder(node.path);
-                      }}
-                      onDragLeave={(event) => {
-                        const bounds =
-                          event.currentTarget.getBoundingClientRect();
-                        if (
-                          event.clientX < bounds.left ||
-                          event.clientX >= bounds.right ||
-                          event.clientY < bounds.top ||
-                          event.clientY >= bounds.bottom
-                        )
-                          setDropFolder((current) =>
-                            current === node.path ? null : current,
-                          );
-                      }}
-                      onDrop={(event) => {
-                        const dragged = draggedMessageRef.current;
-                        if (
-                          !item ||
-                          !dragged ||
-                          dragged.accountId !== accountId ||
-                          dragged.sourceFolder === node.path
-                        )
-                          return;
-                        event.preventDefault();
-                        draggedMessageRef.current = null;
-                        setDraggingUid(null);
-                        setDropFolder(null);
-                        move(dragged.uid, node.path, dragged.sourceFolder);
+                      key={account.id}
+                      className={`account-choice ${account.inbox_unseen > 0 ? "unread" : "read"} ${account.id === accountId ? "selected" : ""}`}
+                      onClick={() => {
+                        setAccountId(account.id);
+                        setFolder("INBOX");
+                        setFolderFilter("");
+                        setCollapsedFolders(new Set());
+                        setSelected(null);
+                        setPage(0);
                       }}
                     >
-                      <button
-                        className="folder-item"
-                        onClick={() =>
-                          item
-                            ? selectFolder(node.path)
-                            : toggleFolder(node.path)
-                        }
-                        title={node.path}
-                        onKeyDown={(event) => {
-                          if (
-                            item &&
-                            (event.key === "ContextMenu" ||
-                              (event.shiftKey && event.key === "F10"))
-                          )
-                            openFolderContextMenu(event, node.path);
-                        }}
-                      >
-                        <Icon size={17} />
-                        <span>{meta.label}</span>
-                        {item?.unseen > 0 && <b>{item.unseen}</b>}
-                      </button>
-                      {node.children.length > 0 && (
-                        <button
-                          className="folder-toggle"
-                          onClick={() => toggleFolder(node.path)}
-                          title={
-                            collapsedFolders.has(node.path)
-                              ? t("Unterordner anzeigen")
-                              : t("Unterordner ausblenden")
-                          }
-                          aria-label={choose(
-                            `${node.path}: Unterordner ${collapsedFolders.has(node.path) ? "anzeigen" : "ausblenden"}`,
-                            `${node.path}: ${collapsedFolders.has(node.path) ? "show" : "hide"} subfolders`,
+                      <div className="account-badge">
+                        {account.name[0]?.toUpperCase()}
+                      </div>
+                      <span className="account-text">
+                        <span className="account-name-line">
+                          <strong>{account.name}</strong>
+                          {account.is_primary && (
+                            <Star
+                              size={12}
+                              fill="currentColor"
+                              aria-label={t("Primärpostfach")}
+                            />
                           )}
+                        </span>
+                        <small>
+                          {account.needsCredentials
+                            ? t("Passwort ergänzen")
+                            : account.email}
+                        </small>
+                      </span>
+                      {account.inbox_unseen > 0 &&
+                        !account.needsCredentials && (
+                          <b
+                            className="account-unseen"
+                            title={choose(
+                              `${account.inbox_unseen} ungelesene Nachrichten im Posteingang`,
+                              `${account.inbox_unseen} unread messages in the inbox`,
+                            )}
+                          >
+                            {account.inbox_unseen > 99
+                              ? "99+"
+                              : account.inbox_unseen}
+                          </b>
+                        )}
+                      {account.id === accountId && <ChevronDown size={15} />}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  className="add-account-side"
+                  onClick={() => setModal("account")}
+                >
+                  <Plus size={16} />
+                  {t(" Postfach verbinden\n            ")}
+                </button>
+              )}
+              {accountId && (
+                <>
+                  <div className="section-label folder-heading">
+                    <span>
+                      {t("\n                  ORDNER ")}
+                      <small>{folders.length}</small>
+                    </span>
+                    <button onClick={refresh} title={t("Ordner aktualisieren")}>
+                      <RefreshCw size={14} />
+                    </button>
+                  </div>
+                  {folders.length > 8 && (
+                    <div className="folder-search">
+                      <Search size={15} />
+                      <input
+                        value={folderFilter}
+                        onChange={(event) =>
+                          setFolderFilter(event.target.value)
+                        }
+                        placeholder={t("Ordner finden …")}
+                        aria-label={t("Ordner finden")}
+                      />
+                      {folderFilter && (
+                        <button
+                          onClick={() => setFolderFilter("")}
+                          aria-label={t("Ordnerfilter löschen")}
                         >
-                          <ChevronDown
-                            size={15}
-                            className={
-                              collapsedFolders.has(node.path) && !folderFilter
-                                ? "collapsed"
-                                : ""
-                            }
-                          />
+                          <X size={14} />
                         </button>
                       )}
                     </div>
-                  );
-                })}
-                {folderFilter && !visibleFolders.length && (
-                  <p className="folder-no-results">
-                    {t("Kein passender Ordner.")}
-                  </p>
-                )}
-              </nav>
-            </>
-          )}
-        </div>
-        <div className="sidebar-bottom">
-          <button
-            className="sidebar-settings"
-            onClick={() => setModal("settings")}
-          >
-            <Settings size={17} />
-            {t(" Einstellungen\n          ")}
-          </button>
-          <button
-            className="sidebar-settings sidebar-logout"
-            onClick={logout}
-            disabled={loggingOut}
-          >
-            <LogOut size={17} /> {loggingOut ? t("Abmelden …") : t("Abmelden")}
-          </button>
-        </div>
-        <ResizeHandle
-          label={t("Breite der Ordnerleiste")}
-          value={sidebarWidth}
-          min={180}
-          max={sidebarMax}
-          defaultWidth={defaultSidebarWidth}
-          onResize={(width) =>
-            setSidebarPreferences((current) => ({
-              ...current,
-              [widthTier]: width,
-            }))
-          }
-          onCommit={(width) =>
-            localStorage.setItem(
-              wideDesktop ? SIDEBAR_WIDE_WIDTH_KEY : SIDEBAR_WIDTH_KEY,
-              String(width),
-            )
-          }
-        />
-      </aside>
-      <main className="workspace">
-        <header className="topbar">
-          <button
-            className="icon-button menu-mobile"
-            onClick={() => setMobileSidebar(true)}
-          >
-            <Menu size={21} />
-          </button>
-          <div className="breadcrumb">
-            <span>{t("Mail")}</span>
-            <ChevronRight size={16} />
-            <strong>{folderMeta(activeFolder).label}</strong>
-          </div>
-          <form
-            className="search-box"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSearch(query.trim());
-              setPage(0);
-              setSelected(null);
-            }}
-          >
-            <Search size={19} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("E-Mails durchsuchen …")}
-              aria-label={t("E-Mails durchsuchen")}
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => {
-                  setQuery("");
-                  setSearch("");
-                  setPage(0);
-                }}
-              >
-                <X size={16} />
-              </button>
-            )}
-            <span className="search-key">↵</span>
-          </form>
-          <div className="top-actions">
-            <button
-              className="icon-button"
-              onClick={refresh}
-              title={t("Aktualisieren")}
-            >
-              <RefreshCw size={19} />
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => setModal("settings")}
-              title={t("Einstellungen")}
-            >
-              <Settings size={19} />
-            </button>
-          </div>
-        </header>
-        {accounts.length === 0 ? (
-          <EmptyAccount onAdd={() => setModal("account")} />
-        ) : activeAccount?.needsCredentials ? (
-          <div className="reader-empty account-setup-empty">
-            <div className="reader-illustration">
-              <div className="illustration-mail">
-                <LockKeyhole size={42} strokeWidth={1.3} />
-              </div>
-            </div>
-            <h2>{t("Postfach vorbereiten")}</h2>
-            <p>
-              {t("\n              Die Serverdaten für ")}
-              {activeAccount.email}
-              {t(
-                " sind eingerichtet.\n              Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.\n            ",
-              )}
-            </p>
-            <button
-              className="primary-button"
-              onClick={() => setModal({ type: "edit", account: activeAccount })}
-            >
-              {t("\n              Zugangsdaten ergänzen\n            ")}
-            </button>
-          </div>
-        ) : (
-          <div className="mail-layout">
-            <section
-              className={`message-panel ${selected ? "hide-mobile" : ""}`}
-            >
-              <div className="list-header">
-                <div>
-                  <div className="eyebrow">{activeAccount?.email}</div>
-                  <h1>
-                    {search
-                      ? t("Suchergebnisse")
-                      : folderMeta(activeFolder).label}
-                  </h1>
-                  <p>
-                    {loading
-                      ? t("Lade Nachrichten …")
-                      : `${total} ${threaded ? (total === 1 ? t("Konversation") : t("Konversationen")) : total === 1 ? t("Nachricht") : t("Nachrichten")}${search ? choose(` für „${search}“`, ` for “${search}”`) : ""}`}
-                  </p>
-                </div>
-                <div className="list-header-actions">
-                  {isTrashFolder(activeFolder) && (
-                    <button
-                      className="empty-trash-button"
-                      aria-label={t("Papierkorb leeren")}
-                      title={t("Papierkorb leeren")}
-                      onClick={() =>
-                        setModal({ type: "empty-trash", path: folder })
-                      }
-                    >
-                      <Trash2 size={15} />
-                      <span className="empty-trash-label">
-                        {t(
-                          "\n                        Papierkorb leeren\n                      ",
-                        )}
-                      </span>
-                    </button>
                   )}
-                  <button
-                    className="list-menu"
-                    title={t("Aktualisieren")}
-                    onClick={refresh}
-                  >
-                    <RefreshCw size={18} />
-                  </button>
-                </div>
-              </div>
-              <div className="list-toolbar">
-                <div className="list-view-controls">
-                  <button
-                    type="button"
-                    className="thread-mode-button"
-                    aria-pressed={threaded}
-                    title={t("Konversationsansicht umschalten")}
-                    onClick={() => selectThreaded(!threaded)}
-                  >
-                    {threaded
-                      ? t("Konversationen")
-                      : hideRead
-                        ? t("Nachrichten")
-                        : t("Alle Nachrichten")}
-                    <ChevronDown size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className="read-filter-button"
-                    aria-pressed={hideRead}
-                    aria-label={t("Gelesene E-Mails ausblenden")}
-                    title={t("Gelesene E-Mails ausblenden")}
-                    onClick={() => selectHideRead(!hideRead)}
-                  >
-                    <Mail size={14} />
-                    <span>{t("Nur ungelesene")}</span>
-                  </button>
-                </div>
-                <PaginationControls
-                  page={page}
-                  total={total}
-                  loading={loading}
-                  onChange={changePage}
-                  compact
-                />
-              </div>
-              <div className="message-scroll" ref={messageScrollRef}>
-                {loading ? (
-                  <div className="panel-loading">
-                    <LoaderCircle className="spin" size={25} />
-                    <span>{t("Postfach wird geladen")}</span>
-                  </div>
-                ) : messages.length ? (
-                  messages.map((item) => (
-                    <React.Fragment key={item.uid}>
-                      <div
-                        className={`message-row ${selected === item.uid ? "selected" : ""} ${threaded ? (item.threadUnread ? "unread" : "") : !item.seen ? "unread" : ""} ${draggingUid === item.uid ? "dragging" : ""}`}
-                        draggable
-                        onDragStart={(event) => {
-                          draggedMessageRef.current = {
-                            uid: item.uid,
-                            sourceFolder: folder,
-                            accountId,
-                          };
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData(
-                            "application/x-minimail-message",
-                            String(item.uid),
-                          );
-                          setDraggingUid(item.uid);
-                          setContextMenu(null);
-                        }}
-                        onDragEnd={() => {
-                          draggedMessageRef.current = null;
-                          setDraggingUid(null);
-                          setDropFolder(null);
-                        }}
-                        onClick={() => setSelected(item.uid)}
-                        onContextMenu={(event) =>
-                          openContextMenu(event, item.uid)
-                        }
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") setSelected(item.uid);
-                          if (
-                            event.key === "ContextMenu" ||
-                            (event.shiftKey && event.key === "F10")
-                          )
-                            openContextMenu(event, item.uid);
-                        }}
-                      >
-                        {threaded && item.thread?.length > 1 && (
-                          <button
-                            type="button"
-                            className="thread-toggle"
-                            aria-label={
-                              expandedThreads.has(item.uid)
-                                ? t("Konversation einklappen")
-                                : t("Konversation aufklappen")
-                            }
-                            aria-expanded={expandedThreads.has(item.uid)}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setExpandedThreads((current) => {
-                                const next = new Set(current);
-                                if (next.has(item.uid)) next.delete(item.uid);
-                                else next.add(item.uid);
-                                return next;
-                              });
-                            }}
-                          >
-                            {expandedThreads.has(item.uid) ? (
-                              <ChevronDown size={16} />
-                            ) : (
-                              <ChevronRight size={16} />
-                            )}
-                          </button>
-                        )}
-                        <div className="row-avatar">
-                          {(
-                            item.from?.[0]?.name ||
-                            item.from?.[0]?.address ||
-                            "?"
-                          )
-                            .slice(0, 1)
-                            .toUpperCase()}
-                        </div>
-                        <div className="row-main">
-                          <div className="row-top">
-                            <strong>{fmtAddress(item.from)}</strong>
-                            <time>{dateLabel(item.date)}</time>
-                          </div>
-                          <div className="row-subject" title={item.subject}>
-                            <span>{item.subject}</span>
-                            {threaded && item.thread?.length > 1 && (
-                              <span
-                                className="thread-count"
-                                title={t("Nachrichten in der Konversation")}
-                              >
-                                {item.thread.length}
-                              </span>
-                            )}
-                            {item.hasAttachments && (
-                              <Paperclip
-                                size={13}
-                                aria-label={t("Mit Anhang")}
-                              />
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          className={`star-button ${item.flagged ? "starred" : ""}`}
-                          title={t("Markierung")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            flag(item.uid, "flagged", !item.flagged);
+                  <nav className="folder-list">
+                    {visibleFolders.map(({ node, depth }) => {
+                      const item = node.folder;
+                      const meta = folderMeta(item || node),
+                        Icon = meta.icon;
+                      return (
+                        <div
+                          key={node.path}
+                          className={`folder-row ${node.hasUnread ? "unread" : "read"} ${folder === node.path ? "current" : ""} ${dropFolder === node.path ? "drop-target" : ""}`}
+                          style={{
+                            paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
+                          }}
+                          onContextMenu={(event) => {
+                            if (item) openFolderContextMenu(event, node.path);
+                          }}
+                          onDragOver={(event) => {
+                            const dragged = draggedMessageRef.current;
+                            if (
+                              !item ||
+                              !dragged ||
+                              dragged.accountId !== accountId ||
+                              dragged.sourceFolder === node.path
+                            )
+                              return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            if (dropFolder !== node.path)
+                              setDropFolder(node.path);
+                          }}
+                          onDragLeave={(event) => {
+                            const bounds =
+                              event.currentTarget.getBoundingClientRect();
+                            if (
+                              event.clientX < bounds.left ||
+                              event.clientX >= bounds.right ||
+                              event.clientY < bounds.top ||
+                              event.clientY >= bounds.bottom
+                            )
+                              setDropFolder((current) =>
+                                current === node.path ? null : current,
+                              );
+                          }}
+                          onDrop={(event) => {
+                            const dragged = draggedMessageRef.current;
+                            if (
+                              !item ||
+                              !dragged ||
+                              dragged.accountId !== accountId ||
+                              dragged.sourceFolder === node.path
+                            )
+                              return;
+                            event.preventDefault();
+                            draggedMessageRef.current = null;
+                            setDraggingUid(null);
+                            setDropFolder(null);
+                            move(dragged.uid, node.path, dragged.sourceFolder);
                           }}
                         >
-                          <Star
-                            size={16}
-                            fill={item.flagged ? "currentColor" : "none"}
-                          />
-                        </button>
-                      </div>
-                      {threaded &&
-                        expandedThreads.has(item.uid) &&
-                        item.thread
-                          ?.slice(0, -1)
-                          .reverse()
-                          .map((member) => (
-                            <div
-                              key={member.uid}
-                              className={`message-row thread-child ${selected === member.uid ? "selected" : ""} ${!member.seen ? "unread" : ""} ${draggingUid === member.uid ? "dragging" : ""}`}
-                              draggable
-                              onDragStart={(event) => {
-                                draggedMessageRef.current = {
-                                  uid: member.uid,
-                                  sourceFolder: folder,
-                                  accountId,
-                                };
-                                event.dataTransfer.effectAllowed = "move";
-                                event.dataTransfer.setData(
-                                  "application/x-minimail-message",
-                                  String(member.uid),
-                                );
-                                setDraggingUid(member.uid);
-                                setContextMenu(null);
-                              }}
-                              onDragEnd={() => {
-                                draggedMessageRef.current = null;
-                                setDraggingUid(null);
-                                setDropFolder(null);
-                              }}
-                              onClick={() => setSelected(member.uid)}
-                              onContextMenu={(event) =>
-                                openContextMenu(event, member.uid)
+                          <button
+                            className="folder-item"
+                            onClick={() =>
+                              item
+                                ? selectFolder(node.path)
+                                : toggleFolder(node.path)
+                            }
+                            title={node.path}
+                            onKeyDown={(event) => {
+                              if (
+                                item &&
+                                (event.key === "ContextMenu" ||
+                                  (event.shiftKey && event.key === "F10"))
+                              )
+                                openFolderContextMenu(event, node.path);
+                            }}
+                          >
+                            <Icon size={17} />
+                            <span>{meta.label}</span>
+                            {item?.unseen > 0 && <b>{item.unseen}</b>}
+                          </button>
+                          {node.children.length > 0 && (
+                            <button
+                              className="folder-toggle"
+                              onClick={() => toggleFolder(node.path)}
+                              title={
+                                collapsedFolders.has(node.path)
+                                  ? t("Unterordner anzeigen")
+                                  : t("Unterordner ausblenden")
                               }
-                              role="button"
-                              tabIndex={0}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter")
-                                  setSelected(member.uid);
-                                if (
-                                  event.key === "ContextMenu" ||
-                                  (event.shiftKey && event.key === "F10")
-                                )
-                                  openContextMenu(event, member.uid);
+                              aria-label={choose(
+                                `${node.path}: Unterordner ${collapsedFolders.has(node.path) ? "anzeigen" : "ausblenden"}`,
+                                `${node.path}: ${collapsedFolders.has(node.path) ? "show" : "hide"} subfolders`,
+                              )}
+                            >
+                              <ChevronDown
+                                size={15}
+                                className={
+                                  collapsedFolders.has(node.path) &&
+                                  !folderFilter
+                                    ? "collapsed"
+                                    : ""
+                                }
+                              />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {folderFilter && !visibleFolders.length && (
+                      <p className="folder-no-results">
+                        {t("Kein passender Ordner.")}
+                      </p>
+                    )}
+                  </nav>
+                </>
+              )}
+            </div>
+            <div className="sidebar-bottom">
+              <button
+                className="sidebar-settings mobile-calendar-link"
+                onClick={() => {
+                  setAppView("calendar");
+                  setMobileSidebar(false);
+                }}
+              >
+                <CalendarDays size={17} />
+                {t("Kalender")}
+              </button>
+              <button
+                className="sidebar-settings"
+                onClick={() => setModal("settings")}
+              >
+                <Settings size={17} />
+                {t(" Einstellungen\n          ")}
+              </button>
+              <button
+                className="sidebar-settings sidebar-logout mobile-logout"
+                onClick={logout}
+                disabled={loggingOut}
+              >
+                <LogOut size={17} />{" "}
+                {loggingOut ? t("Abmelden …") : t("Abmelden")}
+              </button>
+            </div>
+            <ResizeHandle
+              label={t("Breite der Ordnerleiste")}
+              value={sidebarWidth}
+              min={180}
+              max={sidebarMax}
+              defaultWidth={defaultSidebarWidth}
+              onResize={(width) =>
+                setSidebarPreferences((current) => ({
+                  ...current,
+                  [widthTier]: width,
+                }))
+              }
+              onCommit={(width) =>
+                localStorage.setItem(
+                  wideDesktop ? SIDEBAR_WIDE_WIDTH_KEY : SIDEBAR_WIDTH_KEY,
+                  String(width),
+                )
+              }
+            />
+          </aside>
+          <main className="workspace">
+            <header className="topbar">
+              <button
+                className="icon-button menu-mobile"
+                onClick={() => setMobileSidebar(true)}
+              >
+                <Menu size={21} />
+              </button>
+              <div className="breadcrumb">
+                <span>{t("Mail")}</span>
+                <ChevronRight size={16} />
+                <strong>{folderMeta(activeFolder).label}</strong>
+              </div>
+              <form
+                className="search-box"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setSearch(query.trim());
+                  setPage(0);
+                  setSelected(null);
+                }}
+              >
+                <Search size={19} />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("E-Mails durchsuchen …")}
+                  aria-label={t("E-Mails durchsuchen")}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      setSearch("");
+                      setPage(0);
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+                <span className="search-key">↵</span>
+              </form>
+              <div className="top-actions">
+                <button
+                  className="icon-button"
+                  onClick={refresh}
+                  title={t("Aktualisieren")}
+                >
+                  <RefreshCw size={19} />
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={() => setModal("settings")}
+                  title={t("Einstellungen")}
+                >
+                  <Settings size={19} />
+                </button>
+              </div>
+            </header>
+            {accounts.length === 0 ? (
+              <EmptyAccount onAdd={() => setModal("account")} />
+            ) : activeAccount?.needsCredentials ? (
+              <div className="reader-empty account-setup-empty">
+                <div className="reader-illustration">
+                  <div className="illustration-mail">
+                    <LockKeyhole size={42} strokeWidth={1.3} />
+                  </div>
+                </div>
+                <h2>{t("Postfach vorbereiten")}</h2>
+                <p>
+                  {t("\n              Die Serverdaten für ")}
+                  {activeAccount.email}
+                  {t(
+                    " sind eingerichtet.\n              Ergänze dein Postfach-Passwort, um E-Mails zu laden und zu senden.\n            ",
+                  )}
+                </p>
+                <button
+                  className="primary-button"
+                  onClick={() =>
+                    setModal({ type: "edit", account: activeAccount })
+                  }
+                >
+                  {t("\n              Zugangsdaten ergänzen\n            ")}
+                </button>
+              </div>
+            ) : (
+              <div className="mail-layout">
+                <section
+                  className={`message-panel ${selected ? "hide-mobile" : ""}`}
+                >
+                  <div className="list-header">
+                    <div>
+                      <div className="eyebrow">{activeAccount?.email}</div>
+                      <h1>
+                        {search
+                          ? t("Suchergebnisse")
+                          : folderMeta(activeFolder).label}
+                      </h1>
+                      <p>
+                        {loading
+                          ? t("Lade Nachrichten …")
+                          : `${total} ${threaded ? (total === 1 ? t("Konversation") : t("Konversationen")) : total === 1 ? t("Nachricht") : t("Nachrichten")}${search ? choose(` für „${search}“`, ` for “${search}”`) : ""}`}
+                      </p>
+                    </div>
+                    <div className="list-header-actions">
+                      {isTrashFolder(activeFolder) && (
+                        <button
+                          className="empty-trash-button"
+                          aria-label={t("Papierkorb leeren")}
+                          title={t("Papierkorb leeren")}
+                          onClick={() =>
+                            setModal({ type: "empty-trash", path: folder })
+                          }
+                        >
+                          <Trash2 size={15} />
+                          <span className="empty-trash-label">
+                            {t(
+                              "\n                        Papierkorb leeren\n                      ",
+                            )}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        className="list-menu"
+                        title={t("Aktualisieren")}
+                        onClick={refresh}
+                      >
+                        <RefreshCw size={18} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="list-toolbar">
+                    <div className="list-view-controls">
+                      <button
+                        type="button"
+                        className="thread-mode-button"
+                        aria-pressed={threaded}
+                        title={t("Konversationsansicht umschalten")}
+                        onClick={() => selectThreaded(!threaded)}
+                      >
+                        {threaded
+                          ? t("Konversationen")
+                          : hideRead
+                            ? t("Nachrichten")
+                            : t("Alle Nachrichten")}
+                        <ChevronDown size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="read-filter-button"
+                        aria-pressed={hideRead}
+                        aria-label={t("Gelesene E-Mails ausblenden")}
+                        title={t("Gelesene E-Mails ausblenden")}
+                        onClick={() => selectHideRead(!hideRead)}
+                      >
+                        <Mail size={14} />
+                        <span>{t("Nur ungelesene")}</span>
+                      </button>
+                    </div>
+                    <PaginationControls
+                      page={page}
+                      total={total}
+                      loading={loading}
+                      onChange={changePage}
+                      compact
+                    />
+                  </div>
+                  <div className="message-scroll" ref={messageScrollRef}>
+                    {loading ? (
+                      <div className="panel-loading">
+                        <LoaderCircle className="spin" size={25} />
+                        <span>{t("Postfach wird geladen")}</span>
+                      </div>
+                    ) : messages.length ? (
+                      messages.map((item) => (
+                        <React.Fragment key={item.uid}>
+                          <div
+                            className={`message-row ${selected === item.uid ? "selected" : ""} ${threaded ? (item.threadUnread ? "unread" : "") : !item.seen ? "unread" : ""} ${draggingUid === item.uid ? "dragging" : ""}`}
+                            draggable
+                            onDragStart={(event) => {
+                              draggedMessageRef.current = {
+                                uid: item.uid,
+                                sourceFolder: folder,
+                                accountId,
+                              };
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData(
+                                "application/x-minimail-message",
+                                String(item.uid),
+                              );
+                              setDraggingUid(item.uid);
+                              setContextMenu(null);
+                            }}
+                            onDragEnd={() => {
+                              draggedMessageRef.current = null;
+                              setDraggingUid(null);
+                              setDropFolder(null);
+                            }}
+                            onClick={() => setSelected(item.uid)}
+                            onContextMenu={(event) =>
+                              openContextMenu(event, item.uid)
+                            }
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") setSelected(item.uid);
+                              if (
+                                event.key === "ContextMenu" ||
+                                (event.shiftKey && event.key === "F10")
+                              )
+                                openContextMenu(event, item.uid);
+                            }}
+                          >
+                            {threaded && item.thread?.length > 1 && (
+                              <button
+                                type="button"
+                                className="thread-toggle"
+                                aria-label={
+                                  expandedThreads.has(item.uid)
+                                    ? t("Konversation einklappen")
+                                    : t("Konversation aufklappen")
+                                }
+                                aria-expanded={expandedThreads.has(item.uid)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setExpandedThreads((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(item.uid))
+                                      next.delete(item.uid);
+                                    else next.add(item.uid);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                {expandedThreads.has(item.uid) ? (
+                                  <ChevronDown size={16} />
+                                ) : (
+                                  <ChevronRight size={16} />
+                                )}
+                              </button>
+                            )}
+                            <div className="row-avatar">
+                              {(
+                                item.from?.[0]?.name ||
+                                item.from?.[0]?.address ||
+                                "?"
+                              )
+                                .slice(0, 1)
+                                .toUpperCase()}
+                            </div>
+                            <div className="row-main">
+                              <div className="row-top">
+                                <strong>{fmtAddress(item.from)}</strong>
+                                <time>{dateLabel(item.date)}</time>
+                              </div>
+                              <div className="row-subject" title={item.subject}>
+                                <span>{item.subject}</span>
+                                {threaded && item.thread?.length > 1 && (
+                                  <span
+                                    className="thread-count"
+                                    title={t("Nachrichten in der Konversation")}
+                                  >
+                                    {item.thread.length}
+                                  </span>
+                                )}
+                                {item.hasAttachments && (
+                                  <Paperclip
+                                    size={13}
+                                    aria-label={t("Mit Anhang")}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              className={`star-button ${item.flagged ? "starred" : ""}`}
+                              title={t("Markierung")}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                flag(item.uid, "flagged", !item.flagged);
                               }}
                             >
-                              <div className="thread-line" aria-hidden="true" />
-                              <div className="row-avatar">
+                              <Star
+                                size={16}
+                                fill={item.flagged ? "currentColor" : "none"}
+                              />
+                            </button>
+                          </div>
+                          {threaded &&
+                            expandedThreads.has(item.uid) &&
+                            item.thread
+                              ?.slice(0, -1)
+                              .reverse()
+                              .map((member) => (
+                                <div
+                                  key={member.uid}
+                                  className={`message-row thread-child ${selected === member.uid ? "selected" : ""} ${!member.seen ? "unread" : ""} ${draggingUid === member.uid ? "dragging" : ""}`}
+                                  draggable
+                                  onDragStart={(event) => {
+                                    draggedMessageRef.current = {
+                                      uid: member.uid,
+                                      sourceFolder: folder,
+                                      accountId,
+                                    };
+                                    event.dataTransfer.effectAllowed = "move";
+                                    event.dataTransfer.setData(
+                                      "application/x-minimail-message",
+                                      String(member.uid),
+                                    );
+                                    setDraggingUid(member.uid);
+                                    setContextMenu(null);
+                                  }}
+                                  onDragEnd={() => {
+                                    draggedMessageRef.current = null;
+                                    setDraggingUid(null);
+                                    setDropFolder(null);
+                                  }}
+                                  onClick={() => setSelected(member.uid)}
+                                  onContextMenu={(event) =>
+                                    openContextMenu(event, member.uid)
+                                  }
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter")
+                                      setSelected(member.uid);
+                                    if (
+                                      event.key === "ContextMenu" ||
+                                      (event.shiftKey && event.key === "F10")
+                                    )
+                                      openContextMenu(event, member.uid);
+                                  }}
+                                >
+                                  <div
+                                    className="thread-line"
+                                    aria-hidden="true"
+                                  />
+                                  <div className="row-avatar">
+                                    {(
+                                      member.from?.[0]?.name ||
+                                      member.from?.[0]?.address ||
+                                      "?"
+                                    )
+                                      .slice(0, 1)
+                                      .toUpperCase()}
+                                  </div>
+                                  <div className="row-main">
+                                    <div className="row-top">
+                                      <strong>{fmtAddress(member.from)}</strong>
+                                      <time>{dateLabel(member.date)}</time>
+                                    </div>
+                                    <div
+                                      className="row-subject"
+                                      title={member.subject}
+                                    >
+                                      <span>{member.subject}</span>
+                                      {member.hasAttachments && (
+                                        <Paperclip
+                                          size={13}
+                                          aria-label={t("Mit Anhang")}
+                                        />
+                                      )}
+                                    </div>
+                                  </div>
+                                  <button
+                                    className={`star-button ${member.flagged ? "starred" : ""}`}
+                                    title={t("Markierung")}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      flag(
+                                        member.uid,
+                                        "flagged",
+                                        !member.flagged,
+                                      );
+                                    }}
+                                  >
+                                    <Star
+                                      size={16}
+                                      fill={
+                                        member.flagged ? "currentColor" : "none"
+                                      }
+                                    />
+                                  </button>
+                                </div>
+                              ))}
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      <div className="empty-list">
+                        <div className="empty-icon">
+                          <MailOpen size={27} />
+                        </div>
+                        <h3>
+                          {hideRead
+                            ? t("Keine ungelesenen Nachrichten")
+                            : search
+                              ? t("Keine Treffer gefunden")
+                              : t("Hier ist alles erledigt")}
+                        </h3>
+                        <p>
+                          {hideRead
+                            ? t("Gelesene E-Mails sind ausgeblendet.")
+                            : search
+                              ? t("Versuche einen anderen Suchbegriff.")
+                              : t(
+                                  "In diesem Ordner liegen noch keine Nachrichten.",
+                                )}
+                        </p>
+                        {hideRead && (
+                          <button
+                            className="show-read-button"
+                            onClick={() => selectHideRead(false)}
+                          >
+                            {t("Alle Nachrichten anzeigen")}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="pagination">
+                    <PaginationControls
+                      page={page}
+                      total={total}
+                      loading={loading}
+                      onChange={changePage}
+                    />
+                  </div>
+                  <ResizeHandle
+                    label={t("Breite der Nachrichtenliste")}
+                    value={messageWidth}
+                    min={260}
+                    max={messageMax}
+                    defaultWidth={defaultMessageWidth}
+                    onResize={(width) =>
+                      setMessagePreferences((current) => ({
+                        ...current,
+                        [widthTier]: width,
+                      }))
+                    }
+                    onCommit={(width) =>
+                      localStorage.setItem(
+                        wideDesktop
+                          ? MESSAGE_WIDE_WIDTH_KEY
+                          : MESSAGE_WIDTH_KEY,
+                        String(width),
+                      )
+                    }
+                  />
+                </section>
+                <section
+                  className={`reader-panel ${selected ? "show-mobile" : ""}`}
+                >
+                  {selected ? (
+                    detailLoading || !detail ? (
+                      <div className="reader-loading">
+                        <LoaderCircle size={28} className="spin" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="reader-toolbar">
+                          <button
+                            className="icon-button back-mobile"
+                            onClick={() => setSelected(null)}
+                            title={t("Zurück")}
+                          >
+                            <ArrowLeft size={20} />
+                          </button>
+                          <div className="reader-tool-group">
+                            <button
+                              title={t("Allen antworten")}
+                              aria-label={t("Allen antworten")}
+                              onClick={() =>
+                                setModal({ type: "reply-all", message: detail })
+                              }
+                            >
+                              <Reply size={19} />
+                            </button>
+                            <button
+                              title={t("Archivieren")}
+                              aria-label={t("Archivieren")}
+                              onClick={() => archive()}
+                            >
+                              <Archive size={19} />
+                            </button>
+                            <button
+                              title={t("In Spam verschieben")}
+                              aria-label={t("In Spam verschieben")}
+                              disabled={movingToSpam}
+                              onClick={() => moveToSpam()}
+                            >
+                              <ShieldAlert size={19} />
+                            </button>
+                            <button
+                              title={t("Als ungelesen markieren")}
+                              aria-label={t("Als ungelesen markieren")}
+                              onClick={() => {
+                                flag(selected, "seen", false);
+                                setSelected(null);
+                              }}
+                            >
+                              <Mail size={19} />
+                            </button>
+                            <button
+                              title={t("Löschen")}
+                              aria-label={t("Löschen")}
+                              onClick={() => remove()}
+                            >
+                              <Trash2 size={19} />
+                            </button>
+                            <button
+                              title={t("Nachrichtenquelltext anzeigen")}
+                              aria-label={t("Nachrichtenquelltext anzeigen")}
+                              onClick={() =>
+                                setModal({ type: "source", uid: detail.uid })
+                              }
+                            >
+                              <FileCode2 size={19} />
+                            </button>
+                            <button
+                              title={t("Mail-Weg auf Karte anzeigen")}
+                              aria-label={t("Mail-Weg auf Karte anzeigen")}
+                              onClick={() =>
+                                setModal({ type: "trace", uid: detail.uid })
+                              }
+                            >
+                              <MapPinned size={19} />
+                            </button>
+                            <button
+                              title={t("Mit KI zusammenfassen")}
+                              aria-label={t("Mit KI zusammenfassen")}
+                              onClick={() =>
+                                setModal({ type: "summary", uid: detail.uid })
+                              }
+                            >
+                              <Sparkles size={19} />
+                            </button>
+                          </div>
+                          <div
+                            className="reader-zoom-controls"
+                            role="group"
+                            aria-label={t("Lesedarstellung")}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => changeReaderZoom(-10)}
+                              disabled={readerZoom <= 75}
+                              title={t("Mailtext verkleinern")}
+                              aria-label={t("Mailtext verkleinern")}
+                            >
+                              <Minus size={17} />
+                            </button>
+                            <span>{readerZoom}%</span>
+                            <button
+                              type="button"
+                              onClick={() => changeReaderZoom(10)}
+                              disabled={readerZoom >= 175}
+                              title={t("Mailtext vergrößern")}
+                              aria-label={t("Mailtext vergrößern")}
+                            >
+                              <Plus size={17} />
+                            </button>
+                          </div>
+                          {selectedMessageIndex >= 0 && (
+                            <span className="reader-position">
+                              {page * PAGE_SIZE + selectedMessageIndex + 1}{" "}
+                              {t("von")} {total}
+                            </span>
+                          )}
+                        </div>
+                        <div className="reader-scroll">
+                          <div className="reader-content">
+                            {selectedThread?.thread?.length > 1 && (
+                              <div
+                                className="reader-thread"
+                                aria-label={t(
+                                  "Nachrichten in der Konversation",
+                                )}
+                              >
+                                <strong>
+                                  {selectedThread.thread.length}{" "}
+                                  {t("Nachrichten in dieser Konversation")}
+                                </strong>
+                                <div className="reader-thread-items">
+                                  {selectedThread.thread.map((member) => (
+                                    <button
+                                      type="button"
+                                      key={member.uid}
+                                      className={
+                                        selected === member.uid ? "active" : ""
+                                      }
+                                      onClick={() => setSelected(member.uid)}
+                                    >
+                                      <span>{fmtAddress(member.from)}</span>
+                                      <time>{dateLabel(member.date)}</time>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="message-kicker">
+                              {t("NACHRICHT")}
+                            </div>
+                            <MailInvitation
+                              key={`${accountId}:${folder}:${detail.uid}`}
+                              message={detail}
+                              accountId={accountId}
+                              folder={folder}
+                              onOpen={(id) => {
+                                setCalendarEventId(id);
+                                setAppView("calendar");
+                              }}
+                              setError={setError}
+                            />
+                            <h2>{detail.subject}</h2>
+                            <div className="reader-meta">
+                              <div className="reader-avatar">
                                 {(
-                                  member.from?.[0]?.name ||
-                                  member.from?.[0]?.address ||
+                                  detail.from?.[0]?.name ||
+                                  detail.from?.[0]?.address ||
                                   "?"
                                 )
                                   .slice(0, 1)
                                   .toUpperCase()}
                               </div>
-                              <div className="row-main">
-                                <div className="row-top">
-                                  <strong>{fmtAddress(member.from)}</strong>
-                                  <time>{dateLabel(member.date)}</time>
-                                </div>
-                                <div
-                                  className="row-subject"
-                                  title={member.subject}
-                                >
-                                  <span>{member.subject}</span>
-                                  {member.hasAttachments && (
-                                    <Paperclip
-                                      size={13}
-                                      aria-label={t("Mit Anhang")}
-                                    />
+                              <div className="sender-details">
+                                <strong>{fmtAddress(detail.from)}</strong>
+                                <span>
+                                  {t("an ")}
+                                  {fullAddress(detail.to)}
+                                </span>
+                                {!!detail.cc?.length && (
+                                  <span>Cc: {fullAddress(detail.cc)}</span>
+                                )}
+                                {!!detail.bcc?.length && (
+                                  <span>Bcc: {fullAddress(detail.bcc)}</span>
+                                )}
+                              </div>
+                              <time>
+                                {detail.date
+                                  ? new Intl.DateTimeFormat(dateLocale(), {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    }).format(new Date(detail.date))
+                                  : ""}
+                              </time>
+                            </div>
+                            {detail.security && (
+                              <div
+                                className={`message-security ${["error", "missing-key"].includes(detail.security.status) || ["invalid", "expired", "identity-mismatch", "untrusted", "unknown-key"].includes(detail.security.signature) ? "warning" : "verified"}`}
+                                role="status"
+                              >
+                                <LockKeyhole size={18} />
+                                <span>
+                                  {securityText(detail.security)}
+                                  {detail.security.fingerprint && (
+                                    <small>
+                                      {t("Fingerabdruck")}:{" "}
+                                      {detail.security.fingerprint}
+                                    </small>
                                   )}
+                                </span>
+                              </div>
+                            )}
+                            <div className="message-body">
+                              {detail.html ? (
+                                <div
+                                  className="message-html"
+                                  dangerouslySetInnerHTML={{
+                                    __html: detail.html,
+                                  }}
+                                />
+                              ) : (
+                                <div className="plain-text">
+                                  {detail.text ||
+                                    t(
+                                      "Diese Nachricht enthält keinen lesbaren Text.",
+                                    )}
+                                </div>
+                              )}
+                            </div>
+                            {detail.attachments?.length > 0 && (
+                              <div className="attachments">
+                                <h3>
+                                  <Paperclip size={17} />
+                                  {t(" Anhänge")}{" "}
+                                  <span>{detail.attachments.length}</span>
+                                </h3>
+                                <div className="attachment-list">
+                                  {detail.attachments.map((file) => (
+                                    <a
+                                      key={file.index}
+                                      href={`/api/accounts/${accountId}/messages/${selected}/attachments/${file.index}?folder=${encodeURIComponent(folder)}`}
+                                    >
+                                      <div className="file-icon">
+                                        <FileText size={20} />
+                                      </div>
+                                      <span>
+                                        <strong>{file.filename}</strong>
+                                        <small>
+                                          {Math.round(file.size / 1024)}
+                                          {t(
+                                            " KB\n                                    ",
+                                          )}
+                                        </small>
+                                      </span>
+                                      <Download size={17} />
+                                    </a>
+                                  ))}
                                 </div>
                               </div>
+                            )}
+                            <div className="reply-area">
                               <button
-                                className={`star-button ${member.flagged ? "starred" : ""}`}
-                                title={t("Markierung")}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  flag(member.uid, "flagged", !member.flagged);
-                                }}
+                                onClick={() =>
+                                  setModal({
+                                    type: "reply-all",
+                                    message: detail,
+                                  })
+                                }
                               >
-                                <Star
-                                  size={16}
-                                  fill={
-                                    member.flagged ? "currentColor" : "none"
-                                  }
-                                />
+                                <Reply size={17} />
+                                {t("Allen antworten")}
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setModal({ type: "forward", message: detail })
+                                }
+                              >
+                                <ArrowRight size={17} />
+                                {t(" Weiterleiten\n                          ")}
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setModal({ type: "summary", uid: detail.uid })
+                                }
+                              >
+                                <Sparkles size={17} />
+                                {t("Zusammenfassen")}
                               </button>
                             </div>
-                          ))}
-                    </React.Fragment>
-                  ))
-                ) : (
-                  <div className="empty-list">
-                    <div className="empty-icon">
-                      <MailOpen size={27} />
+                          </div>
+                        </div>
+                      </>
+                    )
+                  ) : (
+                    <div className="reader-empty">
+                      <div className="reader-illustration">
+                        <div className="illustration-mail">
+                          <Mail size={46} strokeWidth={1.3} />
+                        </div>
+                        <span className="orbit orbit-one" />
+                        <span className="orbit orbit-two" />
+                      </div>
+                      <h2>{t("Keine Nachricht ausgewählt")}</h2>
+                      <p>
+                        {t("Wähle eine Nachricht aus, um sie hier zu lesen.")}
+                      </p>
                     </div>
-                    <h3>
-                      {hideRead
-                        ? t("Keine ungelesenen Nachrichten")
-                        : search
-                          ? t("Keine Treffer gefunden")
-                          : t("Hier ist alles erledigt")}
-                    </h3>
-                    <p>
-                      {hideRead
-                        ? t("Gelesene E-Mails sind ausgeblendet.")
-                        : search
-                          ? t("Versuche einen anderen Suchbegriff.")
-                          : t(
-                              "In diesem Ordner liegen noch keine Nachrichten.",
-                            )}
-                    </p>
-                    {hideRead && (
-                      <button
-                        className="show-read-button"
-                        onClick={() => selectHideRead(false)}
-                      >
-                        {t("Alle Nachrichten anzeigen")}
-                      </button>
-                    )}
-                  </div>
-                )}
+                  )}
+                </section>
               </div>
-              <div className="pagination">
-                <PaginationControls
-                  page={page}
-                  total={total}
-                  loading={loading}
-                  onChange={changePage}
-                />
-              </div>
-              <ResizeHandle
-                label={t("Breite der Nachrichtenliste")}
-                value={messageWidth}
-                min={260}
-                max={messageMax}
-                defaultWidth={defaultMessageWidth}
-                onResize={(width) =>
-                  setMessagePreferences((current) => ({
-                    ...current,
-                    [widthTier]: width,
-                  }))
-                }
-                onCommit={(width) =>
-                  localStorage.setItem(
-                    wideDesktop ? MESSAGE_WIDE_WIDTH_KEY : MESSAGE_WIDTH_KEY,
-                    String(width),
-                  )
-                }
-              />
-            </section>
-            <section
-              className={`reader-panel ${selected ? "show-mobile" : ""}`}
-            >
-              {selected ? (
-                detailLoading || !detail ? (
-                  <div className="reader-loading">
-                    <LoaderCircle size={28} className="spin" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="reader-toolbar">
-                      <button
-                        className="icon-button back-mobile"
-                        onClick={() => setSelected(null)}
-                        title={t("Zurück")}
-                      >
-                        <ArrowLeft size={20} />
-                      </button>
-                      <div className="reader-tool-group">
-                        <button
-                          title={t("Allen antworten")}
-                          aria-label={t("Allen antworten")}
-                          onClick={() =>
-                            setModal({ type: "reply-all", message: detail })
-                          }
-                        >
-                          <Reply size={19} />
-                        </button>
-                        <button
-                          title={t("Archivieren")}
-                          aria-label={t("Archivieren")}
-                          onClick={() => archive()}
-                        >
-                          <Archive size={19} />
-                        </button>
-                        <button
-                          title={t("In Spam verschieben")}
-                          aria-label={t("In Spam verschieben")}
-                          disabled={movingToSpam}
-                          onClick={() => moveToSpam()}
-                        >
-                          <ShieldAlert size={19} />
-                        </button>
-                        <button
-                          title={t("Als ungelesen markieren")}
-                          aria-label={t("Als ungelesen markieren")}
-                          onClick={() => {
-                            flag(selected, "seen", false);
-                            setSelected(null);
-                          }}
-                        >
-                          <Mail size={19} />
-                        </button>
-                        <button
-                          title={t("Löschen")}
-                          aria-label={t("Löschen")}
-                          onClick={() => remove()}
-                        >
-                          <Trash2 size={19} />
-                        </button>
-                        <button
-                          title={t("Nachrichtenquelltext anzeigen")}
-                          aria-label={t("Nachrichtenquelltext anzeigen")}
-                          onClick={() =>
-                            setModal({ type: "source", uid: detail.uid })
-                          }
-                        >
-                          <FileCode2 size={19} />
-                        </button>
-                        <button
-                          title={t("Mail-Weg auf Karte anzeigen")}
-                          aria-label={t("Mail-Weg auf Karte anzeigen")}
-                          onClick={() =>
-                            setModal({ type: "trace", uid: detail.uid })
-                          }
-                        >
-                          <MapPinned size={19} />
-                        </button>
-                        <button
-                          title={t("Mit KI zusammenfassen")}
-                          aria-label={t("Mit KI zusammenfassen")}
-                          onClick={() =>
-                            setModal({ type: "summary", uid: detail.uid })
-                          }
-                        >
-                          <Sparkles size={19} />
-                        </button>
-                      </div>
-                      <div
-                        className="reader-zoom-controls"
-                        role="group"
-                        aria-label={t("Lesedarstellung")}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => changeReaderZoom(-10)}
-                          disabled={readerZoom <= 75}
-                          title={t("Mailtext verkleinern")}
-                          aria-label={t("Mailtext verkleinern")}
-                        >
-                          <Minus size={17} />
-                        </button>
-                        <span>{readerZoom}%</span>
-                        <button
-                          type="button"
-                          onClick={() => changeReaderZoom(10)}
-                          disabled={readerZoom >= 175}
-                          title={t("Mailtext vergrößern")}
-                          aria-label={t("Mailtext vergrößern")}
-                        >
-                          <Plus size={17} />
-                        </button>
-                      </div>
-                      {selectedMessageIndex >= 0 && (
-                        <span className="reader-position">
-                          {page * PAGE_SIZE + selectedMessageIndex + 1}{" "}
-                          {t("von")} {total}
-                        </span>
-                      )}
-                    </div>
-                    <div className="reader-scroll">
-                      <div className="reader-content">
-                        {selectedThread?.thread?.length > 1 && (
-                          <div
-                            className="reader-thread"
-                            aria-label={t("Nachrichten in der Konversation")}
-                          >
-                            <strong>
-                              {selectedThread.thread.length}{" "}
-                              {t("Nachrichten in dieser Konversation")}
-                            </strong>
-                            <div className="reader-thread-items">
-                              {selectedThread.thread.map((member) => (
-                                <button
-                                  type="button"
-                                  key={member.uid}
-                                  className={
-                                    selected === member.uid ? "active" : ""
-                                  }
-                                  onClick={() => setSelected(member.uid)}
-                                >
-                                  <span>{fmtAddress(member.from)}</span>
-                                  <time>{dateLabel(member.date)}</time>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="message-kicker">{t("NACHRICHT")}</div>
-                        <h2>{detail.subject}</h2>
-                        <div className="reader-meta">
-                          <div className="reader-avatar">
-                            {(
-                              detail.from?.[0]?.name ||
-                              detail.from?.[0]?.address ||
-                              "?"
-                            )
-                              .slice(0, 1)
-                              .toUpperCase()}
-                          </div>
-                          <div className="sender-details">
-                            <strong>{fmtAddress(detail.from)}</strong>
-                            <span>
-                              {t("an ")}
-                              {fullAddress(detail.to)}
-                            </span>
-                            {!!detail.cc?.length && (
-                              <span>Cc: {fullAddress(detail.cc)}</span>
-                            )}
-                            {!!detail.bcc?.length && (
-                              <span>Bcc: {fullAddress(detail.bcc)}</span>
-                            )}
-                          </div>
-                          <time>
-                            {detail.date
-                              ? new Intl.DateTimeFormat(dateLocale(), {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                }).format(new Date(detail.date))
-                              : ""}
-                          </time>
-                        </div>
-                        {detail.security && (
-                          <div
-                            className={`message-security ${["error", "missing-key"].includes(detail.security.status) || ["invalid", "expired", "identity-mismatch", "untrusted", "unknown-key"].includes(detail.security.signature) ? "warning" : "verified"}`}
-                            role="status"
-                          >
-                            <LockKeyhole size={18} />
-                            <span>
-                              {securityText(detail.security)}
-                              {detail.security.fingerprint && (
-                                <small>
-                                  {t("Fingerabdruck")}:{" "}
-                                  {detail.security.fingerprint}
-                                </small>
-                              )}
-                            </span>
-                          </div>
-                        )}
-                        <div className="message-body">
-                          {detail.html ? (
-                            <div
-                              className="message-html"
-                              dangerouslySetInnerHTML={{ __html: detail.html }}
-                            />
-                          ) : (
-                            <div className="plain-text">
-                              {detail.text ||
-                                t(
-                                  "Diese Nachricht enthält keinen lesbaren Text.",
-                                )}
-                            </div>
-                          )}
-                        </div>
-                        {detail.attachments?.length > 0 && (
-                          <div className="attachments">
-                            <h3>
-                              <Paperclip size={17} />
-                              {t(" Anhänge")}{" "}
-                              <span>{detail.attachments.length}</span>
-                            </h3>
-                            <div className="attachment-list">
-                              {detail.attachments.map((file) => (
-                                <a
-                                  key={file.index}
-                                  href={`/api/accounts/${accountId}/messages/${selected}/attachments/${file.index}?folder=${encodeURIComponent(folder)}`}
-                                >
-                                  <div className="file-icon">
-                                    <FileText size={20} />
-                                  </div>
-                                  <span>
-                                    <strong>{file.filename}</strong>
-                                    <small>
-                                      {Math.round(file.size / 1024)}
-                                      {t(
-                                        " KB\n                                    ",
-                                      )}
-                                    </small>
-                                  </span>
-                                  <Download size={17} />
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="reply-area">
-                          <button
-                            onClick={() =>
-                              setModal({ type: "reply-all", message: detail })
-                            }
-                          >
-                            <Reply size={17} />
-                            {t("Allen antworten")}
-                          </button>
-                          <button
-                            onClick={() =>
-                              setModal({ type: "forward", message: detail })
-                            }
-                          >
-                            <ArrowRight size={17} />
-                            {t(" Weiterleiten\n                          ")}
-                          </button>
-                          <button
-                            onClick={() =>
-                              setModal({ type: "summary", uid: detail.uid })
-                            }
-                          >
-                            <Sparkles size={17} />
-                            {t("Zusammenfassen")}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )
-              ) : (
-                <div className="reader-empty">
-                  <div className="reader-illustration">
-                    <div className="illustration-mail">
-                      <Mail size={46} strokeWidth={1.3} />
-                    </div>
-                    <span className="orbit orbit-one" />
-                    <span className="orbit orbit-two" />
-                  </div>
-                  <h2>{t("Keine Nachricht ausgewählt")}</h2>
-                  <p>{t("Wähle eine Nachricht aus, um sie hier zu lesen.")}</p>
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-      </main>
+            )}
+          </main>
+        </>
+      )}
+      <CalendarReminders
+        username={auth.user.username}
+        onOpen={(id) => {
+          setCalendarEventId(id);
+          setAppView("calendar");
+        }}
+        setError={setError}
+      />
       {contextMenu?.type === "folder" &&
         folders.some((item) => item.path === contextMenu.path) && (
           <div
