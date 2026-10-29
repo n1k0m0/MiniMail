@@ -111,7 +111,7 @@ test("calendar views and editors render with writable/read-only controls and tas
         },
       }),
     );
-    assert.ok(prepared.includes("Dieser Kalender ist vorbereitet."));
+    assert.ok(prepared.includes("Verbindung später einrichten"));
     assert.ok(prepared.includes('type="password"'));
   } finally {
     await vite.close();

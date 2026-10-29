@@ -89,13 +89,6 @@ export default function CalendarConnection({
     >
       <form className="calendar-editor" onSubmit={save}>
         <div className="calendar-dialog-content">
-          {calendar?.setupPending && (
-            <p className="calendar-note">
-              {t(
-                "Dieser Kalender ist vorbereitet. Ergänze das App-Passwort und speichere, um die Verbindung zu aktivieren.",
-              )}
-            </p>
-          )}
           <fieldset className="calendar-fields" disabled={busy}>
             <label className="calendar-full">
               {t("Name")}
@@ -142,13 +135,6 @@ export default function CalendarConnection({
                   />
                   {t("Verbindung später einrichten")}
                 </label>
-                {form.kind === "caldav" && (
-                  <p className="calendar-note calendar-full">
-                    {t(
-                      "Nextcloud: Nutze die CalDAV-Adresse aus den Kalender-Einstellungen oder die Serveradresse mit /remote.php/dav/. Bei 2FA wird ein App-Passwort benötigt.",
-                    )}
-                  </p>
-                )}
                 <label className="calendar-full">
                   {t(
                     form.kind === "caldav"
@@ -249,25 +235,8 @@ export default function CalendarConnection({
                   />
                   {t("Schreibgeschützt abonnieren")}
                 </label>
-                {form.kind === "ics" && !form.readOnly && (
-                  <p className="calendar-note calendar-full">
-                    {t(
-                      "Schreibzugriff benötigt HTTP PUT und ETags. Dabei wird die gesamte Kalenderdatei aktualisiert. Öffentliche Abonnements sind meist schreibgeschützt.",
-                    )}
-                  </p>
-                )}
-                <p className="calendar-field-hint calendar-full">
-                  {t(
-                    "Zugangsdaten und Kalenderadressen werden verschlüsselt auf deinem MiniMail-Server gespeichert. Die Verbindung erfolgt direkt zum Kalenderanbieter über HTTPS.",
-                  )}
-                </p>
               </>
             )}
-            <p className="calendar-note calendar-full">
-              {t(
-                "Dieser Kalender gehört nur deinem MiniMail-Benutzerkonto. Berechtigungen und Freigaben auf einem externen Kalenderserver gelten zusätzlich.",
-              )}
-            </p>
           </fieldset>
         </div>
         <div className="calendar-dialog-footer">

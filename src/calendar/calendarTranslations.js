@@ -10,16 +10,12 @@ export const calendarTranslations = {
   "Erneut laden": "Reload",
   "Zugangsdaten ergänzen": "Add credentials",
   "Verbindung später einrichten": "Set up connection later",
-  "Dieser Kalender ist vorbereitet. Ergänze das App-Passwort und speichere, um die Verbindung zu aktivieren.":
-    "This calendar is prepared. Add the app password and save to activate the connection.",
   "Bitte zuerst die Zugangsdaten des Kalenders ergänzen.":
     "Please add the calendar credentials first.",
   "Ungespeicherte Kalenderänderungen verwerfen?":
     "Discard unsaved calendar changes?",
   "Bitte Änderungen zuerst speichern.": "Please save your changes first.",
   "Die Anzeigezeitzone ist ungültig.": "Invalid display time zone.",
-  "Nextcloud: Nutze die CalDAV-Adresse aus den Kalender-Einstellungen oder die Serveradresse mit /remote.php/dav/. Bei 2FA wird ein App-Passwort benötigt.":
-    "Nextcloud: use the CalDAV address from calendar settings, or the server address followed by /remote.php/dav/. An app password is required with 2FA.",
   Kalender: "Calendar",
   "MEINE KALENDER": "MY CALENDARS",
   "Kalender hinzufügen": "Add calendar",
@@ -41,12 +37,6 @@ export const calendarTranslations = {
   Verbinden: "Connect",
   "Kalenderliste öffnen": "Open calendar list",
   "Zurück zu E-Mail": "Back to email",
-  "Dieser Kalender gehört nur deinem MiniMail-Benutzerkonto. Berechtigungen und Freigaben auf einem externen Kalenderserver gelten zusätzlich.":
-    "This calendar belongs only to your MiniMail user. Permissions and sharing on an external calendar server also apply.",
-  "Zugangsdaten und Kalenderadressen werden verschlüsselt auf deinem MiniMail-Server gespeichert. Die Verbindung erfolgt direkt zum Kalenderanbieter über HTTPS.":
-    "Credentials and calendar addresses are encrypted on your MiniMail server. Connections go directly to the calendar provider over HTTPS.",
-  "Schreibzugriff benötigt HTTP PUT und ETags. Dabei wird die gesamte Kalenderdatei aktualisiert. Öffentliche Abonnements sind meist schreibgeschützt.":
-    "Write access requires HTTP PUT and ETags and updates the entire calendar file. Public subscriptions are usually read-only.",
   "Kalender aus MiniMail entfernen? Lokale Termine werden gelöscht; Online-Kalender bleiben auf ihrem Server erhalten.":
     "Remove this calendar from MiniMail? Local events will be deleted. Online calendars remain on their server.",
   "Keine CalDAV-Kalender gefunden. Bitte eine direkte Kalenderadresse verwenden.":
