@@ -9,6 +9,7 @@ import {
   joinCalendar,
   invitation,
   tentativeInvitation,
+  parseCalendar,
 } from "../server/calendarIcs.js";
 import {
   allowedAddress,
@@ -49,6 +50,51 @@ test("calendar series keep local time over DST and individual edits/exclusions s
     expandItem(raw, "2026-10-01T00:00:00Z", "2026-12-01T00:00:00Z").length,
     3,
   );
+});
+
+test("moved occurrences outside their original range, floating alarms and durations retain their meaning", () => {
+  let raw = editItem(null, {
+    title: "Series",
+    start: "2026-12-01T09:00",
+    end: "2026-12-01T10:00",
+    timezone: "UTC",
+    recurrence: "FREQ=DAILY;COUNT=20",
+  });
+  raw = editItem(raw, {
+    scope: "occurrence",
+    recurrenceId: "2026-12-15T09:00:00Z",
+    title: "Moved into November",
+    start: "2026-11-02T09:00",
+    end: "2026-11-02T10:00",
+  });
+  const moved = expandItem(raw, "2026-11-01T00:00:00Z", "2026-11-03T00:00:00Z");
+  assert.equal(moved.length, 1);
+  assert.equal(moved[0].title, "Moved into November");
+  const floating = editItem(null, {
+    title: "Floating",
+    start: "2026-11-01T09:00",
+    end: "2026-11-01T10:00",
+    timezone: "floating",
+    reminder: 15,
+  });
+  const inBerlin = expandItem(
+    floating,
+    "2026-11-01T00:00:00Z",
+    "2026-11-02T00:00:00Z",
+    "Europe/Berlin",
+  );
+  assert.equal(inBerlin[0].alarms[0], Date.parse("2026-11-01T07:45:00Z"));
+  const component = parseCalendar(
+    editItem(null, {
+      title: "Duration",
+      start: "2026-11-01T09:00",
+      timezone: "UTC",
+    }),
+  );
+  const item = component.getFirstSubcomponent("vevent");
+  item.removeAllProperties("dtend");
+  item.addPropertyWithValue("duration", "PT2H");
+  assert.equal(itemDetails(component.toString()).endLocal, "2026-11-01T11:00");
 });
 
 test("all-day events, tasks, attendees and opaque provider properties round-trip", async () => {
@@ -194,4 +240,10 @@ test("calendar networking rejects private addresses and collection escapes", asy
     }),
   );
   assert.equal(discovered[0].name, "Personal");
+  const empty = await fetchRemoteCalendar(
+    { url: "https://example.test/cal/" },
+    "caldav",
+    async () => ({ status: 207, body: '<d:multistatus xmlns:d="DAV:"/>' }),
+  );
+  assert.deepEqual(empty.items, []);
 });

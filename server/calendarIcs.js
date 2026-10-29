@@ -139,7 +139,11 @@ export function itemDetails(raw) {
   if (!component)
     throw new CalendarError("Kein Termin oder keine Aufgabe gefunden.");
   const start = value(component, "dtstart", null),
-    end = value(component, component.name === "vtodo" ? "due" : "dtend", null);
+    end =
+      value(component, component.name === "vtodo" ? "due" : "dtend", null) ||
+      (component.name === "vevent" && start
+        ? new ICAL.Event(component).endDate
+        : null);
   const attendees = component.getAllProperties("attendee").map((prop) => ({
     email: email(prop.getFirstValue()),
     name: prop.getParameter("cn") || "",
@@ -161,8 +165,8 @@ export function itemDetails(raw) {
     end: dateString(end),
     startLocal: localString(start),
     endLocal: localString(end),
-    allDay: !!start?.isDate,
-    timezone: start?.zone?.tzid || "floating",
+    allDay: !!(start || end)?.isDate,
+    timezone: (start || end)?.zone?.tzid || "floating",
     recurrence: String(value(component, "rrule")),
     recurring: component.hasProperty("rrule") || component.hasProperty("rdate"),
     status: String(
@@ -185,6 +189,7 @@ export function itemDetails(raw) {
     sequence: Number(value(component, "sequence", 0)),
     stamp: dateString(value(component, "dtstamp", null)),
     method: String(value(root, "method")),
+    selfResponse: String(value(component, "x-minimail-response")),
     reminder:
       trigger instanceof ICAL.Duration
         ? Math.max(0, -trigger.toSeconds() / 60)
@@ -456,7 +461,11 @@ export function removeOccurrence(raw, recurrenceId) {
   );
   return root.toString();
 }
-export function expandItem(raw, from, to) {
+export function expandItem(raw, from, to, zone = "UTC", exceptionPass = false) {
+  const milliseconds = (time) =>
+    !time.isDate && time.zone === ICAL.Timezone.localTimezone
+      ? DateTime.fromISO(time.toString(), { zone }).toMillis()
+      : time.toJSDate().getTime();
   const root = parseCalendar(raw),
     component = main(root);
   if (!component) return [];
@@ -500,14 +509,11 @@ export function expandItem(raw, from, to) {
       item = current.item.component;
     const start = current.startDate,
       end = current.endDate;
-    if (
-      start.toJSDate().getTime() >= endMs &&
-      occurrence.toJSDate().getTime() >= endMs
-    )
+    if (milliseconds(start) >= endMs && milliseconds(occurrence) >= endMs)
       break;
     if (
-      end.toJSDate().getTime() >= startMs &&
-      start.toJSDate().getTime() < endMs &&
+      milliseconds(end) >= startMs &&
+      milliseconds(start) < endMs &&
       value(item, "status") !== "CANCELLED"
     ) {
       const alarms = [];
@@ -518,9 +524,9 @@ export function expandItem(raw, from, to) {
         if (!delay) continue;
         alarms.push(
           delay instanceof ICAL.Duration
-            ? (trigger.getParameter("related") === "END" ? end : start)
-                .toJSDate()
-                .getTime() +
+            ? milliseconds(
+                trigger.getParameter("related") === "END" ? end : start,
+              ) +
                 delay.toSeconds() * 1000
             : delay.toJSDate().getTime(),
         );
@@ -548,6 +554,24 @@ export function expandItem(raw, from, to) {
         "Dieser Serienkalender ist zu umfangreich. Bitte die Wiederholungen begrenzen.",
       );
   }
+  if (!exceptionPass)
+    for (const exception of root
+      .getAllSubcomponents(component.name)
+      .filter((item) => item.hasProperty("recurrence-id"))) {
+      const id = value(exception, "recurrence-id").toString();
+      if (result.some((item) => item.recurrenceId === id)) continue;
+      const single = newRoot();
+      single.addSubcomponent(copy(exception));
+      for (const timezone of root.getAllSubcomponents("vtimezone"))
+        single.addSubcomponent(copy(timezone));
+      for (const item of expandItem(single.toString(), from, to, zone, true))
+        result.push({
+          ...item,
+          recurrenceId: id,
+          recurring: true,
+          recurrence: details.recurrence,
+        });
+    }
   return result;
 }
 export function joinCalendar(entries) {
@@ -586,17 +610,30 @@ export function invitation(raw, { status, address, method = "REPLY" }) {
     attendee.setParameter("rsvp", "FALSE");
     component.removeAllProperties("attendee");
     component.addProperty(attendee);
-  } else if (method === "CANCEL")
+  } else if (method === "CANCEL") {
     component.updatePropertyWithValue("status", "CANCELLED");
+    component.updatePropertyWithValue(
+      "sequence",
+      Number(value(component, "sequence", 0)) + 1,
+    );
+  }
   component.updatePropertyWithValue("dtstamp", ICAL.Time.now());
   return root.toString();
 }
-export function applyReply(raw, { address, status }) {
+export function applyReply(raw, { address, status, self = false }) {
   const root = parseCalendar(raw),
     component = main(root);
   for (const attendee of component.getAllProperties("attendee"))
     if (email(attendee.getFirstValue()) === address.toLowerCase())
       attendee.setParameter("partstat", status);
+  if (self) {
+    component.updatePropertyWithValue("x-minimail-response", status);
+    if (status !== "DECLINED")
+      component.updatePropertyWithValue(
+        "status",
+        status === "ACCEPTED" ? "CONFIRMED" : "TENTATIVE",
+      );
+  }
   return root.toString();
 }
 export function tentativeInvitation(raw) {
@@ -637,10 +674,19 @@ export function clientScheduling(raw) {
   }
   return root.toString();
 }
-export function expandItems(rows, from, to) {
+export function expandItems(rows, from, to, zone = "UTC") {
+  if (
+    !Number.isFinite(Date.parse(from)) ||
+    !Number.isFinite(Date.parse(to)) ||
+    Date.parse(to) <= Date.parse(from) ||
+    Date.parse(to) - Date.parse(from) > 370 * 86400000
+  )
+    throw new CalendarError(
+      "Der Kalenderzeitraum ist ungültig oder größer als ein Jahr.",
+    );
   const result = [];
   for (const { ics, id, ...metadata } of rows) {
-    for (const item of expandItem(ics, from, to))
+    for (const item of expandItem(ics, from, to, zone))
       result.push({
         ...item,
         ...metadata,
@@ -653,6 +699,20 @@ export function expandItems(rows, from, to) {
       );
   }
   return result;
+}
+export function previousInvitationState(raw, incoming) {
+  const root = parseCalendar(raw),
+    next = main(parseCalendar(incoming));
+  const id = String(value(next, "recurrence-id"));
+  const current = root
+    .getAllSubcomponents("vevent")
+    .find((c) => String(value(c, "recurrence-id")) === id);
+  return current
+    ? {
+        sequence: Number(value(current, "sequence", 0)),
+        stamp: dateString(value(current, "dtstamp", null)),
+      }
+    : null;
 }
 export function taskItems(rows) {
   return rows.flatMap(({ ics, ...metadata }) => {

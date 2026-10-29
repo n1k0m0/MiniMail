@@ -15,7 +15,9 @@ export default function CalendarReminders({ username, onOpen, setError }) {
       if (busy) return;
       busy = true;
       try {
-        const result = await api("/calendar/alerts");
+        const result = await api(
+          `/calendar/alerts?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`,
+        );
         if (!active) return;
         setAlerts(result);
         for (const alert of result) {

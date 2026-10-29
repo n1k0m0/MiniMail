@@ -121,6 +121,7 @@
   background: var(--cal-selected);
 }
 .calendar-list-item > label {
+  flex-direction: row;
   display: flex;
   min-width: 0;
   flex: 1;
@@ -178,6 +179,9 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--cal-muted);
+}
+.calendar-layout .calendar-list-item > label {
+  flex-direction: row;
 }
 .calendar-layout input:not([type="checkbox"]),
 .calendar-layout select,
@@ -384,6 +388,10 @@
 .calendar-grid .calendar-tentative {
   border-style: dashed;
   opacity: 0.85;
+}
+.calendar-grid .calendar-declined {
+  opacity: 0.6;
+  text-decoration: line-through;
 }
 .calendar-grid .fc-list-day-cushion {
   background: var(--cal-panel);
@@ -636,7 +644,7 @@
   position: fixed;
   right: 20px;
   bottom: 20px;
-  z-index: 45;
+  z-index: 18;
   width: min(380px, calc(100vw - 32px));
   max-height: 55vh;
   overflow: auto;

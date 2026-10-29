@@ -70,6 +70,7 @@ export default function CalendarView({
   const [view, setView] = useState("dayGridMonth"),
     [title, setTitle] = useState("");
   const [zone, setZone] = useState(browserZone),
+    [zoneInput, setZoneInput] = useState(browserZone),
     [weekends, setWeekends] = useState(true),
     [query, setQuery] = useState("");
   const [taskFilter, setTaskFilter] = useState("open"),
@@ -92,7 +93,7 @@ export default function CalendarView({
       const [data, entries, todo] = await Promise.all([
         api("/calendar/calendars"),
         api(
-          `/calendar/events?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`,
+          `/calendar/events?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}&timezone=${encodeURIComponent(zone)}`,
         ),
         api("/calendar/tasks"),
       ]);
@@ -105,7 +106,7 @@ export default function CalendarView({
     } finally {
       setLoading(false);
     }
-  }, [range.start, range.end, username]);
+  }, [range.start, range.end, username, zone]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -166,13 +167,20 @@ export default function CalendarView({
   }
   function switchView(next) {
     setView(next);
-    if (next !== "tasks") calendarRef.current?.getApi().changeView(next);
   }
+  useEffect(() => {
+    if (view !== "tasks") {
+      const calendar = calendarRef.current?.getApi();
+      calendar?.changeView(view);
+      calendar?.updateSize();
+    }
+  }, [view]);
   useEffect(() => {
     const key = (event) => {
       if (
         !editor &&
         !connection &&
+        !document.querySelector('[role="dialog"]') &&
         event.key.toLowerCase() === "n" &&
         !event.ctrlKey &&
         !event.metaKey &&
@@ -268,7 +276,7 @@ export default function CalendarView({
           start: formTime(info.event.start, effectiveZone, info.event.allDay),
           end: formTime(info.event.end, effectiveZone, info.event.allDay),
           allDay: info.event.allDay,
-          timezone: effectiveZone,
+          timezone: entry.timezone || effectiveZone,
           scope: entry.recurrenceId ? "occurrence" : "series",
           recurrenceId: entry.recurrenceId,
         },
@@ -285,18 +293,20 @@ export default function CalendarView({
       .includes(query.trim().toLowerCase());
   const displayed = useMemo(
     () =>
-      events
-        .filter(matches)
-        .map((event) => ({
-          ...event,
-          backgroundColor: event.color,
-          borderColor: event.color,
-          textColor: calendarTextColor(event.color),
-          editable: !event.readOnly,
-          classNames:
-            event.status === "TENTATIVE" ? ["calendar-tentative"] : [],
-          extendedProps: { ...event },
-        })),
+      events.filter(matches).map((event) => ({
+        ...event,
+        backgroundColor: event.color,
+        borderColor: event.color,
+        textColor: calendarTextColor(event.color),
+        editable: !event.readOnly,
+        classNames:
+          event.selfResponse === "DECLINED"
+            ? ["calendar-declined"]
+            : event.status === "TENTATIVE"
+              ? ["calendar-tentative"]
+              : [],
+        extendedProps: { ...event },
+      })),
     [events, query],
   );
   const visibleTasks = tasks
@@ -510,6 +520,7 @@ export default function CalendarView({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("Termine und Aufgaben durchsuchen …")}
+              aria-label={t("Termine und Aufgaben durchsuchen …")}
             />
           </label>
           <div>
@@ -615,11 +626,18 @@ export default function CalendarView({
           <label>
             {t("Anzeigezeitzone")}
             <input
-              value={zone}
+              value={zoneInput}
               list="calendar-zones"
               onChange={(e) => {
-                if (DateTime.now().setZone(e.target.value).isValid)
-                  setZone(e.target.value);
+                setZoneInput(e.target.value);
+              }}
+              onBlur={() => {
+                if (DateTime.now().setZone(zoneInput).isValid)
+                  setZone(zoneInput);
+                else {
+                  setZoneInput(zone);
+                  setError(t("Die Anzeigezeitzone ist ungültig."));
+                }
               }}
             />
             <datalist id="calendar-zones">
@@ -636,7 +654,8 @@ export default function CalendarView({
             />
             {t("Wochenenden")}
           </label>
-          {"Notification" in window &&
+          {typeof window !== "undefined" &&
+            "Notification" in window &&
             Notification.permission !== "granted" && (
               <button
                 onClick={async () => {

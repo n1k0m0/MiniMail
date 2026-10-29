@@ -206,9 +206,9 @@ function multistatus(text) {
       502,
     );
   }
-  if (!parsed.multistatus)
+  if (!Object.hasOwn(parsed, "multistatus"))
     throw new CalendarError("Der Server liefert keine CalDAV-Antwort.", 502);
-  return array(parsed.multistatus.response).map((entry) => {
+  return array(parsed.multistatus?.response).map((entry) => {
     let properties = {};
     for (const result of array(entry.propstat))
       if (/\s200\s/.test(result.status || ""))

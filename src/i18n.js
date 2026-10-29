@@ -1,4 +1,6 @@
+import { calendarTranslations } from "./calendar/calendarTranslations.js";
 const translations = {
+  ...calendarTranslations,
   "Änderungen werden sofort übernommen.": "Changes take effect immediately.",
   "KI-Änderungen mit Speichern übernehmen.": "Apply AI changes with Save.",
   "Die Verwaltung gemeinsamer Einstellungen ist Administratoren vorbehalten.":

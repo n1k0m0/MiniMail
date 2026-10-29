@@ -18,8 +18,7 @@ export function eventForm(event, calendarId, zone = browserZone()) {
     description: event?.description || "",
     location: event?.location || "",
     url: event?.url || "",
-    timezone:
-      event?.timezone && event.timezone !== "floating" ? event.timezone : zone,
+    timezone: event?.timezone || zone,
     start: event?.startLocal ?? now.toFormat("yyyy-MM-dd'T'HH:mm"),
     end:
       event?.endLocal ?? now.plus({ hours: 1 }).toFormat("yyyy-MM-dd'T'HH:mm"),
@@ -47,4 +46,8 @@ export function calendarTextColor(color) {
     ? "#142039"
     : "#ffffff";
 }
-export const timezones = () => ["UTC", ...Intl.supportedValuesOf("timeZone")];
+export const timezones = () => [
+  "UTC",
+  "floating",
+  ...Intl.supportedValuesOf("timeZone"),
+];

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -31,6 +31,30 @@ export default function EventEditor({
   const [form, setForm] = useState(() =>
     eventForm(event, defaultCalendarId, zone),
   );
+  const initial = useRef(form);
+  const normalized = (data) =>
+    JSON.stringify({
+      ...data,
+      calendarId: Number(data.calendarId),
+      scope: "",
+      recurrenceId: "",
+    });
+  const original = event?.id
+    ? eventForm(
+        form.scope === "series" && event.master ? event.master : event,
+        defaultCalendarId,
+        zone,
+      )
+    : initial.current;
+  const dirty = normalized(form) !== normalized(original);
+  function close() {
+    if (
+      !busy &&
+      (!dirty ||
+        window.confirm(t("Ungespeicherte Kalenderänderungen verwerfen?")))
+    )
+      onClose();
+  }
   const [busy, setBusy] = useState(false),
     [attendee, setAttendee] = useState("");
   const [accountId, setAccountId] = useState(
@@ -103,9 +127,15 @@ export default function EventEditor({
       }
       const value = await api(
         event?.id
-          ? `/calendar/events/${event.id}`
+          ? `/calendar/events/${event.id}${Number(form.calendarId) !== event.calendarId ? "/move" : ""}`
           : `/calendar/calendars/${form.calendarId}/events`,
-        { method: event?.id ? "PATCH" : "POST", body: payload },
+        {
+          method:
+            event?.id && Number(form.calendarId) === event.calendarId
+              ? "PATCH"
+              : "POST",
+          body: payload,
+        },
       );
       notify(t("Termin gespeichert."));
       onSaved(value);
@@ -138,6 +168,10 @@ export default function EventEditor({
     });
   }
   async function respond(status, method = "REPLY") {
+    if (dirty) {
+      setError(t("Bitte Änderungen zuerst speichern."));
+      return;
+    }
     if (
       !window.confirm(
         t(
@@ -221,7 +255,7 @@ export default function EventEditor({
       title={t(
         task ? "Aufgabe" : event?.id ? "Termin bearbeiten" : "Neuer Termin",
       )}
-      onClose={() => !busy && onClose()}
+      onClose={close}
       wide
     >
       <form onSubmit={save} className="calendar-editor">
@@ -262,7 +296,7 @@ export default function EventEditor({
               {t("Kalender")}
               <select
                 value={form.calendarId}
-                disabled={!!event?.id}
+                disabled={!!event?.recurrenceId && form.scope !== "series"}
                 required
                 onChange={(e) => set("calendarId", e.target.value)}
               >
@@ -625,7 +659,7 @@ export default function EventEditor({
                     {t("Antwort senden von")}
                     <select
                       value={accountId}
-                      disabled={busy}
+                      disabled={busy || dirty}
                       onChange={(e) => setAccountId(e.target.value)}
                     >
                       {accounts
@@ -645,7 +679,7 @@ export default function EventEditor({
                   <div>
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || dirty}
                       onClick={() => respond("ACCEPTED")}
                     >
                       <Check size={16} />
@@ -653,14 +687,14 @@ export default function EventEditor({
                     </button>
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || dirty}
                       onClick={() => respond("TENTATIVE")}
                     >
                       {t("Vorläufig zusagen")}
                     </button>
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || dirty}
                       onClick={() => respond("DECLINED")}
                     >
                       {t("Ablehnen")}
@@ -672,7 +706,7 @@ export default function EventEditor({
                 <div>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || dirty}
                     onClick={() => respond(null, "REQUEST")}
                   >
                     <Mail size={16} />
@@ -680,7 +714,7 @@ export default function EventEditor({
                   </button>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || dirty}
                     onClick={() => respond(null, "CANCEL")}
                   >
                     {t("Termin absagen und informieren")}
@@ -711,7 +745,7 @@ export default function EventEditor({
             )}
           </div>
           <div>
-            <button type="button" disabled={busy} onClick={onClose}>
+            <button type="button" disabled={busy} onClick={close}>
               {t("Schließen")}
             </button>
             <button

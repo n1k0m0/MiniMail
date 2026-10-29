@@ -89,6 +89,13 @@ export async function listCalendars(db, userId) {
   return { calendars, preferences };
 }
 function calendarInput(body, existing) {
+  if (
+    (body.visible !== undefined && typeof body.visible !== "boolean") ||
+    (body.readOnly !== undefined && typeof body.readOnly !== "boolean")
+  )
+    throw new CalendarError(
+      "Kalendersichtbarkeit und Schreibschutz müssen ein- oder ausgeschaltet sein.",
+    );
   const kind = existing?.kind || body.kind;
   const name = body.name ?? existing?.name,
     color = body.color ?? existing?.color ?? "#5267df",
@@ -238,6 +245,24 @@ async function syncUnlocked(db, calendar, request) {
       throw new CalendarError(
         "Der Online-Kalender enthält mehr als 5000 Einträge.",
       );
+    const others = await db
+      .prepare(
+        "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=? AND calendars.id<>?",
+      )
+      .get(calendar.user_id, calendar.id);
+    const bytes = entries.reduce(
+      (total, entry) =>
+        total + Math.ceil((Buffer.byteLength(entry.ics) + 28) / 3) * 4,
+      0,
+    );
+    if (
+      others.n + entries.length > 10000 ||
+      others.bytes + bytes > 32 * 1024 * 1024
+    )
+      throw new CalendarError(
+        "Das Kalenderlimit von 10000 Einträgen oder 32 MB pro Benutzer ist erreicht.",
+        413,
+      );
     await db.transaction(async () => {
       for (const entry of entries) await upsertCached(db, calendar.id, entry);
       for (const item of await db
@@ -337,9 +362,42 @@ export async function getCalendarEvent(db, userId, id) {
   };
 }
 async function writeItem(db, calendar, raw, old, request) {
+  if (Buffer.byteLength(raw) > 256 * 1024)
+    throw new CalendarError(
+      "Ein einzelner Kalendereintrag ist größer als 256 KB.",
+      413,
+    );
   if (calendar.read_only)
     throw new CalendarError("Dieser Kalender ist schreibgeschützt.", 403);
   const details = await runCalendar("itemDetails", raw);
+  const budget = await db
+    .prepare(
+      "SELECT COUNT(*) AS n,COALESCE(SUM(CHAR_LENGTH(calendar_items.ical_enc)),0) AS bytes FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=?",
+    )
+    .get(calendar.user_id);
+  if (
+    (!old && budget.n >= 10000) ||
+    budget.bytes -
+      (old?.ical_enc.length || 0) +
+      Math.ceil((Buffer.byteLength(raw) + 28) / 3) * 4 >
+      32 * 1024 * 1024
+  )
+    throw new CalendarError(
+      "Das Kalenderlimit von 10000 Einträgen oder 32 MB pro Benutzer ist erreicht.",
+      413,
+    );
+  if (
+    !old &&
+    (await db
+      .prepare(
+        "SELECT id FROM calendar_items WHERE calendar_id=? AND uid_hash=?",
+      )
+      .get(calendar.id, uidHash(details.uid)))
+  )
+    throw new CalendarError(
+      "Dieser Termin ist bereits im Kalender vorhanden.",
+      409,
+    );
   let remote = { href: old?.href, etag: old?.etag };
   if (calendar.kind === "caldav")
     remote = await putRemoteItem(
@@ -366,6 +424,8 @@ async function writeItem(db, calendar, raw, old, request) {
         .map((item) => decrypt(item.ical_enc)),
       raw,
     ]);
+    if (Buffer.byteLength(combined) > 5 * 1024 * 1024)
+      throw new CalendarError("Die Kalenderdatei ist größer als 5 MB.", 413);
     const response = await (request || remoteRequest)(
       configOf(calendar),
       "PUT",
@@ -484,37 +544,90 @@ export async function removeCalendarEvent(db, userId, id, body, request) {
       );
       return;
     }
-    if (calendar.kind === "caldav")
-      await deleteRemoteItem(configOf(calendar), old, request);
-    if (calendar.kind === "ics") {
-      if (!calendar.remote_etag)
+    await eraseItem(db, calendar, old, request);
+  });
+}
+async function eraseItem(db, calendar, old, request) {
+  if (calendar.kind === "caldav")
+    await deleteRemoteItem(configOf(calendar), old, request);
+  if (calendar.kind === "ics") {
+    if (!calendar.remote_etag)
+      throw new CalendarError(
+        "Die Versionskennung fehlt. Bitte zuerst synchronisieren.",
+        409,
+      );
+    const rows = await db
+      .prepare("SELECT id,ical_enc FROM calendar_items WHERE calendar_id=?")
+      .all(calendar.id);
+    const raw = await runCalendar(
+      "joinCalendar",
+      rows
+        .filter((row) => row.id !== old.id)
+        .map((row) => decrypt(row.ical_enc)),
+    );
+    const response = await (request || remoteRequest)(
+      configOf(calendar),
+      "PUT",
+      raw,
+      { "If-Match": calendar.remote_etag },
+    );
+    await db
+      .prepare("UPDATE calendars SET remote_etag=? WHERE id=?")
+      .run(response.headers.etag || null, calendar.id);
+  }
+  await db
+    .prepare("DELETE FROM calendar_items WHERE id=? AND version=?")
+    .run(old.id, old.version);
+}
+export async function moveCalendarEvent(
+  db,
+  userId,
+  id,
+  destinationId,
+  body,
+  request,
+) {
+  const original = await eventFor(db, userId, id);
+  if (original.calendar_id === Number(destinationId))
+    return saveCalendarEvent(
+      db,
+      userId,
+      original.calendar_id,
+      body,
+      id,
+      request,
+    );
+  return exclusive(original.calendar_id, () =>
+    exclusive(Number(destinationId), async () => {
+      const old = await eventFor(db, userId, id),
+        source = await calendarFor(db, userId, old.calendar_id, true),
+        destination = await calendarFor(db, userId, destinationId, true);
+      if (old.version !== body.version)
         throw new CalendarError(
-          "Die Versionskennung fehlt. Bitte zuerst synchronisieren.",
+          "Der Termin wurde inzwischen geändert. Bitte erneut öffnen.",
           409,
         );
-      const rows = await db
-        .prepare("SELECT id,ical_enc FROM calendar_items WHERE calendar_id=?")
-        .all(calendar.id);
-      const raw = await runCalendar(
-        "joinCalendar",
-        rows
-          .filter((row) => row.id !== old.id)
-          .map((row) => decrypt(row.ical_enc)),
-      );
-      const response = await (request || remoteRequest)(
-        configOf(calendar),
-        "PUT",
-        raw,
-        { "If-Match": calendar.remote_etag },
-      );
-      await db
-        .prepare("UPDATE calendars SET remote_etag=? WHERE id=?")
-        .run(response.headers.etag || null, calendar.id);
-    }
-    await db
-      .prepare("DELETE FROM calendar_items WHERE id=? AND version=?")
-      .run(old.id, old.version);
-  });
+      const raw = await runCalendar("editItem", decrypt(old.ical_enc), body);
+      const move = async () => {
+        const newId = await writeItem(db, destination, raw, null, request);
+        try {
+          await eraseItem(db, source, old, request);
+        } catch {
+          throw new CalendarError(
+            "Der Eintrag wurde in den Zielkalender kopiert, aber das Original konnte nicht entfernt werden. Bitte beide Kalender synchronisieren und das Original prüfen.",
+            409,
+          );
+        }
+        await db
+          .prepare("UPDATE calendar_items SET source=? WHERE id=?")
+          .run(old.source, newId);
+        return getCalendarEvent(db, userId, newId);
+      };
+      return source.kind === "local" && destination.kind === "local"
+        ? db.transaction(move)
+        : move();
+    }),
+  );
 }
 export async function importCalendar(
   db,
@@ -554,7 +667,13 @@ export async function importCalendar(
     return { imported, skipped };
   });
 }
-export async function calendarEvents(db, userId, from, to) {
+export async function calendarEvents(db, userId, from, to, zone = "UTC") {
+  if (
+    typeof zone !== "string" ||
+    zone.length > 100 ||
+    !DateTime.now().setZone(zone).isValid
+  )
+    throw new CalendarError("Die Anzeigezeitzone ist ungültig.");
   const rows = await db
     .prepare(
       "SELECT calendar_items.*,calendars.color,calendars.read_only,calendars.name AS calendar_name FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=? AND calendars.visible=1",
@@ -574,6 +693,7 @@ export async function calendarEvents(db, userId, from, to) {
     })),
     from,
     to,
+    zone,
   );
 }
 export async function calendarTasks(db, userId) {
@@ -640,14 +760,15 @@ export async function importMailInvitations(
   const preferences = await calendarPreferences(db, account.user_id);
   if (!preferences.defaultCalendarId || (!preferences.autoImport && !manual))
     return [];
-  const calendar = await calendarFor(
+  let calendar = await calendarFor(
     db,
     account.user_id,
     preferences.defaultCalendarId,
     true,
   );
   const results = [];
-  for (const attachment of attachments || []) {
+  const defaultCalendar = calendar;
+  for (const attachment of (attachments || []).slice(0, 10)) {
     if (
       !/text\/calendar|application\/ics/i.test(attachment.contentType || "") &&
       !/\.ics$/i.test(attachment.filename || "")
@@ -664,12 +785,46 @@ export async function importMailInvitations(
       continue;
     }
     for (const entry of entries.slice(0, 50)) {
-      const details = await runCalendar("itemDetails", entry.ics);
+      calendar = defaultCalendar;
+      let details;
+      try {
+        details = await runCalendar("itemDetails", entry.ics);
+      } catch {
+        continue;
+      }
+      const located = await db
+        .prepare(
+          "SELECT calendar_items.calendar_id FROM calendar_items JOIN calendars ON calendars.id=calendar_items.calendar_id WHERE calendars.user_id=? AND calendars.kind='local' AND calendars.read_only=0 AND calendar_items.uid_hash=? ORDER BY calendars.id LIMIT 1",
+        )
+        .get(account.user_id, uidHash(entry.uid));
+      if (located)
+        calendar = await calendarFor(
+          db,
+          account.user_id,
+          located.calendar_id,
+          true,
+        );
       if (
         details.kind !== "vevent" ||
         !["REQUEST", "CANCEL", "REPLY"].includes(entry.method)
-      )
+      ) {
+        if (manual) {
+          await importCalendar(db, account.user_id, calendar.id, entry.ics);
+          const item = await db
+            .prepare(
+              "SELECT id FROM calendar_items WHERE calendar_id=? AND uid_hash=?",
+            )
+            .get(calendar.id, uidHash(entry.uid));
+          if (item)
+            results.push({
+              id: item.id,
+              calendarId: calendar.id,
+              title: details.title,
+              existing: !!located,
+            });
+        }
         continue;
+      }
       const sender = (from || [])
         .map((p) => p.address?.toLowerCase())
         .filter(Boolean);
@@ -718,12 +873,19 @@ export async function importMailInvitations(
             "itemDetails",
             decrypt(old.ical_enc),
           );
+          const previous = await runCalendar(
+            "previousInvitationState",
+            decrypt(old.ical_enc),
+            entry.ics,
+          );
           if (
             old.source !== "invitation" ||
             stored.organizer !== details.organizer ||
             details.sequence < stored.sequence ||
-            (details.sequence === stored.sequence &&
-              details.stamp <= stored.stamp)
+            (previous &&
+              (details.sequence < previous.sequence ||
+                (details.sequence === previous.sequence &&
+                  details.stamp <= previous.stamp)))
           ) {
             results.push({
               id: old.id,
@@ -760,12 +922,18 @@ export async function importMailInvitations(
   }
   return results;
 }
-export async function calendarAlerts(db, userId, now = Date.now()) {
+export async function calendarAlerts(
+  db,
+  userId,
+  now = Date.now(),
+  zone = "UTC",
+) {
   const events = await calendarEvents(
     db,
     userId,
     new Date(now - 86400000).toISOString(),
-    new Date(now + 3 * 86400000).toISOString(),
+    new Date(now + 29 * 86400000).toISOString(),
+    zone,
   );
   const saved = await db
     .prepare("SELECT * FROM calendar_alerts WHERE user_id=?")
@@ -802,6 +970,24 @@ export function registerCalendarRoutes(
   db,
   { accountFor, getInvitationParts, sendMessage },
 ) {
+  const rates = new Map();
+  app.use("/api/calendar", (req, res, next) => {
+    const now = Date.now(),
+      previous = rates.get(req.user.id);
+    const state =
+      previous && previous.until > now
+        ? previous
+        : { until: now + 60000, count: 0 };
+    state.count++;
+    rates.set(req.user.id, state);
+    if (rates.size > 2000)
+      for (const [id, value] of rates) if (value.until < now) rates.delete(id);
+    if (state.count > 120)
+      return res
+        .status(429)
+        .json({ error: "Zu viele Kalenderanfragen. Bitte kurz warten." });
+    next();
+  });
   const route = (fn) => async (req, res, next) => {
     try {
       await fn(req, res);
@@ -875,6 +1061,7 @@ export function registerCalendarRoutes(
           req.user.id,
           String(req.query.start || ""),
           String(req.query.end || ""),
+          String(req.query.timezone || "UTC"),
         ),
       ),
     ),
@@ -918,6 +1105,20 @@ export function registerCalendarRoutes(
         ),
       );
     }),
+  );
+  app.post(
+    "/api/calendar/events/:eventId/move",
+    route(async (req, res) =>
+      res.json(
+        await moveCalendarEvent(
+          db,
+          req.user.id,
+          req.params.eventId,
+          req.body?.calendarId,
+          req.body || {},
+        ),
+      ),
+    ),
   );
   app.delete(
     "/api/calendar/events/:eventId",
@@ -978,7 +1179,16 @@ export function registerCalendarRoutes(
   );
   app.get(
     "/api/calendar/alerts",
-    route(async (req, res) => res.json(await calendarAlerts(db, req.user.id))),
+    route(async (req, res) =>
+      res.json(
+        await calendarAlerts(
+          db,
+          req.user.id,
+          Date.now(),
+          String(req.query.timezone || "UTC"),
+        ),
+      ),
+    ),
   );
   app.post(
     "/api/calendar/alerts",
@@ -1063,6 +1273,7 @@ export function registerCalendarRoutes(
             ? await runCalendar("applyReply", raw, {
                 address: account.email,
                 status: req.body.status,
+                self: true,
               })
             : ics;
         let syncWarning = "";
@@ -1102,6 +1313,8 @@ export function startCalendarSync(db) {
       running = false;
     }
   };
-  setTimeout(sync, 10000).unref();
-  setInterval(sync, 60000).unref();
+  const tick = () =>
+    sync().catch(() => console.error("Calendar synchronization deferred"));
+  setTimeout(tick, 10000).unref();
+  setInterval(tick, 60000).unref();
 }

@@ -541,7 +541,9 @@ async function scanInboxInvitations(client, account, uidNext) {
         { since: new Date(Date.now() - 30 * 86400000) },
         { uid: true },
       );
-      cursor = recent.length ? Math.min(...recent) - 1 : uidNext - 1;
+      cursor = recent.length
+        ? recent.reduce((lowest, uid) => Math.min(lowest, uid), Infinity) - 1
+        : uidNext - 1;
     }
     const end = Math.min(uidNext - 1, cursor + 1000);
     if (end > cursor) {

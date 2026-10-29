@@ -26,13 +26,13 @@ export async function runCalendar(operation, ...args) {
         429,
       );
     await new Promise((resolve) => queue.push(resolve));
-  }
-  active++;
+  } else active++;
   try {
     return await execute(operation, args);
   } finally {
-    active--;
-    queue.shift()?.();
+    const next = queue.shift();
+    if (next) next();
+    else active--;
   }
 }
 function execute(operation, args) {

@@ -13,6 +13,7 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 - Raw message source and relay trace inspection, with optional offline IP geolocation.
 - German and English interfaces, light/dark themes and responsive layouts.
 - Optional unread-only view with correct search/pagination, plus stronger unread styling for messages, mailboxes and folders. Read emails remain visible by default.
+- Personal calendars with local storage, iCalendar/Webcal subscriptions and CalDAV synchronization, including Nextcloud; day/week/month/multiweek/agenda views, tasks, recurring events, reminders, per-calendar colors, import/export and email invitations.
 - Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
 
 ## Requirements
@@ -116,6 +117,39 @@ The settings window has separate pages for **Mailboxes**, **Address book**, **Ap
 | VPN profile selection                                     | Administrators only; server profiles and credentials are provisioned outside the web interface.                                                                 |
 
 The mail APIs enforce ownership on the server; hiding controls is not the access boundary. Administrators can reset another user's credentials and 2FA, and operators with database access and the application encryption key can technically recover encrypted stored credentials, keys and drafts. MiniMail does not protect these stored values from its own server operator.
+
+## Calendars and Nextcloud
+
+Open the **Calendar** icon in the left rail. A personal calendar is created for each user. Use **Add calendar** to create another local calendar, subscribe to an iCalendar/Webcal URL, or connect a CalDAV collection. Each calendar has its own color, visibility and read-only setting. Removing an online connection removes MiniMail's cache; it does not delete that collection on the provider. Local calendars and their events are deleted when removed, so export them first if you need a copy.
+
+### Connect Nextcloud
+
+1. In Nextcloud Calendar, copy the calendar's **private CalDAV address**. Use a collection address such as `https://cloud.example.org/remote.php/dav/calendars/USERNAME/personal/`, rather than a public ICS subscription if you want to edit events.
+2. In MiniMail, select **Add calendar → CalDAV**. Enter that URL, your Nextcloud username and an app password. Alternatively, enter `https://cloud.example.org/remote.php/dav/` and use **Find calendars on the server** to select a collection. Include Nextcloud's subdirectory if applicable.
+3. Choose a name and color. Clear **Subscribe read-only** to allow editing if your Nextcloud account has write access. Click **Connect**.
+4. After changing a test event, synchronize in Nextcloud or another client to verify both directions. MiniMail refreshes connected calendars every five minutes and provides a manual synchronization button.
+
+Create/revoke app passwords under **Nextcloud → Personal settings → Security**; use a dedicated app password rather than your main login password. See the official [Nextcloud CalDAV setup](https://docs.nextcloud.com/server/latest/user_manual/en/groupware/sync_thunderbird.html) and [app-password instructions](https://docs.nextcloud.com/server/latest/user_manual/en/files/access_webdav.html).
+
+### Events, tasks and invitations
+
+- Views: day, week, month, four weeks, agenda and tasks; date navigation, search within the displayed range, ISO week numbers, weekends, display timezone and print view.
+- Events: create/edit/delete, all-day or timed events, IANA timezones, location, description, conference URL, categories, public/private/confidential classification, free/busy classification, attendees, custom RRULEs, reminders, dragging/resizing and copying/moving between writable calendars. Open a recurring occurrence to edit/delete that occurrence or the whole series. Imported recurrence exceptions, RDATE/EXDATE, timezone definitions and unknown provider properties are preserved in the ICS resource.
+- Tasks: VTODO import/export and CalDAV sync, optional start/due dates, priority, progress, open/in-progress/completed/cancelled status and filters. Dated tasks also appear in the calendar.
+- Email invitations: new inbox mail is checked with the mailbox's configured check interval. The initial scan covers the previous 30 days and continues in bounded batches. Opening a message in another folder also checks its calendar parts. Matching `REQUEST` invitations become tentative local events; newer updates/cancellations use the UID, organizer and sequence/timestamp to avoid duplicate or stale changes. The sender must match the organizer, and the mailbox must be an attendee. This comparison is not cryptographic proof of identity.
+- Under **Invitations from email**, choose a local destination and enable/disable automatic tentative import. Auto-import never sends replies or writes invitations into remote calendars. Use **Open in calendar and reply** to explicitly accept, tentatively accept or decline from one of your attendee mailboxes. Organizers can explicitly send invitations/updates or cancellations. The application uses the selected mailbox's existing SMTP configuration and saves the sent copy as usual. CalDAV writes use client-controlled scheduling to avoid a second automatic scheduling message from a compliant server.
+- ICS import skips existing UIDs by default. Export any calendar as `.ics`. Public subscriptions are normally read-only. Writable ICS subscriptions require HTTP PUT and ETags; MiniMail updates the full file conditionally. CalDAV edits/deletes use conditional ETags. Conflicts are shown to the user and require refreshing/reopening the event.
+- Display reminders appear inside MiniMail while it is open, with dismissal/snoozing. Browser notifications require permission and appear while the page remains open. Reminder polling considers events up to 28 days ahead. Email/audio alarm actions and remote attachments are never executed automatically.
+
+This is an independent calendar implementation, not an embedded Thunderbird or a claim of complete Thunderbird/add-on parity. Offline editing, provider-specific OAuth/Exchange/Google APIs, server-side push reminders while the browser is closed, delegation/resource booking and remote attendee free/busy scheduling are not implemented. The supported Nextcloud connection uses standard CalDAV with an app password. Test a new provider with a disposable event before relying on it for appointments.
+
+### Calendar storage and network access
+
+Calendars, events, preferences and reminder state are user-scoped in MySQL; administrator status does not bypass ownership checks. Event ICS bodies and connection credentials/URLs are encrypted using `APP_ENCRYPTION_KEY`. Calendar names/colors, versions and sync metadata are not encrypted. Back up MySQL together with that key; the new tables are created automatically on startup and require no separate database service.
+
+Limits: 30 calendars, 10,000 items and 32 MiB of encrypted calendar bodies per user; 5 MiB per remote calendar/import, 256 KiB per item, and 100 items per online import request. Pathological recurrence expansion runs in bounded workers with CPU/memory limits. Failed or partial remote responses retain the previous cache.
+
+Only HTTPS on ports 443/8443 is supported. DNS answers are validated and pinned per request, credentials stay on the configured origin, and CalDAV item paths must remain inside the collection. Private/loopback/link-local destinations are blocked by default. For an intentionally internal calendar, the server administrator can set an exact, comma-separated `CALENDAR_ALLOWED_HOSTS` list in `.env`, then recreate the app container. Use no wildcards and grant only the intended calendar hosts. Custom CA certificates, if required, must be installed by the administrator; TLS verification remains enabled.
 
 ## Optional generic VPN
 

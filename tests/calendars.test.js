@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import express from "express";
 import { testDatabase, insertTestUser } from "./mysqlTestHelper.js";
 import {
   listCalendars,
@@ -16,12 +17,15 @@ import {
   importMailInvitations,
   syncCalendar,
   calendarAlerts,
+  moveCalendarEvent,
+  registerCalendarRoutes,
 } from "../server/calendars.js";
 import {
   editItem,
   invitation,
   itemDetails,
   CalendarError,
+  uidHash,
 } from "../server/calendarIcs.js";
 import { decrypt } from "../server/security.js";
 
@@ -300,4 +304,125 @@ test("reminders only expose the owner's due events and honor dismissal", async (
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].itemId, item.id);
   assert.deepEqual(await calendarAlerts(db, 2, now), []);
+  await db
+    .prepare(
+      "INSERT INTO calendar_alerts(user_id,item_id,occurrence_hash,dismissed) VALUES (1,?,?,1)",
+    )
+    .run(item.id, uidHash(alerts[0].occurrence));
+  assert.deepEqual(await calendarAlerts(db, 1, now), []);
+});
+
+test("moving calendars preserves a series and cannot cross user boundaries", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  await insertTestUser(db, 2);
+  const data = await listCalendars(db, 1),
+    other = await listCalendars(db, 2);
+  const target = await createCalendar(db, 1, { name: "Target", kind: "local" });
+  const old = await saveCalendarEvent(
+    db,
+    1,
+    data.preferences.defaultCalendarId,
+    { ...event, recurrence: "FREQ=WEEKLY;COUNT=3" },
+  );
+  await assert.rejects(
+    moveCalendarEvent(db, 1, old.id, other.preferences.defaultCalendarId, {
+      version: old.version,
+    }),
+    { status: 404 },
+  );
+  const moved = await moveCalendarEvent(db, 1, old.id, target.id, {
+    version: old.version,
+    title: "Moved series",
+  });
+  assert.equal(moved.uid, old.uid);
+  assert.equal(moved.calendarId, target.id);
+  assert.equal(moved.title, "Moved series");
+  await assert.rejects(getCalendarEvent(db, 1, old.id), { status: 404 });
+  assert.equal(
+    (
+      await calendarEvents(
+        db,
+        1,
+        "2026-11-01T00:00:00Z",
+        "2026-11-30T00:00:00Z",
+      )
+    ).length,
+    3,
+  );
+});
+
+test("mail import sends nothing, and an explicit RSVP sends one reply from an owned attendee mailbox", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  await db
+    .prepare(
+      "INSERT INTO accounts(user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (1,'Own','own@example.test','imap.example.test',993,1,'smtp.example.test',465,1,'own','synthetic',1)",
+    )
+    .run();
+  const account = await db
+    .prepare("SELECT * FROM accounts WHERE user_id=1")
+    .get();
+  const raw = editItem(null, {
+    ...event,
+    organizer: "organizer@example.test",
+    attendees: [{ email: account.email }, { email: "other@example.test" }],
+  });
+  const imported = await importMailInvitations(
+    db,
+    account,
+    [
+      {
+        contentType: "text/calendar",
+        content: Buffer.from(invitation(raw, { method: "REQUEST" })),
+      },
+    ],
+    [{ address: "organizer@example.test" }],
+  );
+  const sent = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.user = { id: 1 };
+    next();
+  });
+  registerCalendarRoutes(app, db, {
+    sendMessage: async (...args) => {
+      sent.push(args);
+      return { sentCopy: { saved: true } };
+    },
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(resolve);
+      }),
+  );
+  assert.equal(sent.length, 0);
+  const item = await getCalendarEvent(db, 1, imported[0].id);
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/calendar/events/${item.id}/respond`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountId: account.id,
+        version: item.version,
+        status: "ACCEPTED",
+      }),
+    },
+  );
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.sent, true);
+  assert.equal(result.status, "CONFIRMED");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][1].to, "organizer@example.test");
+  assert.equal(sent[0][2].method, "REPLY");
+  const reply = itemDetails(sent[0][2].content);
+  assert.equal(reply.attendees.length, 1);
+  assert.equal(reply.attendees[0].email, account.email);
 });

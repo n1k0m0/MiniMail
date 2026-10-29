@@ -126,6 +126,13 @@ export default function CalendarConnection({
             </label>
             {form.kind !== "local" && (
               <>
+                {form.kind === "caldav" && (
+                  <p className="calendar-note calendar-full">
+                    {t(
+                      "Nextcloud: Nutze die CalDAV-Adresse aus den Kalender-Einstellungen oder die Serveradresse mit /remote.php/dav/. Bei 2FA wird ein App-Passwort benötigt.",
+                    )}
+                  </p>
+                )}
                 <label className="calendar-full">
                   {t(
                     form.kind === "caldav"

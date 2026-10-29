@@ -13,7 +13,11 @@ export default function CalendarDialog({
   close.current = onClose;
   useEffect(() => {
     const previous = document.activeElement;
-    ref.current?.querySelector("input,button")?.focus();
+    (
+      ref.current?.querySelector(
+        "input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
+      ) || ref.current?.querySelector("button")
+    )?.focus();
     const keydown = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
