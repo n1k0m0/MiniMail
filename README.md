@@ -50,7 +50,7 @@ The installer:
 3. Checks whether an administrator exists and, on a new installation, prompts for a password in an interactive terminal. The password is not echoed or passed as a command-line argument.
 4. Starts MiniMail at **http://127.0.0.1:3000**.
 
-Open the local address, sign in and enroll an authenticator app. Then connect a mailbox in Settings. Additional users can be created by an administrator under **Settings → User management**. Temporary passwords must be changed before a new user enrolls their own 2FA.
+Configure HTTPS as described below, then open your HTTPS address, sign in and enroll an authenticator app. To test sign-in locally without a reverse proxy, use the development setup instead. Then connect a mailbox in Settings. Additional users can be created by an administrator under **Settings → User management**. Temporary passwords must be changed before a new user enrolls their own 2FA.
 
 **Production cookies require HTTPS.** Direct HTTP access is intended only to check whether the service responds; production sign-in must go through an HTTPS reverse proxy. For local sign-in during development, use the development instructions below.
 
@@ -191,7 +191,7 @@ MiniMail talks to IMAP/SMTP over validated TLS, either direct TLS or required ST
 - **Save draft** stores an encrypted draft in MiniMail, including attachments and reply references. It is explicit, not automatic, and is separate from the provider's IMAP Drafts folder. Use **Saved drafts** to resume or delete it. Draft storage is limited to 50 drafts and 64 MiB of encrypted draft payload per user.
 - Closing an edited message offers Save and close, Keep editing or Discard changes. Leaving/reloading the page warns about unsaved changes. Discarding edits to an existing draft keeps its last saved version.
 
-Under **Mailbox → Keys**, import an OpenPGP private key or S/MIME PKCS#12/PEM identity matching the sender address. Recipient public keys/certificates can be imported into contacts. Automatically collected public keys are not trusted for encryption until confirmed. Verify fingerprints with the recipient through another trusted channel.
+Under **Mailbox → Keys**, import an OpenPGP private key or S/MIME PKCS#12/PEM identity matching the sender address. Recipient public keys/certificates can be imported into contacts. Unverified collected public keys are not trusted for encryption until confirmed. S/MIME certificates validated against a trusted certificate chain can be marked verified automatically. Verify fingerprints with the recipient through another trusted channel.
 
 Select **Enforce** if a message must be encrypted. **Automatic** encrypts only when all required recipient material is available and can otherwise send without encryption; the composer displays that state. Encrypted Sent copies also include the sender as a recipient. Expired personal S/MIME certificates can be used to read old messages but cannot be selected for new protected mail.
 

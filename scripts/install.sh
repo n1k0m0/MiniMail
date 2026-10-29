@@ -25,4 +25,4 @@ if [ "$status" = needs-admin ]; then
   sh "$root/scripts/compose.sh" run --rm --no-deps minimail node server/create-admin.js "$username"
 fi
 sh "$root/scripts/compose.sh" up -d
-echo 'MiniMail is listening on http://127.0.0.1:3000. Configure HTTPS before remote access.'
+echo 'MiniMail is listening on http://127.0.0.1:3000. Configure HTTPS for sign-in.'

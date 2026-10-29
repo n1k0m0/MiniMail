@@ -35,4 +35,4 @@ if ($status.Trim() -eq 'needs-admin') {
 }
 & docker @baseArgs up -d
 if ($LASTEXITCODE -ne 0) { throw 'MiniMail did not start.' }
-Write-Output 'MiniMail is listening on http://127.0.0.1:3000. Configure HTTPS before remote access.'
+Write-Output 'MiniMail is listening on http://127.0.0.1:3000. Configure HTTPS for sign-in.'
