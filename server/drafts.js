@@ -1,73 +1,72 @@
 import { encrypt, decrypt } from "./security.js";
 import { validOutgoingMail } from "./mailInput.js";
-
 const validId = (id) => /^[a-zA-Z0-9-]{1,64}$/.test(id);
-
 export function registerDraftRoutes(app, db) {
-  db.exec(`CREATE TABLE IF NOT EXISTS drafts (
-    user_id INTEGER NOT NULL, id TEXT NOT NULL, data_enc TEXT NOT NULL,
-    updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, id)
-  )`);
-  if (
-    !db
-      .prepare("PRAGMA table_info(drafts)")
-      .all()
-      .some((column) => column.name === "metadata_enc")
-  )
-    db.exec("ALTER TABLE drafts ADD COLUMN metadata_enc TEXT");
-  app.get("/api/drafts", (req, res) => {
-    const drafts = db
+  app.get("/api/drafts", async (req, res) => {
+    const drafts = await db
       .prepare(
         "SELECT id,metadata_enc,updated_at FROM drafts WHERE user_id=? ORDER BY updated_at DESC",
       )
       .all(req.user.id);
-    res.json(
-      drafts.map((row) => {
-        let draft;
-        if (row.metadata_enc) draft = JSON.parse(decrypt(row.metadata_enc));
-        else {
-          // Migrate one old draft at a time instead of loading every attachment
-          // into memory whenever the user opens the draft list.
-          const stored = db
-            .prepare("SELECT data_enc FROM drafts WHERE user_id=? AND id=?")
-            .get(req.user.id, row.id);
-          const legacy = JSON.parse(decrypt(stored.data_enc));
-          draft = { subject: legacy.subject, to: legacy.to };
-          db.prepare(
-            "UPDATE drafts SET metadata_enc=? WHERE user_id=? AND id=?",
-          ).run(encrypt(JSON.stringify(draft)), req.user.id, row.id);
-        }
-        return {
-          id: row.id,
-          subject: draft.subject,
-          to: draft.to,
-          updatedAt: row.updated_at,
-        };
-      }),
-    );
+    const summaries = [];
+    for (const row of drafts) {
+      let draft;
+      if (row.metadata_enc) draft = JSON.parse(decrypt(row.metadata_enc));
+      else {
+        // Read and migrate old attachments one draft at a time.
+        const stored = await db
+          .prepare("SELECT data_enc FROM drafts WHERE user_id=? AND id=?")
+          .get(req.user.id, row.id);
+        if (!stored) continue;
+        const legacy = JSON.parse(decrypt(stored.data_enc));
+        draft = { subject: legacy.subject, to: legacy.to };
+        await db
+          .prepare("UPDATE drafts SET metadata_enc=? WHERE user_id=? AND id=?")
+          .run(encrypt(JSON.stringify(draft)), req.user.id, row.id);
+      }
+      summaries.push({
+        id: row.id,
+        subject: draft.subject,
+        to: draft.to,
+        updatedAt: row.updated_at,
+      });
+    }
+    res.json(summaries);
   });
-  app.get("/api/drafts/:id", (req, res) => {
-    const row = db
+  app.get("/api/drafts/:id", async (req, res) => {
+    const row = await db
       .prepare("SELECT data_enc FROM drafts WHERE user_id=? AND id=?")
       .get(req.user.id, req.params.id);
-    if (!row) return res.status(404).json({ error: "Entwurf nicht gefunden." });
-    res.json({ ...JSON.parse(decrypt(row.data_enc)), id: req.params.id });
+    if (!row)
+      return res.status(404).json({
+        error: "Entwurf nicht gefunden.",
+      });
+    res.json({
+      ...JSON.parse(decrypt(row.data_enc)),
+      id: req.params.id,
+    });
   });
-  app.put("/api/drafts/:id", (req, res) => {
+  app.put("/api/drafts/:id", async (req, res) => {
     const draft = req.body;
     if (
       !validId(req.params.id) ||
-      !validOutgoingMail(draft, { draft: true }) ||
+      !validOutgoingMail(draft, {
+        draft: true,
+      }) ||
       !Number.isSafeInteger(draft.accountId) ||
       !["compose", "reply", "reply-all", "forward"].includes(draft.type)
     )
-      return res.status(400).json({ error: "Ungültiger Entwurf." });
+      return res.status(400).json({
+        error: "Ungültiger Entwurf.",
+      });
     if (
-      !db
+      !(await db
         .prepare("SELECT id FROM accounts WHERE id=? AND user_id=?")
-        .get(draft.accountId, req.user.id)
+        .get(draft.accountId, req.user.id))
     )
-      return res.status(400).json({ error: "Postfach nicht gefunden." });
+      return res.status(400).json({
+        error: "Postfach nicht gefunden.",
+      });
     // Store only the editor fields, with the same encryption as mailbox credentials.
     const data = Object.fromEntries(
       [
@@ -87,32 +86,53 @@ export function registerDraftRoutes(app, db) {
         .map((key) => [key, draft[key]]),
     );
     const encrypted = encrypt(JSON.stringify(data));
-    const usage = db
-      .prepare(
-        "SELECT count(*) AS count,coalesce(sum(length(data_enc)),0) AS bytes FROM drafts WHERE user_id=? AND id<>?",
+    const saved = await db.transaction(async () => {
+      await db
+        .prepare("SELECT id FROM users WHERE id=? FOR UPDATE")
+        .get(req.user.id);
+      const usage = await db
+        .prepare(
+          "SELECT count(*) AS count,coalesce(sum(length(data_enc)),0) AS bytes FROM drafts WHERE user_id=? AND id<>?",
+        )
+        .get(req.user.id, req.params.id);
+      if (
+        usage.count >= 50 ||
+        usage.bytes + encrypted.length > 64 * 1024 * 1024
       )
-      .get(req.user.id, req.params.id);
-    if (usage.count >= 50 || usage.bytes + encrypted.length > 64 * 1024 * 1024)
+        return false;
+      await db
+        .prepare(
+          `INSERT INTO drafts (user_id,id,data_enc,metadata_enc,updated_at) VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE data_enc=VALUES(data_enc), metadata_enc=VALUES(metadata_enc), updated_at=VALUES(updated_at)`,
+        )
+        .run(
+          req.user.id,
+          req.params.id,
+          encrypted,
+          encrypt(
+            JSON.stringify({
+              subject: data.subject,
+              to: data.to,
+            }),
+          ),
+          Date.now(),
+        );
+      return true;
+    });
+    if (!saved)
       return res
         .status(413)
         .json({ error: "Entwurfsspeicher voll. Bitte alte Entwürfe löschen." });
-    db.prepare(
-      `INSERT INTO drafts (user_id,id,data_enc,metadata_enc,updated_at) VALUES (?,?,?,?,?)
-      ON CONFLICT(user_id,id) DO UPDATE SET data_enc=excluded.data_enc, metadata_enc=excluded.metadata_enc, updated_at=excluded.updated_at`,
-    ).run(
-      req.user.id,
-      req.params.id,
-      encrypted,
-      encrypt(JSON.stringify({ subject: data.subject, to: data.to })),
-      Date.now(),
-    );
-    res.json({ id: req.params.id });
+    res.json({
+      id: req.params.id,
+    });
   });
-  app.delete("/api/drafts/:id", (req, res) => {
-    db.prepare("DELETE FROM drafts WHERE user_id=? AND id=?").run(
-      req.user.id,
-      req.params.id,
-    );
-    res.json({ ok: true });
+  app.delete("/api/drafts/:id", async (req, res) => {
+    await db
+      .prepare("DELETE FROM drafts WHERE user_id=? AND id=?")
+      .run(req.user.id, req.params.id);
+    res.json({
+      ok: true,
+    });
   });
 }

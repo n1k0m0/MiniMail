@@ -4,7 +4,6 @@ data
 .env
 .cli-test
 .git
-tests
 *.log
 
 .env.*
@@ -20,4 +19,3 @@ compose.local*.yaml
 compose.override*.yaml
 .github
 scripts
-vpn

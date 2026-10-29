@@ -20,6 +20,9 @@ sh "$project/scripts/install.sh" test-admin
 cmp "$project/.env" "$temporary/environment-before"
 key=$(sed -n 's/^APP_ENCRYPTION_KEY=//p' "$project/.env")
 [ "${#key}" = 64 ]
+grep -Eq '^MYSQL_PASSWORD=[a-f0-9]{64}$' "$project/.env"
+grep -Eq '^MYSQL_ROOT_PASSWORD=[a-f0-9]{64}$' "$project/.env"
+grep -F -- '--wait' "$temporary/docker.log" >/dev/null
 [ "$(stat -c '%a' "$project/.env")" = 600 ]
 sh "$project/scripts/compose.sh" --vpn --geoip config
 grep -F "$project/compose.vpn.yaml" "$temporary/docker.log" >/dev/null

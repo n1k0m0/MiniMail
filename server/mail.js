@@ -19,7 +19,6 @@ import {
   syncThreadIndex,
   updateIndexedFlags,
 } from "./mailIndex.js";
-
 function settings(account) {
   const password = account.password_enc
     ? decrypt(account.password_enc)
@@ -41,7 +40,10 @@ function imapClient(account) {
     secure: !!a.imap_secure,
     doSTARTTLS: a.imap_secure ? undefined : true,
     proxy: vpnProxy(a),
-    auth: { user: a.username, pass: a.password },
+    auth: {
+      user: a.username,
+      pass: a.password,
+    },
     logger: false,
     connectionTimeout: 15000,
     greetingTimeout: 15000,
@@ -85,7 +87,6 @@ const summary = (item) => ({
     (node) => node.disposition === "attachment",
   ),
 });
-
 export async function testAccount(account) {
   try {
     await withImap(account, async (client) => client.list());
@@ -100,7 +101,10 @@ export async function testAccount(account) {
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
     proxy: vpnProxy(a),
-    auth: { user: a.smtp_username, pass: a.smtp_password },
+    auth: {
+      user: a.smtp_username,
+      pass: a.smtp_password,
+    },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 30000,
@@ -114,11 +118,13 @@ export async function testAccount(account) {
     transporter.close();
   }
 }
-
 export async function listFolders(account) {
   return withImap(account, async (client) => {
     const folders = await client.list({
-      statusQuery: { messages: true, unseen: true },
+      statusQuery: {
+        messages: true,
+        unseen: true,
+      },
     });
     return folders
       .filter((item) => !item.flags?.has("\\Noselect"))
@@ -132,7 +138,6 @@ export async function listFolders(account) {
       }));
   });
 }
-
 export async function checkInbox(account) {
   return withImap(account, async (client) => {
     const status = await client.status("INBOX", {
@@ -148,7 +153,6 @@ export async function checkInbox(account) {
     };
   });
 }
-
 function mightContainKey(item) {
   const headers = item.headers?.toString("utf8") || "";
   if (/^Autocrypt:/im.test(headers)) return true;
@@ -157,17 +161,17 @@ function mightContainKey(item) {
   const structure = JSON.stringify(item.bodyStructure || {}).toLowerCase();
   return /pgp-keys|\.(?:asc|pgp|cer|crt|pem|p7b|p7c)\b/.test(structure);
 }
-
 export async function scanAccountKeys(account, batchSize = 80) {
   return withImap(account, async (client) => {
     const folders = (await client.list()).filter(
       (item) => !item.flags?.has("\\Noselect"),
     );
     const checkpoints = new Map(
-      db
-        .prepare("SELECT * FROM key_scan_folders WHERE account_id=?")
-        .all(account.id)
-        .map((item) => [item.folder, item]),
+      (
+        await db
+          .prepare("SELECT * FROM key_scan_folders WHERE account_id=?")
+          .all(account.id)
+      ).map((item) => [item.folder, item]),
     );
     folders.sort(
       (left, right) =>
@@ -188,8 +192,12 @@ export async function scanAccountKeys(account, batchSize = 80) {
           try {
             inlineUids =
               (await client.search(
-                { body: "BEGIN PGP PUBLIC KEY BLOCK" },
-                { uid: true },
+                {
+                  body: "BEGIN PGP PUBLIC KEY BLOCK",
+                },
+                {
+                  uid: true,
+                },
               )) || [];
           } catch (error) {
             console.error("Could not search inline PGP keys", {
@@ -203,7 +211,15 @@ export async function scanAccountKeys(account, batchSize = 80) {
           inlineUids = JSON.parse(checkpoint.inline_uids || "[]");
         }
         const inlineSet = new Set(inlineUids);
-        const all = (await client.search({ all: true }, { uid: true })) || [];
+        const all =
+          (await client.search(
+            {
+              all: true,
+            },
+            {
+              uid: true,
+            },
+          )) || [];
         const next = all.filter((uid) => uid > lastUid).sort((a, b) => a - b);
         const selected = next.slice(0, batchSize);
         if (!selected.length) selected.push(latest);
@@ -217,11 +233,17 @@ export async function scanAccountKeys(account, batchSize = 80) {
                   headers: ["from", "autocrypt", "content-type"],
                   bodyStructure: true,
                 },
-                { uid: true },
+                {
+                  uid: true,
+                },
               )
             : [];
         const byUid = new Map(metadata.map((item) => [item.uid, item]));
-        const counts = { scanned: 0, stored: 0, alternate: 0 };
+        const counts = {
+          scanned: 0,
+          stored: 0,
+          alternate: 0,
+        };
         for (const uid of selected) {
           const item = byUid.get(uid);
           if (
@@ -231,8 +253,13 @@ export async function scanAccountKeys(account, batchSize = 80) {
           ) {
             const full = await client.fetchOne(
               uid,
-              { uid: true, source: true },
-              { uid: true },
+              {
+                uid: true,
+                source: true,
+              },
+              {
+                uid: true,
+              },
             );
             try {
               if (full?.source) {
@@ -255,29 +282,39 @@ export async function scanAccountKeys(account, batchSize = 80) {
           }
           lastUid = uid;
           counts.scanned++;
-          db.prepare(
-            `INSERT INTO key_scan_folders (account_id,folder,uid_validity,last_uid,inline_uids,updated_at)
-             VALUES (?,?,?,?,?,?) ON CONFLICT(account_id,folder) DO UPDATE SET
-             uid_validity=excluded.uid_validity,last_uid=excluded.last_uid,
-             inline_uids=excluded.inline_uids,updated_at=excluded.updated_at`,
-          ).run(
-            account.id,
-            folder.path,
-            validity,
-            lastUid,
-            JSON.stringify(inlineUids),
-            Date.now(),
-          );
+          await db
+            .prepare(
+              `INSERT INTO key_scan_folders (account_id,folder,uid_validity,last_uid,inline_uids,updated_at)
+             VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE
+             uid_validity=VALUES(uid_validity),last_uid=VALUES(last_uid),
+             inline_uids=VALUES(inline_uids),updated_at=VALUES(updated_at)`,
+            )
+            .run(
+              account.id,
+              folder.path,
+              validity,
+              lastUid,
+              JSON.stringify(inlineUids),
+              Date.now(),
+            );
         }
-        return { ...counts, folder: folder.path, pending: true };
+        return {
+          ...counts,
+          folder: folder.path,
+          pending: true,
+        };
       } finally {
         lock.release();
       }
     }
-    return { scanned: 0, stored: 0, alternate: 0, pending: false };
+    return {
+      scanned: 0,
+      stored: 0,
+      alternate: 0,
+      pending: false,
+    };
   });
 }
-
 export async function listMessages(
   account,
   folder,
@@ -290,18 +327,28 @@ export async function listMessages(
     const pageSize = 60;
     if (threaded) {
       await syncThreadIndex(db, account.id, path, client, summary);
-      const items = indexedMessages(db, account.id, path);
+      const items = await indexedMessages(db, account.id, path);
       const matches = query
         ? (await client.search(
             {
               or: [
-                { subject: query },
-                { from: query },
-                { to: query },
-                { body: query },
+                {
+                  subject: query,
+                },
+                {
+                  from: query,
+                },
+                {
+                  to: query,
+                },
+                {
+                  body: query,
+                },
               ],
             },
-            { uid: true },
+            {
+              uid: true,
+            },
           )) || []
         : null;
       const matchSet = matches ? new Set(matches) : null;
@@ -314,8 +361,14 @@ export async function listMessages(
       if (missingDetails.length) {
         const detail = await client.fetchAll(
           missingDetails.map((group) => group.uid),
-          { uid: true, size: true, bodyStructure: true },
-          { uid: true },
+          {
+            uid: true,
+            size: true,
+            bodyStructure: true,
+          },
+          {
+            uid: true,
+          },
         );
         const byUid = new Map(detail.map((item) => [item.uid, summary(item)]));
         const update = db.prepare(
@@ -331,7 +384,7 @@ export async function listMessages(
           if (indexed) {
             indexed.size = extra.size;
             indexed.hasAttachments = extra.hasAttachments;
-            update.run(
+            await update.run(
               encrypt(JSON.stringify(indexed)),
               account.id,
               path,
@@ -350,17 +403,35 @@ export async function listMessages(
     const criteria = query
       ? {
           or: [
-            { subject: query },
-            { from: query },
-            { to: query },
-            { body: query },
+            {
+              subject: query,
+            },
+            {
+              from: query,
+            },
+            {
+              to: query,
+            },
+            {
+              body: query,
+            },
           ],
         }
-      : { all: true };
-    const matches = (await client.search(criteria, { uid: true })) || [];
+      : {
+          all: true,
+        };
+    const matches =
+      (await client.search(criteria, {
+        uid: true,
+      })) || [];
     const sorted = [...matches].sort((a, b) => b - a);
     const uids = sorted.slice(page * pageSize, (page + 1) * pageSize);
-    if (!uids.length) return { messages: [], total: sorted.length, page };
+    if (!uids.length)
+      return {
+        messages: [],
+        total: sorted.length,
+        page,
+      };
     const messages = await client.fetchAll(
       uids,
       {
@@ -371,7 +442,9 @@ export async function listMessages(
         size: true,
         bodyStructure: true,
       },
-      { uid: true },
+      {
+        uid: true,
+      },
     );
     const byUid = new Map(messages.map((item) => [item.uid, summary(item)]));
     return {
@@ -381,12 +454,16 @@ export async function listMessages(
     };
   });
 }
-
 async function parsedMessage(client, uid, account) {
   const metadata = await client.fetchOne(
     uid,
-    { uid: true, size: true },
-    { uid: true },
+    {
+      uid: true,
+      size: true,
+    },
+    {
+      uid: true,
+    },
   );
   if (!metadata) return null;
   if (metadata.size > 25 * 1024 * 1024)
@@ -395,8 +472,14 @@ async function parsedMessage(client, uid, account) {
     );
   const item = await client.fetchOne(
     uid,
-    { uid: true, source: true, flags: true },
-    { uid: true },
+    {
+      uid: true,
+      source: true,
+      flags: true,
+    },
+    {
+      uid: true,
+    },
   );
   if (!item?.source) return null;
   if (item.source.length > 25 * 1024 * 1024)
@@ -404,7 +487,11 @@ async function parsedMessage(client, uid, account) {
       "Diese Nachricht ist für die Webansicht zu groß (über 25 MB).",
     );
   const { parsed, security } = await inspectIncoming(account, item.source);
-  return { item, parsed, security };
+  return {
+    item,
+    parsed,
+    security,
+  };
 }
 export async function getMessage(account, folder, uid) {
   return inFolder(account, folder, async (client) => {
@@ -472,8 +559,13 @@ export async function getMessageSource(account, folder, uid) {
   return inFolder(account, folder, async (client) => {
     const metadata = await client.fetchOne(
       uid,
-      { uid: true, size: true },
-      { uid: true },
+      {
+        uid: true,
+        size: true,
+      },
+      {
+        uid: true,
+      },
     );
     if (!metadata) return null;
     if (metadata.size > 25 * 1024 * 1024)
@@ -482,8 +574,13 @@ export async function getMessageSource(account, folder, uid) {
       );
     const item = await client.fetchOne(
       uid,
-      { uid: true, source: true },
-      { uid: true },
+      {
+        uid: true,
+        source: true,
+      },
+      {
+        uid: true,
+      },
     );
     return item?.source || null;
   });
@@ -496,23 +593,32 @@ export async function updateFlags(account, folder, uid, flags) {
       if (!imapFlag) continue;
       if (enabled)
         requireMailResult(
-          await client.messageFlagsAdd(uid, [imapFlag], { uid: true }),
+          await client.messageFlagsAdd(uid, [imapFlag], {
+            uid: true,
+          }),
           "Nachrichtenstatus konnte nicht geändert werden.",
         );
       else
         requireMailResult(
-          await client.messageFlagsRemove(uid, [imapFlag], { uid: true }),
+          await client.messageFlagsRemove(uid, [imapFlag], {
+            uid: true,
+          }),
           "Nachrichtenstatus konnte nicht geändert werden.",
         );
     }
   });
-  updateIndexedFlags(db, account.id, folder || "INBOX", uid, flags);
+  await updateIndexedFlags(db, account.id, folder || "INBOX", uid, flags);
   return result;
 }
 export async function markFolderRead(account, folder) {
   const result = await inFolder(account, folder, (client) =>
     client
-      .messageFlagsAdd({ seen: false }, ["\\Seen"])
+      .messageFlagsAdd(
+        {
+          seen: false,
+        },
+        ["\\Seen"],
+      )
       .then((result) =>
         requireMailResult(
           result,
@@ -520,18 +626,20 @@ export async function markFolderRead(account, folder) {
         ),
       ),
   );
-  markIndexedFolderRead(db, account.id, folder || "INBOX");
+  await markIndexedFolderRead(db, account.id, folder || "INBOX");
   return result;
 }
 export async function moveMessage(account, folder, uid, destination) {
   const result = await inFolder(account, folder, (client) =>
     client
-      .messageMove(uid, destination, { uid: true })
+      .messageMove(uid, destination, {
+        uid: true,
+      })
       .then((result) =>
         requireMailResult(result, "Nachricht konnte nicht verschoben werden."),
       ),
   );
-  removeIndexedMessage(db, account.id, folder || "INBOX", uid);
+  await removeIndexedMessage(db, account.id, folder || "INBOX", uid);
   return result;
 }
 export async function deleteMessage(account, folder, uid) {
@@ -545,19 +653,23 @@ export async function deleteMessage(account, folder, uid) {
     try {
       if (trash && trash !== folder)
         requireMailResult(
-          await client.messageMove(uid, trash, { uid: true }),
+          await client.messageMove(uid, trash, {
+            uid: true,
+          }),
           "Nachricht konnte nicht verschoben werden.",
         );
       else
         requireMailResult(
-          await client.messageDelete(uid, { uid: true }),
+          await client.messageDelete(uid, {
+            uid: true,
+          }),
           "Nachricht konnte nicht gelöscht werden.",
         );
     } finally {
       lock.release();
     }
   });
-  removeIndexedMessage(db, account.id, folder || "INBOX", uid);
+  await removeIndexedMessage(db, account.id, folder || "INBOX", uid);
   return result;
 }
 export async function emptyTrash(account, folder) {
@@ -568,14 +680,19 @@ export async function emptyTrash(account, folder) {
     const lock = await client.getMailboxLock(folder);
     try {
       const count = client.mailbox.exists || 0;
-      if (count && !(await client.messageDelete({ all: true })))
+      if (
+        count &&
+        !(await client.messageDelete({
+          all: true,
+        }))
+      )
         throw new Error("Der Papierkorb konnte nicht geleert werden.");
       return count;
     } finally {
       lock.release();
     }
   });
-  if (result !== null) clearFolderIndex(db, account.id, folder);
+  if (result !== null) await clearFolderIndex(db, account.id, folder);
   return result;
 }
 export async function sendMessage(account, mail) {
@@ -586,7 +703,10 @@ export async function sendMessage(account, mail) {
     secure: !!a.smtp_secure,
     requireTLS: !a.smtp_secure,
     proxy: vpnProxy(a),
-    auth: { user: a.smtp_username, pass: a.smtp_password },
+    auth: {
+      user: a.smtp_username,
+      pass: a.smtp_password,
+    },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 30000,
@@ -594,7 +714,10 @@ export async function sendMessage(account, mail) {
     disableUrlAccess: true,
   });
   const outgoing = {
-    from: { name: a.sender_name || a.name, address: a.email },
+    from: {
+      name: a.sender_name || a.name,
+      address: a.email,
+    },
     to: mail.to,
     cc: mail.cc || undefined,
     bcc: mail.bcc || undefined,
@@ -612,7 +735,10 @@ export async function sendMessage(account, mail) {
   try {
     info = await transporter.sendMail(
       protectedMessage
-        ? { raw: protectedMessage.smtpRaw, envelope: protectedMessage.envelope }
+        ? {
+            raw: protectedMessage.smtpRaw,
+            envelope: protectedMessage.envelope,
+          }
         : outgoing,
     );
   } finally {
@@ -631,11 +757,18 @@ export async function sendMessage(account, mail) {
             disableUrlAccess: true,
           })
           .sendMail(
-            { ...outgoing, keepBcc: true, messageId: info.messageId },
+            {
+              ...outgoing,
+              keepBcc: true,
+              messageId: info.messageId,
+            },
             (error, result) =>
               error ? reject(error) : resolve(result.message),
           );
       })),
   );
-  return { messageId: protectedMessage?.messageId || info.messageId, sentCopy };
+  return {
+    messageId: protectedMessage?.messageId || info.messageId,
+    sentCopy,
+  };
 }

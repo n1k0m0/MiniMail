@@ -1,15 +1,13 @@
 import { db } from "./db.js";
 import { decrypt } from "./security.js";
 import { checkInbox, scanAccountKeys } from "./mail.js";
-
 let running = false;
 let scanningKeys = false;
-
 export async function checkDueMailboxes() {
   if (running) return;
   running = true;
   try {
-    const due = db
+    const due = await db
       .prepare(
         `SELECT * FROM accounts
          WHERE check_interval_minutes > 0
@@ -23,13 +21,17 @@ export async function checkDueMailboxes() {
           try {
             if (!decrypt(account.password_enc)) return;
             const inbox = await checkInbox(account);
-            db.prepare(
-              "UPDATE accounts SET last_checked_at=?,inbox_unseen=?,inbox_uid_next=?,check_failed=0 WHERE id=?",
-            ).run(Date.now(), inbox.unseen, inbox.uidNext, account.id);
+            await db
+              .prepare(
+                "UPDATE accounts SET last_checked_at=?,inbox_unseen=?,inbox_uid_next=?,check_failed=0 WHERE id=?",
+              )
+              .run(Date.now(), inbox.unseen, inbox.uidNext, account.id);
           } catch {
-            db.prepare(
-              "UPDATE accounts SET last_checked_at=?,check_failed=1 WHERE id=?",
-            ).run(Date.now(), account.id);
+            await db
+              .prepare(
+                "UPDATE accounts SET last_checked_at=?,check_failed=1 WHERE id=?",
+              )
+              .run(Date.now(), account.id);
           }
         }),
       );
@@ -38,7 +40,6 @@ export async function checkDueMailboxes() {
     running = false;
   }
 }
-
 export function startMailChecks() {
   setTimeout(() => checkDueMailboxes().catch(console.error), 5000).unref();
   setInterval(() => checkDueMailboxes().catch(console.error), 30000).unref();
@@ -47,7 +48,9 @@ export function startMailChecks() {
     scanningKeys = true;
     let pending = false;
     try {
-      const accounts = db.prepare("SELECT * FROM accounts ORDER BY id").all();
+      const accounts = await db
+        .prepare("SELECT * FROM accounts ORDER BY id")
+        .all();
       for (const account of accounts) {
         if (!account.password_enc || !decrypt(account.password_enc)) continue;
         try {

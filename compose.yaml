@@ -12,6 +12,17 @@ services:
     pids_limit: 128
     environment:
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Set APP_ENCRYPTION_KEY in .env}
+      MYSQL_HOST: database
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: minimail
+      MYSQL_USER: minimail
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - default
+      - database
     ports:
       - "127.0.0.1:3000:3000"
     extra_hosts:
@@ -19,5 +30,36 @@ services:
     volumes:
       - minimail-data:/app/data
 
+  database:
+    build: ./database
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: minimail
+      MYSQL_USER: minimail
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - database
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u "$$MYSQL_USER" "$$MYSQL_DATABASE" --batch --skip-column-names -e ''SELECT 1'' >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
 volumes:
   minimail-data:
+  mysql-data:
+
+networks:
+  database:
+    internal: true

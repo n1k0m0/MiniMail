@@ -1,56 +1,41 @@
 import { messageReferences } from "./threading.js";
 import { decrypt, encrypt } from "./security.js";
-
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 const FETCH_BATCH_SIZE = 200;
 const pendingSyncs = new Map();
-
-export function initializeMailIndex(database) {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS mail_index_folders (
-      account_id INTEGER NOT NULL, folder TEXT NOT NULL,
-      uid_validity TEXT NOT NULL, uid_next INTEGER NOT NULL,
-      exists_count INTEGER NOT NULL, highest_modseq TEXT,
-      reconciled_at INTEGER NOT NULL,
-      PRIMARY KEY (account_id, folder)
-    );
-    CREATE TABLE IF NOT EXISTS mail_index_messages (
-      account_id INTEGER NOT NULL, folder TEXT NOT NULL, uid INTEGER NOT NULL,
-      data_enc TEXT NOT NULL,
-      PRIMARY KEY (account_id, folder, uid)
-    );
-  `);
+export async function indexedMessages(database, accountId, folder) {
+  return (
+    await database
+      .prepare(
+        "SELECT data_enc FROM mail_index_messages WHERE account_id=? AND folder=?",
+      )
+      .all(accountId, folder)
+  ).map((row) => JSON.parse(decrypt(row.data_enc)));
 }
-
-export function indexedMessages(database, accountId, folder) {
-  return database
-    .prepare(
-      "SELECT data_enc FROM mail_index_messages WHERE account_id=? AND folder=?",
-    )
-    .all(accountId, folder)
-    .map((row) => JSON.parse(decrypt(row.data_enc)));
-}
-
-export function clearAccountIndex(database, accountId) {
-  database
+export async function clearAccountIndex(database, accountId) {
+  await database
     .prepare("DELETE FROM mail_index_messages WHERE account_id=?")
     .run(accountId);
-  database
+  await database
     .prepare("DELETE FROM mail_index_folders WHERE account_id=?")
     .run(accountId);
 }
-
-export function clearFolderIndex(database, accountId, folder) {
-  database
+export async function clearFolderIndex(database, accountId, folder) {
+  await database
     .prepare("DELETE FROM mail_index_messages WHERE account_id=? AND folder=?")
     .run(accountId, folder);
-  database
+  await database
     .prepare("DELETE FROM mail_index_folders WHERE account_id=? AND folder=?")
     .run(accountId, folder);
 }
-
-export function updateIndexedFlags(database, accountId, folder, uid, flags) {
-  const row = database
+export async function updateIndexedFlags(
+  database,
+  accountId,
+  folder,
+  uid,
+  flags,
+) {
+  const row = await database
     .prepare(
       "SELECT data_enc FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
     )
@@ -59,15 +44,14 @@ export function updateIndexedFlags(database, accountId, folder, uid, flags) {
   const message = JSON.parse(decrypt(row.data_enc));
   if (flags.seen !== undefined) message.seen = !!flags.seen;
   if (flags.flagged !== undefined) message.flagged = !!flags.flagged;
-  database
+  await database
     .prepare(
       "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
     )
     .run(encrypt(JSON.stringify(message)), accountId, folder, uid);
 }
-
-export function markIndexedFolderRead(database, accountId, folder) {
-  const rows = database
+export async function markIndexedFolderRead(database, accountId, folder) {
+  const rows = await database
     .prepare(
       "SELECT uid,data_enc FROM mail_index_messages WHERE account_id=? AND folder=?",
     )
@@ -75,13 +59,12 @@ export function markIndexedFolderRead(database, accountId, folder) {
   const update = database.prepare(
     "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
   );
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  await database.transaction(async () => {
     for (const row of rows) {
       const message = JSON.parse(decrypt(row.data_enc));
       if (!message.seen) {
         message.seen = true;
-        update.run(
+        await update.run(
           encrypt(JSON.stringify(message)),
           accountId,
           folder,
@@ -89,21 +72,15 @@ export function markIndexedFolderRead(database, accountId, folder) {
         );
       }
     }
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
-
-export function removeIndexedMessage(database, accountId, folder, uid) {
-  database
+export async function removeIndexedMessage(database, accountId, folder, uid) {
+  await database
     .prepare(
       "DELETE FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
     )
     .run(accountId, folder, uid);
 }
-
 function indexedMessage(item, summarize) {
   const { size, hasAttachments, ...base } = summarize(item);
   return {
@@ -114,7 +91,6 @@ function indexedMessage(item, summarize) {
     threadId: item.threadId == null ? null : String(item.threadId),
   };
 }
-
 async function fetchIndexMessages(client, range, summarize, options = {}) {
   const messages = [];
   for await (const item of client.fetch(
@@ -127,13 +103,15 @@ async function fetchIndexMessages(client, range, summarize, options = {}) {
       headers: ["references"],
       threadId: true,
     },
-    { uid: true, ...options },
+    {
+      uid: true,
+      ...options,
+    },
   )) {
     messages.push(indexedMessage(item, summarize));
   }
   return messages;
 }
-
 async function performSync(database, accountId, folder, client, summarize) {
   const mailbox = client.mailbox;
   const uidValidity = String(mailbox.uidValidity ?? "");
@@ -142,7 +120,7 @@ async function performSync(database, accountId, folder, client, summarize) {
   const modseq = mailbox.highestModseq?.toString() || null;
   const supportsChanges =
     !!modseq && client.enabled.has("CONDSTORE") && !mailbox.noModseq;
-  const previous = database
+  const previous = await database
     .prepare("SELECT * FROM mail_index_folders WHERE account_id=? AND folder=?")
     .get(accountId, folder);
   const reset = !previous || previous.uid_validity !== uidValidity;
@@ -161,21 +139,28 @@ async function performSync(database, accountId, folder, client, summarize) {
   let messages = [];
   let currentUids = null;
   let flags = [];
-
   if (reset) {
     if (exists) messages = await fetchIndexMessages(client, "1:*", summarize);
   } else {
     if (reconcile) {
       currentUids = exists
-        ? (await client.search({ all: true }, { uid: true })) || []
+        ? (await client.search(
+            {
+              all: true,
+            },
+            {
+              uid: true,
+            },
+          )) || []
         : [];
       const known = new Set(
-        database
-          .prepare(
-            "SELECT uid FROM mail_index_messages WHERE account_id=? AND folder=?",
-          )
-          .all(accountId, folder)
-          .map((row) => row.uid),
+        (
+          await database
+            .prepare(
+              "SELECT uid FROM mail_index_messages WHERE account_id=? AND folder=?",
+            )
+            .all(accountId, folder)
+        ).map((row) => row.uid),
       );
       const missing = currentUids.filter((uid) => !known.has(uid));
       for (let start = 0; start < missing.length; start += FETCH_BATCH_SIZE) {
@@ -191,10 +176,18 @@ async function performSync(database, accountId, folder, client, summarize) {
     if (modseqChanged || (reconcile && !supportsChanges)) {
       for await (const item of client.fetch(
         "1:*",
-        { uid: true, flags: true },
+        {
+          uid: true,
+          flags: true,
+        },
         modseqChanged
-          ? { uid: true, changedSince: BigInt(previous.highest_modseq) }
-          : { uid: true },
+          ? {
+              uid: true,
+              changedSince: BigInt(previous.highest_modseq),
+            }
+          : {
+              uid: true,
+            },
       )) {
         flags.push({
           uid: item.uid,
@@ -204,19 +197,17 @@ async function performSync(database, accountId, folder, client, summarize) {
       }
     }
   }
-
   const insert = database.prepare(
-    "INSERT OR REPLACE INTO mail_index_messages (account_id,folder,uid,data_enc) VALUES (?,?,?,?)",
+    "INSERT INTO mail_index_messages (account_id,folder,uid,data_enc) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE data_enc=VALUES(data_enc)",
   );
   const update = database.prepare(
     "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
   );
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    if (reset) clearFolderIndex(database, accountId, folder);
+  await database.transaction(async () => {
+    if (reset) await clearFolderIndex(database, accountId, folder);
     if (currentUids) {
       const live = new Set(currentUids);
-      const rows = database
+      const rows = await database
         .prepare(
           "SELECT uid FROM mail_index_messages WHERE account_id=? AND folder=?",
         )
@@ -225,17 +216,17 @@ async function performSync(database, accountId, folder, client, summarize) {
         "DELETE FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
       );
       for (const row of rows)
-        if (!live.has(row.uid)) remove.run(accountId, folder, row.uid);
+        if (!live.has(row.uid)) await remove.run(accountId, folder, row.uid);
     }
     for (const message of messages)
-      insert.run(
+      await insert.run(
         accountId,
         folder,
         message.uid,
         encrypt(JSON.stringify(message)),
       );
     for (const flag of flags) {
-      const row = database
+      const row = await database
         .prepare(
           "SELECT data_enc FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
         )
@@ -246,11 +237,16 @@ async function performSync(database, accountId, folder, client, summarize) {
         continue;
       message.seen = flag.seen;
       message.flagged = flag.flagged;
-      update.run(encrypt(JSON.stringify(message)), accountId, folder, flag.uid);
+      await update.run(
+        encrypt(JSON.stringify(message)),
+        accountId,
+        folder,
+        flag.uid,
+      );
     }
-    database
+    await database
       .prepare(
-        "INSERT OR REPLACE INTO mail_index_folders (account_id,folder,uid_validity,uid_next,exists_count,highest_modseq,reconciled_at) VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO mail_index_folders (account_id,folder,uid_validity,uid_next,exists_count,highest_modseq,reconciled_at) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE uid_validity=VALUES(uid_validity),uid_next=VALUES(uid_next),exists_count=VALUES(exists_count),highest_modseq=VALUES(highest_modseq),reconciled_at=VALUES(reconciled_at)",
       )
       .run(
         accountId,
@@ -261,13 +257,8 @@ async function performSync(database, accountId, folder, client, summarize) {
         modseq,
         reconcile ? now : previous.reconciled_at,
       );
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
-
 export async function syncThreadIndex(
   database,
   accountId,

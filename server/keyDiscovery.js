@@ -11,10 +11,8 @@ import {
   withCryptoTemp,
 } from "./cryptoKeys.js";
 import { inspectIncoming } from "./protectedMail.js";
-
 const maxKeySize = 200000;
 const maxMessageSize = 25 * 1024 * 1024;
-
 function autocryptData(value, sender) {
   const raw = String(value || "").replace(/\r?\n[ \t]+/g, " ");
   const attributes = new Map(
@@ -40,14 +38,17 @@ function autocryptData(value, sender) {
   const binary = Buffer.from(data, "base64");
   return binary.length <= maxKeySize ? binary : null;
 }
-
 async function pgpCandidate(input, email) {
   if (!input || input.length > maxKeySize) return null;
   try {
     const armored = Buffer.from(input).toString("utf8");
     const key = armored.includes("-----BEGIN PGP PUBLIC KEY BLOCK-----")
-      ? await openpgp.readKey({ armoredKey: armored })
-      : await openpgp.readKey({ binaryKey: new Uint8Array(input) });
+      ? await openpgp.readKey({
+          armoredKey: armored,
+        })
+      : await openpgp.readKey({
+          binaryKey: new Uint8Array(input),
+        });
     if (!emailInPgpKey(key, email)) return null;
     await key.getEncryptionKey();
     return {
@@ -60,7 +61,6 @@ async function pgpCandidate(input, email) {
     return null;
   }
 }
-
 function smimeCandidate(input, email, verified = false) {
   if (!input || input.length > maxKeySize) return null;
   try {
@@ -77,13 +77,14 @@ function smimeCandidate(input, email, verified = false) {
     return null;
   }
 }
-
 async function certificatesInBundle(input, email) {
   try {
     return await withCryptoTemp(async (dir) => {
       const source = path.join(dir, "certificates.p7c");
       const output = path.join(dir, "certificates.pem");
-      await fs.writeFile(source, input, { mode: 0o600 });
+      await fs.writeFile(source, input, {
+        mode: 0o600,
+      });
       await runOpenSSL([
         "pkcs7",
         "-inform",
@@ -109,12 +110,15 @@ async function certificatesInBundle(input, email) {
     return [];
   }
 }
-
 async function currentFingerprint(kind, material) {
   if (!material) return null;
   try {
     return kind === "pgp"
-      ? (await openpgp.readKey({ armoredKey: material }))
+      ? (
+          await openpgp.readKey({
+            armoredKey: material,
+          })
+        )
           .getFingerprint()
           .toUpperCase()
       : new crypto.X509Certificate(material).fingerprint256;
@@ -122,19 +126,18 @@ async function currentFingerprint(kind, material) {
     return null;
   }
 }
-
 async function storeCandidate(database, account, sender, candidate) {
   const now = Date.now();
   const email = sender.address.trim().toLowerCase();
   const name = validContact(sender.name || "", email) ? sender.name.trim() : "";
-  database
+  await database
     .prepare(
-      "INSERT OR IGNORE INTO contacts (user_id,name,email,source,created_at,updated_at) VALUES (?,?,?,'collected',?,?)",
+      "INSERT IGNORE INTO contacts (user_id,name,email,source,created_at,updated_at) VALUES (?,?,?,'collected',?,?)",
     )
     .run(account.user_id, name, email, now, now);
-  const contact = database
+  const contact = await database
     .prepare(
-      "SELECT * FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+      "SELECT * FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(account.user_id, email);
   const materialColumn = candidate.kind === "pgp" ? "pgp_public" : "smime_cert";
@@ -145,12 +148,12 @@ async function storeCandidate(database, account, sender, candidate) {
     candidate.kind,
     contact[materialColumn],
   );
-  database
+  await database
     .prepare(
       `INSERT INTO discovered_keys (user_id,email,kind,fingerprint,material,source,first_seen_at,last_seen_at)
        VALUES (?,?,?,?,?,?,?,?)
-       ON CONFLICT(user_id,email,kind,fingerprint) DO UPDATE SET
-         last_seen_at=excluded.last_seen_at,seen_count=seen_count+1`,
+       ON DUPLICATE KEY UPDATE
+         last_seen_at=VALUES(last_seen_at),seen_count=seen_count+1`,
     )
     .run(
       account.user_id,
@@ -163,7 +166,7 @@ async function storeCandidate(database, account, sender, candidate) {
       now,
     );
   if (!contact[materialColumn]) {
-    database
+    await database
       .prepare(
         `UPDATE contacts SET ${materialColumn}=?,${verifiedColumn}=?,${sourceColumn}=?,updated_at=? WHERE id=?`,
       )
@@ -178,7 +181,7 @@ async function storeCandidate(database, account, sender, candidate) {
   }
   if (existingFingerprint === candidate.fingerprint) {
     if (candidate.verified && !contact[verifiedColumn])
-      database
+      await database
         .prepare(
           `UPDATE contacts SET ${verifiedColumn}=1,updated_at=? WHERE id=?`,
         )
@@ -187,26 +190,40 @@ async function storeCandidate(database, account, sender, candidate) {
   }
   return "alternate";
 }
-
 export async function collectMessageKeys(database, account, raw) {
-  if (!raw || raw.length > maxMessageSize) return { stored: 0, alternate: 0 };
+  if (!raw || raw.length > maxMessageSize)
+    return {
+      stored: 0,
+      alternate: 0,
+    };
   const parsed = await simpleParser(raw);
   const sender = parsed.from?.value?.[0];
   if (!sender || !validContact("", sender.address || ""))
-    return { stored: 0, alternate: 0 };
-  const own = database
+    return {
+      stored: 0,
+      alternate: 0,
+    };
+  const own = await database
     .prepare(
-      "SELECT 1 FROM accounts WHERE user_id=? AND email=? COLLATE NOCASE",
+      "SELECT 1 FROM accounts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(account.user_id, sender.address);
-  if (own) return { stored: 0, alternate: 0 };
+  if (own)
+    return {
+      stored: 0,
+      alternate: 0,
+    };
   const candidates = [];
   const autocrypt = parsed.headers.get("autocrypt");
   const headerValues = Array.isArray(autocrypt) ? autocrypt : [autocrypt];
   for (const value of headerValues) {
     const binary = autocryptData(value, sender.address);
     const candidate = binary && (await pgpCandidate(binary, sender.address));
-    if (candidate) candidates.push({ ...candidate, source: "autocrypt" });
+    if (candidate)
+      candidates.push({
+        ...candidate,
+        source: "autocrypt",
+      });
   }
   for (const part of parsed.attachments || []) {
     if (!part.content || part.content.length > maxKeySize) continue;
@@ -217,19 +234,28 @@ export async function collectMessageKeys(database, account, raw) {
     ) {
       const candidate = await pgpCandidate(part.content, sender.address);
       if (candidate)
-        candidates.push({ ...candidate, source: "pgp-attachment" });
+        candidates.push({
+          ...candidate,
+          source: "pgp-attachment",
+        });
     }
     if (/\.(cer|crt|pem)$/i.test(filename)) {
       const candidate = smimeCandidate(part.content, sender.address);
       if (candidate)
-        candidates.push({ ...candidate, source: "smime-attachment" });
+        candidates.push({
+          ...candidate,
+          source: "smime-attachment",
+        });
     }
     if (/\.(p7b|p7c)$/i.test(filename)) {
       for (const candidate of await certificatesInBundle(
         part.content,
         sender.address,
       ))
-        candidates.push({ ...candidate, source: "smime-attachment" });
+        candidates.push({
+          ...candidate,
+          source: "smime-attachment",
+        });
     }
   }
   const inlineKeys = String(parsed.text || "").match(
@@ -237,7 +263,11 @@ export async function collectMessageKeys(database, account, raw) {
   );
   for (const armored of inlineKeys || []) {
     const candidate = await pgpCandidate(Buffer.from(armored), sender.address);
-    if (candidate) candidates.push({ ...candidate, source: "pgp-inline" });
+    if (candidate)
+      candidates.push({
+        ...candidate,
+        source: "pgp-inline",
+      });
   }
   const type = parsed.headers.get("content-type");
   if (
@@ -255,7 +285,10 @@ export async function collectMessageKeys(database, account, raw) {
         inspected.discoveredSmime.trusted,
       );
       if (candidate)
-        candidates.push({ ...candidate, source: "smime-signature" });
+        candidates.push({
+          ...candidate,
+          source: "smime-signature",
+        });
     }
   }
   const unique = new Map();
@@ -263,7 +296,10 @@ export async function collectMessageKeys(database, account, raw) {
     const key = `${candidate.kind}:${candidate.fingerprint}`;
     if (!unique.has(key) || candidate.verified) unique.set(key, candidate);
   }
-  const totals = { stored: 0, alternate: 0 };
+  const totals = {
+    stored: 0,
+    alternate: 0,
+  };
   for (const candidate of unique.values()) {
     const result = await storeCandidate(database, account, sender, candidate);
     if (result in totals) totals[result]++;

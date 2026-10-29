@@ -7,10 +7,9 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { spawn } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
+import { testDatabase } from "./mysqlTestHelper.js";
 import { fileURLToPath } from "node:url";
 import * as openpgp from "openpgp";
-
 const serverPath = fileURLToPath(
   new URL("../server/index.js", import.meta.url),
 );
@@ -57,8 +56,8 @@ const account = (name) => ({
   username: `${name}@example.test`,
   password: "example-app-password",
 });
-
-test("only admins create users; password changes, 2FA, and mailboxes stay separate", async () => {
+test("only admins create users; password changes, 2FA, and mailboxes stay separate", async (t) => {
+  const database = await testDatabase(t);
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimail-test-"));
   const port = await freePort();
   const encryptionKey = crypto.randomBytes(32).toString("hex");
@@ -66,6 +65,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     cwd,
     env: {
       ...process.env,
+      ...database.env,
       NODE_ENV: "production",
       HOST: "127.0.0.1",
       PORT: String(port),
@@ -86,7 +86,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         headers: {
           "Content-Type": "application/json",
           "X-MiniMail-Request": "1",
-          ...(cookie ? { Cookie: cookie } : {}),
+          ...(cookie
+            ? {
+                Cookie: cookie,
+              }
+            : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       });
@@ -120,8 +124,13 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(uncached.headers.get("cache-control"), "no-store");
     const forged = await fetch(base + "/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "wrong" }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: "owner",
+        password: "wrong",
+      }),
     });
     assert.equal(forged.status, 403);
     const crossSite = await fetch(base + "/auth/login", {
@@ -131,7 +140,10 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         "X-MiniMail-Request": "1",
         "Sec-Fetch-Site": "cross-site",
       },
-      body: JSON.stringify({ username: "owner", password: "wrong" }),
+      body: JSON.stringify({
+        username: "owner",
+        password: "wrong",
+      }),
     });
     assert.equal(crossSite.status, 403);
     const unparsedPrivate = await fetch(base + "/accounts", {
@@ -151,13 +163,17 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         "Content-Encoding": "gzip",
       },
       body: Buffer.concat([
-        gzipSync(JSON.stringify({ username: "synthetic", password: "wrong" })),
+        gzipSync(
+          JSON.stringify({
+            username: "synthetic",
+            password: "wrong",
+          }),
+        ),
         Buffer.from("trailing bytes"),
       ]),
     });
     assert.equal(compressed.status, 415);
     assert.equal((await admin("/auth/me")).status, 200);
-
     const wrongOrigin = await fetch(base + "/auth/login", {
       method: "POST",
       headers: {
@@ -165,7 +181,10 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         "X-MiniMail-Request": "1",
         Origin: "https://other.example.test",
       },
-      body: JSON.stringify({ username: "owner", password: "wrong" }),
+      body: JSON.stringify({
+        username: "owner",
+        password: "wrong",
+      }),
     });
     assert.equal(wrongOrigin.status, 403);
     assert.notEqual(
@@ -179,12 +198,12 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
 
     // Same database insertion that the interactive admin bootstrap script performs.
-    const db = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
-    db.prepare(
-      "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'admin',0)",
-    ).run("owner", storedPassword("long-admin-password"), Date.now());
-    db.close();
-
+    const db = database;
+    await db
+      .prepare(
+        "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'admin',0)",
+      )
+      .run("owner", storedPassword("long-admin-password"), Date.now());
     const openTab = await fetch(base + "/auth/login", {
       method: "POST",
       headers: {
@@ -192,10 +211,12 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         Origin: `https://127.0.0.1:${port}`,
         "Sec-Fetch-Site": "same-origin",
       },
-      body: JSON.stringify({ username: "owner", password: "wrong" }),
+      body: JSON.stringify({
+        username: "owner",
+        password: "wrong",
+      }),
     });
     assert.equal(openTab.status, 401);
-
     const adminLogin = await admin("/auth/login", "POST", {
       username: "owner",
       password: "long-admin-password",
@@ -251,7 +272,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       false,
     );
     assert.equal(
-      (await admin("/ai/rewrite", "POST", { text: "" })).status,
+      (
+        await admin("/ai/rewrite", "POST", {
+          text: "",
+        })
+      ).status,
       400,
     );
     assert.deepEqual((await admin("/contacts")).data, []);
@@ -289,21 +314,31 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       200,
     );
     assert.equal(
-      (await admin("/settings/contacts", "PATCH", { collectRecipients: false }))
-        .status,
+      (
+        await admin("/settings/contacts", "PATCH", {
+          collectRecipients: false,
+        })
+      ).status,
       200,
     );
     assert.equal((await admin("/auth/me")).data.user.collectRecipients, false);
     assert.equal(
-      (await admin("/settings/contacts", "PATCH", { collectRecipients: "yes" }))
-        .status,
+      (
+        await admin("/settings/contacts", "PATCH", {
+          collectRecipients: "yes",
+        })
+      ).status,
       400,
     );
     assert.deepEqual((await admin("/vpn-profiles")).data, [
-      { id: "private", label: "Private mail VPN" },
+      {
+        id: "private",
+        label: "Private mail VPN",
+      },
     ]);
-
-    const created = await admin("/admin/users", "POST", { username: "member" });
+    const created = await admin("/admin/users", "POST", {
+      username: "member",
+    });
     assert.equal(created.status, 201);
     assert.match(created.data.temporaryPassword, /^[A-Za-z0-9_-]{40,}$/);
     assert.equal(created.data.user.role, "user");
@@ -341,7 +376,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test",
           text: "hello",
-          crypto: { mode: "pgp", sign: false, encrypt: true },
+          crypto: {
+            mode: "pgp",
+            sign: false,
+            encrypt: true,
+          },
         })
       ).status,
       400,
@@ -351,7 +390,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test",
           text: "hello",
-          crypto: { mode: "pgp", sign: false, encrypt: false },
+          crypto: {
+            mode: "pgp",
+            sign: false,
+            encrypt: false,
+          },
         })
       ).status,
       400,
@@ -359,7 +402,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     const ownKey = await openpgp.generateKey({
       type: "ecc",
       curve: "curve25519",
-      userIDs: [{ email: ownerAccount.data.email }],
+      userIDs: [
+        {
+          email: ownerAccount.data.email,
+        },
+      ],
       passphrase: "key-passphrase",
     });
     assert.equal(
@@ -400,7 +447,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     const contactKey = await openpgp.generateKey({
       type: "ecc",
       curve: "curve25519",
-      userIDs: [{ email: "alice@example.test" }],
+      userIDs: [
+        {
+          email: "alice@example.test",
+        },
+      ],
     });
     assert.equal(
       (
@@ -437,7 +488,9 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         await admin(`/accounts/${ownerAccount.data.id}/send`, "POST", {
           to: "receiver@example.test",
           text: "hello",
-          attachments: { name: "not-an-array" },
+          attachments: {
+            name: "not-an-array",
+          },
         })
       ).status,
       400,
@@ -476,15 +529,12 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       400,
     );
-    const accountsDb = new DatabaseSync(
-      path.join(cwd, "data", "minimail.sqlite"),
-    );
-    const storedAccount = accountsDb
+    const accountsDb = database;
+    const storedAccount = await accountsDb
       .prepare(
         "SELECT smtp_username,smtp_password_enc FROM accounts WHERE id=?",
       )
       .get(ownerAccount.data.id);
-    accountsDb.close();
     assert.equal(storedAccount.smtp_username, "owner-smtp");
     assert.ok(storedAccount.smtp_password_enc);
     assert.ok(
@@ -544,7 +594,6 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       400,
     );
-
     for (let i = 0; i < 8; i++)
       assert.equal(
         (
@@ -615,8 +664,17 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       text: "Draft body – not yet sent",
       inReplyTo: "<original@example.test>",
       references: ["<original@example.test>"],
-      crypto: { mode: "pgp", sign: false, encrypt: "auto" },
-      attachments: [{ name: "binary.bin", data: "AAH/" }],
+      crypto: {
+        mode: "pgp",
+        sign: false,
+        encrypt: "auto",
+      },
+      attachments: [
+        {
+          name: "binary.bin",
+          data: "AAH/",
+        },
+      ],
     };
     assert.equal(
       (await admin("/drafts/review-draft", "PUT", savedDraft)).status,
@@ -624,7 +682,10 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     const restoredDraft = await admin("/drafts/review-draft");
     assert.equal(restoredDraft.status, 200);
-    assert.deepEqual(restoredDraft.data, { ...savedDraft, id: "review-draft" });
+    assert.deepEqual(restoredDraft.data, {
+      ...savedDraft,
+      id: "review-draft",
+    });
     assert.equal((await admin("/drafts")).data.length, 1);
     // Another signed-in user cannot list, read, modify, or delete this draft.
     assert.deepEqual((await member("/drafts")).data, []);
@@ -635,25 +696,47 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await member("/drafts/review-draft", "DELETE")).status, 200);
     assert.equal((await admin("/drafts/review-draft")).status, 200);
-    const inspectionDb = new DatabaseSync(
-      path.join(cwd, "data", "minimail.sqlite"),
-    );
-    const encryptedDraft = inspectionDb
-      .prepare("SELECT data_enc FROM drafts WHERE id=?")
-      .get("review-draft").data_enc;
-    inspectionDb.close();
+    const inspectionDb = database;
+    const encryptedDraft = (
+      await inspectionDb
+        .prepare("SELECT data_enc FROM drafts WHERE id=?")
+        .get("review-draft")
+    ).data_enc;
     assert.ok(!encryptedDraft.includes(savedDraft.text));
     assert.ok(!encryptedDraft.includes(savedDraft.subject));
     for (const malformed of [
-      { ...savedDraft, attachments: [{ name: "bad.bin", data: "???=" }] },
       {
         ...savedDraft,
-        attachments: Array(9).fill({ name: "empty.txt", data: "" }),
+        attachments: [
+          {
+            name: "bad.bin",
+            data: "???=",
+          },
+        ],
       },
-      { ...savedDraft, references: ["invalid header"] },
-      { ...savedDraft, accountId: -1 },
-      { ...savedDraft, text: "x".repeat(500001) },
-      { ...savedDraft, type: "invalid" },
+      {
+        ...savedDraft,
+        attachments: Array(9).fill({
+          name: "empty.txt",
+          data: "",
+        }),
+      },
+      {
+        ...savedDraft,
+        references: ["invalid header"],
+      },
+      {
+        ...savedDraft,
+        accountId: -1,
+      },
+      {
+        ...savedDraft,
+        text: "x".repeat(500001),
+      },
+      {
+        ...savedDraft,
+        type: "invalid",
+      },
     ])
       assert.equal(
         (await admin("/drafts/review-draft", "PUT", malformed)).status,
@@ -678,7 +761,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await admin("/drafts/review-draft", "DELETE")).status, 200);
     assert.equal((await admin("/drafts/review-draft")).status, 404);
-    const quotaDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
+    const quotaDb = database;
     const encryptDraft = (value) => {
       const nonce = crypto.randomBytes(12);
       const cipher = crypto.createCipheriv(
@@ -695,7 +778,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       );
     };
     for (let i = 0; i < 50; i++)
-      quotaDb
+      await quotaDb
         .prepare(
           "INSERT INTO drafts (user_id,id,data_enc,updated_at) VALUES (1,?,?,?)",
         )
@@ -710,16 +793,18 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await admin("/drafts")).data.length, 50);
     assert.equal(
-      quotaDb
-        .prepare(
-          "SELECT count(*) AS n FROM drafts WHERE metadata_enc IS NOT NULL",
-        )
-        .get().n,
+      (
+        await quotaDb
+          .prepare(
+            "SELECT count(*) AS n FROM drafts WHERE metadata_enc IS NOT NULL",
+          )
+          .get()
+      ).n,
       50,
     );
-    quotaDb.prepare("DELETE FROM drafts WHERE id LIKE 'quota-%'").run();
+    await quotaDb.prepare("DELETE FROM drafts WHERE id LIKE 'quota-%'").run();
     // An existing large draft also enforces the encrypted-byte budget.
-    quotaDb
+    await quotaDb
       .prepare(
         "INSERT INTO drafts (user_id,id,data_enc,updated_at) VALUES (1,'quota-large',?,?)",
       )
@@ -728,12 +813,14 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (await admin("/drafts/quota-extra", "PUT", savedDraft)).status,
       413,
     );
-    quotaDb.prepare("DELETE FROM drafts WHERE id='quota-large'").run();
-    quotaDb.close();
-
+    await quotaDb.prepare("DELETE FROM drafts WHERE id='quota-large'").run();
     assert.equal((await member("/admin/users")).status, 403);
     assert.equal(
-      (await member("/settings/ai", "PUT", { model: "gpt-4.1-mini" })).status,
+      (
+        await member("/settings/ai", "PUT", {
+          model: "gpt-4.1-mini",
+        })
+      ).status,
       403,
     );
     assert.deepEqual((await member("/contacts")).data, []);
@@ -765,7 +852,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await admin("/contacts")).data[0].name, "Alice B");
     assert.deepEqual((await member("/vpn-profiles")).data, []);
     assert.equal(
-      (await member("/admin/users", "POST", { username: "another" })).status,
+      (
+        await member("/admin/users", "POST", {
+          username: "another",
+        })
+      ).status,
       403,
     );
     assert.deepEqual((await member("/accounts")).data, []);
@@ -782,7 +873,6 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         .status,
       404,
     );
-
     const reset = await admin(
       `/admin/users/${created.data.user.id}/reset-password`,
       "POST",
@@ -800,7 +890,6 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       200,
     );
     assert.equal((await member("/auth/me")).data.user.mustChangePassword, true);
-
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv(
       "aes-256-gcm",
@@ -811,8 +900,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     const emptyPassword = Buffer.concat([iv, cipher.getAuthTag()]).toString(
       "base64",
     );
-    const draftDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
-    draftDb
+    const draftDb = database;
+    await draftDb
       .prepare(
         "INSERT INTO accounts (user_id,name,email,imap_host,imap_port,imap_secure,smtp_host,smtp_port,smtp_secure,username,password_enc,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
       )
@@ -830,7 +919,6 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         emptyPassword,
         Date.now(),
       );
-    draftDb.close();
     const drafts = (await admin("/accounts")).data;
     const draft = drafts.find((item) => item.email === "draft@example.test");
     assert.equal(draft.needsCredentials, true);
@@ -863,7 +951,6 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(configured.data.is_primary, true);
     assert.equal((await admin(`/accounts/${draft.id}`, "DELETE")).status, 200);
     assert.equal((await admin("/accounts")).data[0].is_primary, true);
-
     const enrollmentUser = await admin("/admin/users", "POST", {
       username: "enrollment",
     });
@@ -889,19 +976,28 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await enrollment("/auth/2fa/start", "POST")).status, 200);
     for (let i = 0; i < 8; i++)
       assert.equal(
-        (await enrollment("/auth/2fa/verify", "POST", { code: "invalid" }))
-          .status,
+        (
+          await enrollment("/auth/2fa/verify", "POST", {
+            code: "invalid",
+          })
+        ).status,
         400,
       );
     assert.equal(
-      (await enrollment("/auth/2fa/verify", "POST", { code: "invalid" }))
-        .status,
+      (
+        await enrollment("/auth/2fa/verify", "POST", {
+          code: "invalid",
+        })
+      ).status,
       429,
     );
   } finally {
     child.kill();
     if (child.exitCode === null)
       await new Promise((resolve) => child.once("exit", resolve));
-    await fs.rm(cwd, { recursive: true, force: true });
+    await fs.rm(cwd, {
+      recursive: true,
+      force: true,
+    });
   }
 });

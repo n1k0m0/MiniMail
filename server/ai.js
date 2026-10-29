@@ -1,7 +1,6 @@
 import { decrypt, encrypt } from "./security.js";
 import { parseRecipients, validContact } from "./contacts.js";
 import ipaddr from "ipaddr.js";
-
 const maxInput = 30000;
 const maxInstructions = 3000;
 const defaultRewriteMaxTokens = 8192;
@@ -19,36 +18,8 @@ const commercialHosts = [
   "fireworks.ai",
   "cohere.com",
 ];
-
 export class AiInputError extends Error {}
 export class AiServiceError extends Error {}
-
-export function initializeAiSettings(database) {
-  const columns = new Set(
-    database
-      .prepare("PRAGMA table_info(ai_settings)")
-      .all()
-      .map(({ name }) => name),
-  );
-  if (!columns.has("base_url")) {
-    database.exec(
-      "ALTER TABLE ai_settings ADD COLUMN base_url TEXT NOT NULL DEFAULT ''",
-    );
-    // A key from the former fixed commercial endpoint must never be reused.
-    database.exec(
-      "UPDATE ai_settings SET api_key_enc=NULL, model='', base_url=''",
-    );
-  }
-  if (!columns.has("rewrite_max_tokens"))
-    database.exec(
-      `ALTER TABLE ai_settings ADD COLUMN rewrite_max_tokens INTEGER DEFAULT ${defaultRewriteMaxTokens}`,
-    );
-  if (!columns.has("summary_max_tokens"))
-    database.exec(
-      `ALTER TABLE ai_settings ADD COLUMN summary_max_tokens INTEGER DEFAULT ${defaultSummaryMaxTokens}`,
-    );
-}
-
 function validTokenLimit(value) {
   return (
     value === undefined ||
@@ -56,7 +27,6 @@ function validTokenLimit(value) {
     (Number.isSafeInteger(value) && value > 0)
   );
 }
-
 function normalizeBaseUrl(value) {
   if (typeof value !== "string" || value.length > 500 || !value.trim())
     throw new AiInputError("Ungültige KI-Einstellung.");
@@ -95,9 +65,10 @@ function normalizeBaseUrl(value) {
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
-
-export function aiSettings(database) {
-  const row = database.prepare("SELECT * FROM ai_settings WHERE id=1").get();
+export async function aiSettings(database) {
+  const row = await database
+    .prepare("SELECT * FROM ai_settings WHERE id=1")
+    .get();
   return {
     configured: !!(row?.base_url && row?.model),
     baseUrl: row?.base_url || "",
@@ -107,8 +78,7 @@ export function aiSettings(database) {
     summaryMaxTokens: row ? row.summary_max_tokens : defaultSummaryMaxTokens,
   };
 }
-
-export function saveAiSettings(
+export async function saveAiSettings(
   database,
   {
     baseUrl,
@@ -121,8 +91,8 @@ export function saveAiSettings(
   },
 ) {
   if (disable === true) {
-    database.prepare("DELETE FROM ai_settings WHERE id=1").run();
-    return aiSettings(database);
+    await database.prepare("DELETE FROM ai_settings WHERE id=1").run();
+    return await aiSettings(database);
   }
   if (
     typeof baseUrl !== "string" ||
@@ -137,7 +107,7 @@ export function saveAiSettings(
   )
     throw new AiInputError("Ungültige KI-Einstellung.");
   const normalizedUrl = normalizeBaseUrl(baseUrl);
-  const existing = database
+  const existing = await database
     .prepare(
       "SELECT base_url,api_key_enc,rewrite_max_tokens,summary_max_tokens FROM ai_settings WHERE id=1",
     )
@@ -149,9 +119,9 @@ export function saveAiSettings(
       : existing?.base_url === normalizedUrl
         ? existing.api_key_enc
         : null;
-  database
+  await database
     .prepare(
-      "INSERT INTO ai_settings(id,base_url,api_key_enc,model,rewrite_max_tokens,summary_max_tokens) VALUES (1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url,api_key_enc=excluded.api_key_enc,model=excluded.model,rewrite_max_tokens=excluded.rewrite_max_tokens,summary_max_tokens=excluded.summary_max_tokens",
+      "INSERT INTO ai_settings(id,base_url,api_key_enc,model,rewrite_max_tokens,summary_max_tokens) VALUES (1,?,?,?,?,?) ON DUPLICATE KEY UPDATE base_url=VALUES(base_url),api_key_enc=VALUES(api_key_enc),model=VALUES(model),rewrite_max_tokens=VALUES(rewrite_max_tokens),summary_max_tokens=VALUES(summary_max_tokens)",
     )
     .run(
       normalizedUrl,
@@ -168,11 +138,12 @@ export function saveAiSettings(
           : defaultSummaryMaxTokens
         : summaryMaxTokens,
     );
-  return aiSettings(database);
+  return await aiSettings(database);
 }
-
-function credentials(database) {
-  const row = database.prepare("SELECT * FROM ai_settings WHERE id=1").get();
+async function credentials(database) {
+  const row = await database
+    .prepare("SELECT * FROM ai_settings WHERE id=1")
+    .get();
   if (!row?.base_url || !row?.model)
     throw new AiInputError("KI ist noch nicht eingerichtet.");
   const apiKey = row?.api_key_enc ? decrypt(row.api_key_enc) : null;
@@ -184,14 +155,12 @@ function credentials(database) {
     endpoint: `${normalizeBaseUrl(row.base_url)}/chat/completions`,
   };
 }
-
 function textOutput(result) {
   return typeof result?.choices?.[0]?.message?.content === "string"
     ? result.choices[0].message.content.trim()
     : "";
 }
-
-export function rewriteContext(database, userId, body = {}) {
+export async function rewriteContext(database, userId, body = {}) {
   const to = body.to ?? "";
   const cc = body.cc ?? "";
   const subject = body.subject ?? "";
@@ -212,7 +181,7 @@ export function rewriteContext(database, userId, body = {}) {
   const account =
     body.senderAccountId == null
       ? null
-      : database
+      : await database
           .prepare(
             "SELECT email,name,sender_name,signature FROM accounts WHERE id=? AND user_id=?",
           )
@@ -230,8 +199,14 @@ export function rewriteContext(database, userId, body = {}) {
     "SELECT name FROM contacts WHERE user_id=? AND email=?",
   );
   const recipients = [
-    ...parseRecipients([to]).map((item) => ({ ...item, role: "to" })),
-    ...parseRecipients([cc]).map((item) => ({ ...item, role: "cc" })),
+    ...parseRecipients([to]).map((item) => ({
+      ...item,
+      role: "to",
+    })),
+    ...parseRecipients([cc]).map((item) => ({
+      ...item,
+      role: "cc",
+    })),
   ];
   if (recipients.length > 50) throw new AiInputError("Ungültige KI-Anfrage.");
   return {
@@ -241,20 +216,21 @@ export function rewriteContext(database, userId, body = {}) {
           name: (account.sender_name || account.name || "").trim(),
         }
       : null,
-    recipients: recipients.map((item) => ({
-      role: item.role,
-      email: item.address,
-      name:
-        item.name?.trim() ||
-        contact.get(userId, item.address)?.name?.trim() ||
-        names.get(item.address.toLowerCase()) ||
-        "",
-    })),
+    recipients: await Promise.all(
+      recipients.map(async (item) => ({
+        role: item.role,
+        email: item.address,
+        name:
+          item.name?.trim() ||
+          (await contact.get(userId, item.address))?.name?.trim() ||
+          names.get(item.address.toLowerCase()) ||
+          "",
+      })),
+    ),
     subject: subject.trim(),
     signatureWillBeAppended: !!account?.signature?.trim(),
   };
 }
-
 export async function requestAi(
   database,
   { kind, text, instructions = "", language = "de", context = null },
@@ -276,7 +252,7 @@ export async function requestAi(
   )
     throw new AiInputError("KI-Text fehlt oder ist zu lang.");
   const { apiKey, model, endpoint, rewriteMaxTokens, summaryMaxTokens } =
-    credentials(database);
+    await credentials(database);
   const maxTokens = kind === "rewrite" ? rewriteMaxTokens : summaryMaxTokens;
   const targetLanguage = language === "en" ? "English" : "German";
   const prompt =
@@ -288,13 +264,20 @@ export async function requestAi(
     response = await fetcher(endpoint, {
       method: "POST",
       headers: {
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...(apiKey
+          ? {
+              Authorization: `Bearer ${apiKey}`,
+            }
+          : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: prompt },
+          {
+            role: "system",
+            content: prompt,
+          },
           {
             role: "user",
             content:
@@ -303,7 +286,11 @@ export async function requestAi(
                 : `Email:\n${content}`,
           },
         ],
-        ...(maxTokens === null ? {} : { max_tokens: maxTokens }),
+        ...(maxTokens === null
+          ? {}
+          : {
+              max_tokens: maxTokens,
+            }),
       }),
       signal: AbortSignal.timeout(180000),
       redirect: "error",

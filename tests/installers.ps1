@@ -15,7 +15,7 @@ try {
     $before = [IO.File]::ReadAllText((Join-Path $fixture '.env'))
     & (Join-Path $fixture 'scripts/install.ps1') -AdminUsername test-admin
     $after = [IO.File]::ReadAllText((Join-Path $fixture '.env'))
-    if ($before -ne $after -or $after -notmatch '^APP_ENCRYPTION_KEY=[a-f0-9]{64}\r?\n$') { throw 'Existing encryption key was not preserved.' }
+    if ($before -ne $after -or $after -notmatch '(?m)^APP_ENCRYPTION_KEY=[a-f0-9]{64}\r?$' -or $after -notmatch '(?m)^MYSQL_PASSWORD=[a-f0-9]{64}\r?$' -or $after -notmatch '(?m)^MYSQL_ROOT_PASSWORD=[a-f0-9]{64}\r?$') { throw 'Existing encryption key was not preserved.' }
     if ([IO.File]::ReadAllText($testLog) -like '*server/create-admin.js*') { throw 'Existing administrator was recreated.' }
     Write-Output 'PowerShell installer tests passed.'
 } finally {

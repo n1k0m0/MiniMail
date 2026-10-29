@@ -5,6 +5,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: minimail-test-only
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      MYSQL_TEST_HOST: 127.0.0.1
+      MYSQL_TEST_PASSWORD: minimail-test-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,6 +27,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
+      - run: docker exec $(docker ps --filter ancestor=mysql:8.4 -q | head -n 1) mysql -uroot -pminimail-test-only -e "SET GLOBAL max_allowed_packet=134217728"
       - run: npm test
       - run: npm run build
       - run: for file in scripts/*.sh vpn/*.sh; do sh -n "$file"; done
@@ -22,3 +37,5 @@ jobs:
       - run: docker compose --env-file .env.example config --quiet
         env:
           APP_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          MYSQL_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          MYSQL_ROOT_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

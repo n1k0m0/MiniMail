@@ -1,6 +1,5 @@
 import { db } from "./db.js";
 import { hashPassword } from "./security.js";
-
 const username = process.argv[2];
 if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username || "")) {
   console.error(
@@ -8,7 +7,7 @@ if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username || "")) {
   );
   process.exit(1);
 }
-if (db.prepare("SELECT id FROM users LIMIT 1").get()) {
+if (await db.prepare("SELECT id FROM users LIMIT 1").get()) {
   console.error(
     "Ein Benutzer existiert bereits. Die Admin-Einrichtung ist gesperrt.",
   );
@@ -20,7 +19,6 @@ if (!process.stdin.isTTY || !process.stdin.setRawMode) {
   );
   process.exit(1);
 }
-
 function readSecret(label) {
   return new Promise((resolve, reject) => {
     let value = "";
@@ -52,7 +50,6 @@ function readSecret(label) {
     process.stdin.on("data", onData);
   });
 }
-
 try {
   const password = await readSecret("Admin-Passwort (mindestens 12 Zeichen): ");
   const confirmation = await readSecret("Passwort wiederholen: ");
@@ -62,9 +59,11 @@ try {
     password !== confirmation
   )
     throw new Error("Passwort zu kurz oder Eingaben stimmen nicht überein.");
-  db.prepare(
-    "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'admin',0)",
-  ).run(username, hashPassword(password), Date.now());
+  await db
+    .prepare(
+      "INSERT INTO users (username,password_hash,created_at,role,must_change_password) VALUES (?,?,?,'admin',0)",
+    )
+    .run(username, hashPassword(password), Date.now());
   console.log(
     `Admin „${username}“ angelegt. Beim ersten Login wird 2FA eingerichtet.`,
   );
@@ -72,5 +71,5 @@ try {
   console.error(error.message);
   process.exitCode = 1;
 } finally {
-  db.close();
+  await db.close();
 }

@@ -7,6 +7,13 @@ COPY public ./public
 COPY src ./src
 RUN npm run build
 
+FROM build AS test
+RUN apk add --no-cache openssl
+COPY server ./server
+COPY tests ./tests
+COPY vpn ./vpn
+CMD ["npm", "test"]
+
 FROM node:24-alpine
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0
 RUN apk add --no-cache openssl ca-certificates

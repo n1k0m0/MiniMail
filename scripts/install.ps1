@@ -24,9 +24,25 @@ if (-not (Test-Path -LiteralPath $envFile)) {
 }
 $configuredKeys = @([IO.File]::ReadAllLines($envFile) | Where-Object { $_ -cmatch '^APP_ENCRYPTION_KEY=[a-fA-F0-9]{64}$' })
 if ($configuredKeys.Count -ne 1) { throw 'Set APP_ENCRYPTION_KEY to exactly 64 hexadecimal characters. Existing keys are never replaced.' }
+foreach ($name in @('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD')) {
+    $lines = @([IO.File]::ReadAllLines($envFile))
+    $matching = @($lines | Where-Object { $_ -cmatch "^${name}=" })
+    if ($matching.Count -gt 1) { throw "Duplicate $name in .env" }
+    if ($matching.Count -eq 0 -or $matching[0] -cmatch "^${name}=$") {
+        $randomBytes = New-Object byte[] 32
+        $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $random.GetBytes($randomBytes) } finally { $random.Dispose() }
+        $password = ([BitConverter]::ToString($randomBytes)).Replace('-', '').ToLowerInvariant()
+        $lines = @($lines | Where-Object { $_ -cnotmatch "^${name}=" }) + "${name}=$password"
+        [IO.File]::WriteAllLines($envFile, $lines, [Text.UTF8Encoding]::new($false))
+        $password = $null
+    }
+}
 $baseArgs = @('compose', '--project-directory', $projectRoot, '--env-file', $envFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 & docker @baseArgs build
 if ($LASTEXITCODE -ne 0) { throw 'Docker build failed.' }
+& docker @baseArgs up -d --wait database
+if ($LASTEXITCODE -ne 0) { throw 'MySQL did not become ready.' }
 $status = & docker @baseArgs run --rm --no-deps -T minimail node server/install-status.js
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect installation.' }
 if ($status.Trim() -eq 'needs-admin') {

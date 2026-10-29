@@ -1,6 +1,6 @@
 # MiniMail
 
-A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Express and SQLite. MiniMail keeps your messages on your mail servers and provides a lightweight browser interface for reading, searching, composing and organizing mail.
+A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Express and MySQL 8.4. MiniMail keeps your messages on your mail servers and provides a lightweight browser interface for reading, searching, composing and organizing mail.
 
 ## Features
 
@@ -18,7 +18,7 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 
 **Recommended:** Docker Engine with Docker Compose v2, or Docker Desktop using Linux containers. The shell installer also uses OpenSSL to generate an encryption key. The PowerShell installer uses the operating system's cryptographic random generator.
 
-For development without Docker, use **Node.js 24 or newer** and npm. S/MIME operations also require an OpenSSL executable. OAuth-only mail providers are not supported; many providers require an app password for IMAP/SMTP.
+For development without Docker, use **Node.js 24 or newer**, npm and **MySQL 8.4**. S/MIME operations also require an OpenSSL executable. OAuth-only mail providers are not supported; many providers require an app password for IMAP/SMTP.
 
 The optional VPN container requires a Linux Docker host with `/dev/net/tun`, `NET_ADMIN` and iptables support. It is separate from the unprivileged MiniMail application.
 
@@ -46,7 +46,7 @@ On Windows, from PowerShell:
 The installer:
 
 1. Creates `.env` with a random 256-bit encryption key **only if the file does not already exist**.
-2. Builds the application image from the included `Dockerfile`.
+2. Generates distinct MySQL application/root passwords when missing, builds the application and database images from `Dockerfile` and `database/Dockerfile`, and waits for MySQL to be ready.
 3. Checks whether an administrator exists and, on a new installation, prompts for a password in an interactive terminal. The password is not echoed or passed as a command-line argument.
 4. Starts MiniMail at **http://127.0.0.1:3000**.
 
@@ -60,15 +60,16 @@ Keep `.env` private and back it up with the database. On Windows, restrict its f
 
 ```sh
 cp .env.example .env
-# Generate a key and paste its output into APP_ENCRYPTION_KEY in .env:
+# Run this three times and fill APP_ENCRYPTION_KEY, MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD:
 openssl rand -hex 32
 
 docker compose build
-docker compose run --rm minimail node server/create-admin.js admin
+docker compose up -d --wait database
+docker compose run --rm --no-deps minimail node server/create-admin.js admin
 docker compose up -d
 ```
 
-`APP_ENCRYPTION_KEY` must contain exactly 64 hexadecimal characters. `.env.example` contains placeholders, never working credentials. There is no public user registration.
+`APP_ENCRYPTION_KEY` must contain exactly 64 hexadecimal characters. `.env.example` contains placeholders, never working credentials. Use different, long random passwords for MySQL; the installer generates 64-character hexadecimal values. The application uses its own database account and never connects as MySQL root. There is no public user registration.
 
 ### HTTPS reverse proxy
 
@@ -92,7 +93,7 @@ docker compose stop minimail
 docker compose start minimail
 ```
 
-The Docker image runs as an unprivileged user, with a read-only application filesystem, no application capabilities and a built-in HTTP health check. The named `minimail-data` volume contains SQLite state. The `Dockerfile` uses a separate frontend build stage and installs only production dependencies into the runtime image. No third-party geolocation download is required during image builds.
+The Docker image runs as an unprivileged user, with a read-only application filesystem, no application capabilities and a built-in HTTP health check. The named `mysql-data` volume contains all application tables in MySQL/InnoDB. MySQL is reachable only through the internal Docker database network and has no host port mapping. `minimail-data` is retained for local key files and legacy SQLite imports; deleting it does not migrate its contents. The application health check also queries MySQL, so a database outage makes the application unhealthy. The `Dockerfile` uses a separate frontend build stage and installs only production dependencies into the runtime image. No third-party geolocation download is required during image builds.
 
 ## Optional generic VPN
 
@@ -110,9 +111,7 @@ Only the selected mailbox's IMAP and SMTP traffic use the tunnel. VPN profiles a
 3. Replace the documentation values in `local/vpn-targets.json` with your mail servers:
 
    ```json
-   [
-     { "host": "mail.private.example", "ip": "192.0.2.10", "ports": [993, 587] }
-   ]
+   [{ "host": "mail.private.example", "ip": "192.0.2.10", "ports": [993, 587] }]
    ```
 
    The hostname is what you enter in MiniMail. The IP is the fixed IPv4 destination reachable through the VPN. The example address is reserved for documentation and must be replaced. Add one entry per permitted mail host, and only the ports you need. Direct TLS commonly uses 993/465; STARTTLS commonly uses 143/587. IPv6 VPN destinations are not implemented.
@@ -156,7 +155,14 @@ Relay headers can be forged, IP geolocation is approximate, and the lines descri
 
 ## Development without Docker
 
+Start a MySQL 8.4 server with a database and a dedicated user authorized for that database. Export its connection settings in the terminal that runs Node:
+
 ```sh
+export MYSQL_HOST=127.0.0.1
+export MYSQL_PORT=3306
+export MYSQL_DATABASE=minimail
+export MYSQL_USER=minimail
+# Set MYSQL_PASSWORD privately in your shell/service environment.
 npm ci
 npm run dev
 ```
@@ -167,9 +173,18 @@ Open **http://127.0.0.1:5173**. Development mode permits local HTTP sign-in. In 
 npm run admin:create -- admin
 ```
 
-The application creates `data/minimail.sqlite` and, in development only, `data/secret.key`. Both are ignored by Git. With no browser open, connected inboxes are still checked at each mailbox's configured interval; use `0` to disable automatic checks.
+Tables are created automatically in the configured MySQL database. In development only, the application creates `data/secret.key` when no encryption key is supplied. This file is ignored by Git. With no browser open, connected inboxes are still checked at each mailbox's configured interval; use `0` to disable automatic checks.
 
 For S/MIME on Windows, install OpenSSL and set `OPENSSL_BIN` to its executable if it is not on `PATH`. For a local GeoIP database set `MAIL_TRACE_GEOIP_DB` to the MMDB path. Optional server VPN configuration is read from `MAIL_VPN_PROFILE_ID`, `MAIL_VPN_PROFILE_LABEL` and `MAIL_VPN_PROXY_URL`; the administrator must provide a restricted proxy, not a public general-purpose proxy.
+
+Build and test with a **separate disposable MySQL server**. The integration tests create and drop randomly named test databases, so use a test administrator with permission to create databases. Never point these test settings at a production server. The default test password is a synthetic fixture; GitHub Actions provisions its own MySQL service.
+
+```sh
+export MYSQL_TEST_HOST=127.0.0.1
+export MYSQL_TEST_USER=root
+# Set MYSQL_TEST_PASSWORD privately; default: minimail-test-only.
+# Set max_allowed_packet=128M on the test server (as in database/minimail.cnf).
+```
 
 Build and test:
 
@@ -179,7 +194,7 @@ npm run build
 npm audit
 ```
 
-For production without Docker, build the frontend, set `NODE_ENV=production`, provide `APP_ENCRYPTION_KEY` in the process environment and run `npm start`. The default bind address is loopback; `HOST` and `PORT` can be set explicitly. Node does not automatically read `.env` for `npm start`; use your service manager's environment configuration or Node's `--env-file` option. Use HTTPS for production sign-in.
+For production without Docker, build the frontend, set `NODE_ENV=production`, provide `APP_ENCRYPTION_KEY` and the `MYSQL_*` connection settings in the process environment and run `npm start`. The default bind address is loopback; `HOST` and `PORT` can be set explicitly. For a remote MySQL server, set `MYSQL_SSL_CA` to its trusted CA certificate file to enable verified TLS. The built-in Docker network does not require external database access. Node does not automatically read `.env` for `npm start`; use your service manager's environment configuration or Node's `--env-file` option. Use HTTPS for production sign-in.
 
 ## Mail, drafts and protected messages
 
@@ -207,21 +222,31 @@ Separate output token limits can be configured for writing and summarizing. A bl
 
 ## Updates, backups and private configuration
 
-Before updating, back up the data volume and the encryption key. For a consistent filesystem backup, stop MiniMail first:
+Back up MySQL **and the original encryption key**. For a consistent application snapshot, stop MiniMail while taking a transactional database dump:
 
 ```sh
+umask 077
 mkdir -p backups
-chmod 700 backups
 docker compose stop minimail
-docker compose run --rm --no-deps -T --entrypoint tar minimail -czf - -C /app/data . > backups/data.tar.gz
-docker compose start minimail
+docker compose exec -T database sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump --single-transaction --quick --no-tablespaces --set-gtid-purged=OFF -u "$MYSQL_USER" "$MYSQL_DATABASE"' > backups/minimail.sql
 cp .env backups/environment
-chmod 600 backups/environment
+docker compose start minimail
 ```
 
-If the backup command fails, restart the service with `docker compose start minimail` before retrying. Store the backup and key privately, preferably in separate protected locations. Email messages stay on the mail servers; MiniMail's users, credentials, contacts, drafts, private keys and local indexes live in the data volume. The encrypted database is not recoverable without the original key.
+Check that the dump command succeeded. If any backup step fails, restart MiniMail with `docker compose start minimail`. Keep `.env`, optional local files and VPN profiles in private backups, preferably separate from the SQL dump. Do not use `docker compose down -v`: it deletes named data volumes. Emails stay on the IMAP servers; MySQL holds users, password hashes, sessions, mailbox credentials, contacts, drafts, key material, settings and local indexes. Encrypted fields are not recoverable without the original `APP_ENCRYPTION_KEY`.
 
-Upgrade the default installation with:
+To restore into a new, empty installation, restore the matching private `.env` first, build the images, and start only MySQL. Import the dump before starting MiniMail:
+
+```sh
+docker compose build
+docker compose up -d --wait database
+docker compose exec -T database sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u "$MYSQL_USER" "$MYSQL_DATABASE"' < backups/minimail.sql
+docker compose up -d minimail
+```
+
+The MySQL initialization passwords apply only to a new volume. Changing `.env` later does **not** change an existing database user's password; perform a deliberate MySQL password change and update the matching application configuration together.
+
+For normal updates after the MySQL migration:
 
 ```sh
 git pull --ff-only
@@ -229,7 +254,37 @@ docker compose build
 docker compose up -d
 ```
 
-Include your VPN/geolocation/local overrides when building and recreating services. Back up before applying database migrations. To restore, stop MiniMail, restore the complete data volume and its matching `.env`, then recreate the service. Do not mix a database backup with another encryption key.
+Include your VPN/geolocation/local overrides in all deployment commands. Back up before database changes. Use the one-time migration below when updating from a SQLite release.
+
+### One-time SQLite → MySQL migration
+
+Keep the old image/source and a private backup before updating. Stop the old application before taking the final SQLite snapshot so no writes occur during migration. Keep `APP_ENCRYPTION_KEY` unchanged. Do not create a fresh administrator: users and 2FA are imported.
+
+1. Stop MiniMail using the old deployment configuration; back up its complete `minimail-data` volume (including SQLite WAL files if present), `.env`, VPN files and local overrides.
+2. Update the source. Add distinct random `MYSQL_PASSWORD` and `MYSQL_ROOT_PASSWORD` values to the existing `.env`; retain every existing key and private setting.
+3. Build the new images and start only MySQL:
+
+   ```sh
+   docker compose build
+   docker compose up -d --wait database
+   ```
+
+4. With the application still stopped, import the old file mounted in `minimail-data`:
+
+   ```sh
+   docker compose run --rm --no-deps -T minimail npm run db:migrate -- /app/data/minimail.sqlite
+   docker compose run --rm --no-deps -T minimail npm run db:migrate -- /app/data/minimail.sqlite --verify-only
+   ```
+
+5. Both commands must report `verified: true` for every table. Then start MiniMail with the same private overrides and check sign-in, mailboxes, contacts, drafts and settings:
+
+   ```sh
+   docker compose up -d minimail
+   ```
+
+The importer creates a private temporary copy in the data volume (including any WAL), reads SQLite in read-only mode, checks its integrity, preserves IDs and encrypted bytes, and compares SHA-256 content digests and row counts inside a single MySQL transaction. It refuses a nonempty target or unknown tables/columns and rolls back on failure. Large mail indexes are streamed instead of loaded all at once. Allow enough free space for the temporary SQLite copy; `SQLITE_MIGRATION_TMPDIR` can select another private writable directory. Temporary copies are removed after import. Older schemas receive missing defaults; keys from obsolete fixed AI endpoints are cleared. Existing self-hosted AI settings are preserved. SQLite is used only by this import tool, never by the running mail application.
+
+Keep the old SQLite backup until verification is complete. A rollback restores the old image/source and its matching SQLite snapshot. Changes made after switching to MySQL are not in that old snapshot; do not roll back blindly after accepting new writes.
 
 Keep deployment-specific networks, proxy settings and bind paths in ignored files such as `compose.local.yaml` and `.env`. Never commit profiles, credentials or backups. The repository contains generic examples only.
 

@@ -1,8 +1,7 @@
 import { db } from "./db.js";
 import { decrypt } from "./security.js";
 import { scanAccountKeys } from "./mail.js";
-
-const accounts = db.prepare("SELECT * FROM accounts ORDER BY id").all();
+const accounts = await db.prepare("SELECT * FROM accounts ORDER BY id").all();
 for (const account of accounts) {
   if (!account.password_enc || !decrypt(account.password_enc)) {
     console.log(`Account ${account.id}: credentials missing`);
@@ -31,4 +30,4 @@ for (const account of accounts) {
     process.exitCode = 1;
   }
 }
-db.close();
+await db.close();

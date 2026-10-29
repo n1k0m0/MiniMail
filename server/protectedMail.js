@@ -13,12 +13,9 @@ import {
   runOpenSSL,
   withCryptoTemp,
 } from "./cryptoKeys.js";
-
 export class CryptoInputError extends Error {}
-
 const crlf = (text) => String(text).replace(/\r?\n/g, "\r\n");
 const name = (field) => field.split(":", 1)[0].toLowerCase();
-
 function mimeParts(raw) {
   const text = Buffer.isBuffer(raw) ? raw.toString("latin1") : String(raw);
   const split = text.indexOf("\r\n\r\n");
@@ -52,13 +49,11 @@ function mimeParts(raw) {
     content: Buffer.from(`${inner.join("\r\n")}\r\n\r\n${body}`, "latin1"),
   };
 }
-
 function outerHeaders(headers, includeBcc) {
   return headers
     .filter((field) => includeBcc || name(field) !== "bcc")
     .join("\r\n");
 }
-
 function wrap(headers, mime, includeBcc) {
   const version = /^MIME-Version:/i.test(mime) ? "" : "MIME-Version: 1.0\r\n";
   return Buffer.from(
@@ -66,7 +61,6 @@ function wrap(headers, mime, includeBcc) {
     "latin1",
   );
 }
-
 function multipartFirstPart(raw, boundary) {
   if (!boundary || boundary.length > 200)
     throw new Error("Invalid MIME boundary");
@@ -81,31 +75,28 @@ function multipartFirstPart(raw, boundary) {
   if (end < 0) throw new Error("MIME part not terminated");
   return Buffer.from(body.slice(contentStart, end), "latin1");
 }
-
-function senderKey(userId, email) {
-  const contact = db
+async function senderKey(userId, email) {
+  const contact = await db
     .prepare(
-      "SELECT pgp_public FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+      "SELECT pgp_public FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(userId, email);
   if (contact?.pgp_public) return contact.pgp_public;
-  const own = db
+  const own = await db
     .prepare(
-      "SELECT pgp_private_enc FROM accounts WHERE user_id=? AND email=? COLLATE NOCASE",
+      "SELECT pgp_private_enc FROM accounts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(userId, email);
   return own?.pgp_private_enc ? decrypt(own.pgp_private_enc) : null;
 }
-
-function senderKeyVerified(userId, email) {
-  const contact = db
+async function senderKeyVerified(userId, email) {
+  const contact = await db
     .prepare(
-      "SELECT pgp_verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+      "SELECT pgp_verified FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(userId, email);
   return !contact || !!contact.pgp_verified;
 }
-
 async function unlockedPgp(account) {
   if (!account.pgp_private_enc)
     throw new CryptoInputError("OpenPGP-Privatschlüssel fehlt.");
@@ -119,7 +110,6 @@ async function unlockedPgp(account) {
         passphrase: decrypt(account.pgp_passphrase_enc),
       });
 }
-
 async function recipientMaterial(account, mail, column) {
   const addresses = [
     ...new Set(
@@ -135,16 +125,16 @@ async function recipientMaterial(account, mail, column) {
     if (email === account.email.toLowerCase()) continue;
     const verifiedColumn =
       column === "pgp_public" ? "pgp_verified" : "smime_verified";
-    const contact = db
+    const contact = await db
       .prepare(
-        `SELECT ${column} AS key,${verifiedColumn} AS verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE`,
+        `SELECT ${column} AS material,${verifiedColumn} AS verified FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci`,
       )
       .get(account.user_id, email);
-    let key = contact?.verified ? contact.key : null;
+    let key = contact?.verified ? contact.material : null;
     if (!key) {
-      const own = db
+      const own = await db
         .prepare(
-          "SELECT pgp_private_enc,smime_cert FROM accounts WHERE user_id=? AND email=? COLLATE NOCASE",
+          "SELECT pgp_private_enc,smime_cert FROM accounts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
         )
         .get(account.user_id, email);
       if (column === "smime_cert") key = own?.smime_cert;
@@ -160,7 +150,11 @@ async function recipientMaterial(account, mail, column) {
     if (key) {
       try {
         if (column === "pgp_public")
-          await (await openpgp.readKey({ armoredKey: key })).getEncryptionKey();
+          await (
+            await openpgp.readKey({
+              armoredKey: key,
+            })
+          ).getEncryptionKey();
         else if (!certificateIsCurrent(new crypto.X509Certificate(key)))
           key = null;
       } catch {
@@ -169,7 +163,7 @@ async function recipientMaterial(account, mail, column) {
     }
     if (!key) {
       missing.push(email);
-      if (contact?.key && !contact.verified) unconfirmed.push(email);
+      if (contact?.material && !contact.verified) unconfirmed.push(email);
     } else material.push(key);
   }
   if (missing.length) {
@@ -182,10 +176,12 @@ async function recipientMaterial(account, mail, column) {
   }
   return material;
 }
-
 export async function encryptionAvailability(account, mail) {
   if (!parseRecipients([mail.to, mail.cc, mail.bcc]).length)
-    return { available: false, reason: "Bitte zuerst Empfänger eingeben." };
+    return {
+      available: false,
+      reason: "Bitte zuerst Empfänger eingeben.",
+    };
   try {
     if (mail.crypto.mode === "pgp") {
       const own = await unlockedPgp(account);
@@ -207,19 +203,28 @@ export async function encryptionAvailability(account, mail) {
         reason: "Kein Verschlüsselungsverfahren ausgewählt.",
       };
     }
-    return { available: true };
+    return {
+      available: true,
+    };
   } catch (error) {
     if (error instanceof CryptoInputError)
       return {
         available: false,
         reason: error.message,
-        ...(error.missing ? { missing: error.missing } : {}),
-        ...(error.unconfirmed ? { unconfirmed: error.unconfirmed } : {}),
+        ...(error.missing
+          ? {
+              missing: error.missing,
+            }
+          : {}),
+        ...(error.unconfirmed
+          ? {
+              unconfirmed: error.unconfirmed,
+            }
+          : {}),
       };
     throw error;
   }
 }
-
 async function protectPgp(account, mail, content) {
   const signingKey = mail.crypto.sign ? await unlockedPgp(account) : null;
   const boundary = `minimail-${crypto.randomBytes(18).toString("hex")}`;
@@ -227,13 +232,23 @@ async function protectPgp(account, mail, content) {
     const publicKeys = await recipientMaterial(account, mail, "pgp_public");
     const ownKey = await unlockedPgp(account);
     const encryptionKeys = await Promise.all([
-      ...publicKeys.map((key) => openpgp.readKey({ armoredKey: key })),
+      ...publicKeys.map((key) =>
+        openpgp.readKey({
+          armoredKey: key,
+        }),
+      ),
       Promise.resolve(ownKey.toPublic()),
     ]);
     const armored = await openpgp.encrypt({
-      message: await openpgp.createMessage({ binary: new Uint8Array(content) }),
+      message: await openpgp.createMessage({
+        binary: new Uint8Array(content),
+      }),
       encryptionKeys,
-      ...(signingKey ? { signingKeys: signingKey } : {}),
+      ...(signingKey
+        ? {
+            signingKeys: signingKey,
+          }
+        : {}),
     });
     const mime =
       `Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="${boundary}"\r\n\r\n` +
@@ -242,10 +257,14 @@ async function protectPgp(account, mail, content) {
     return mime;
   }
   const signature = await openpgp.sign({
-    message: await openpgp.createMessage({ binary: new Uint8Array(content) }),
+    message: await openpgp.createMessage({
+      binary: new Uint8Array(content),
+    }),
     signingKeys: signingKey,
     detached: true,
-    config: { preferredHashAlgorithm: openpgp.enums.hash.sha256 },
+    config: {
+      preferredHashAlgorithm: openpgp.enums.hash.sha256,
+    },
   });
   return (
     `Content-Type: multipart/signed; micalg=pgp-sha256; protocol="application/pgp-signature"; boundary="${boundary}"\r\n\r\n` +
@@ -253,7 +272,6 @@ async function protectPgp(account, mail, content) {
     `--${boundary}\r\nContent-Type: application/pgp-signature; name="signature.asc"\r\nContent-Disposition: attachment; filename="signature.asc"\r\nContent-Transfer-Encoding: 7bit\r\n\r\n${crlf(signature).trimEnd()}\r\n--${boundary}--\r\n`
   );
 }
-
 async function protectSmime(account, mail, content) {
   if (
     (mail.crypto.sign || mail.crypto.encrypt) &&
@@ -269,9 +287,15 @@ async function protectSmime(account, mail, content) {
     const cert = path.join(dir, "own.pem");
     const key = path.join(dir, "key.pem");
     const output = path.join(dir, "output.mime");
-    await fs.writeFile(input, content, { mode: 0o600 });
-    await fs.writeFile(cert, account.smime_cert, { mode: 0o600 });
-    await fs.writeFile(key, decrypt(account.smime_key_enc), { mode: 0o600 });
+    await fs.writeFile(input, content, {
+      mode: 0o600,
+    });
+    await fs.writeFile(cert, account.smime_cert, {
+      mode: 0o600,
+    });
+    await fs.writeFile(key, decrypt(account.smime_key_enc), {
+      mode: 0o600,
+    });
     let current = input;
     if (mail.crypto.sign) {
       await runOpenSSL([
@@ -302,7 +326,9 @@ async function protectSmime(account, mail, content) {
         account.smime_cert,
       ].entries()) {
         const file = path.join(dir, `recipient-${index}.pem`);
-        await fs.writeFile(file, pem, { mode: 0o600 });
+        await fs.writeFile(file, pem, {
+          mode: 0o600,
+        });
         files.push(file);
       }
       const encrypted = path.join(dir, "encrypted.mime");
@@ -325,12 +351,14 @@ async function protectSmime(account, mail, content) {
     return (await fs.readFile(current)).toString("latin1");
   });
 }
-
 export async function protectOutgoing(account, mail, outgoing) {
   let cryptoOptions = mail.crypto;
   if (cryptoOptions?.encrypt === "auto") {
     const availability = await encryptionAvailability(account, mail);
-    cryptoOptions = { ...cryptoOptions, encrypt: availability.available };
+    cryptoOptions = {
+      ...cryptoOptions,
+      encrypt: availability.available,
+    };
   }
   if (
     !cryptoOptions ||
@@ -349,10 +377,20 @@ export async function protectOutgoing(account, mail, outgoing) {
   const { headers, content } = mimeParts(generated.message);
   const mime =
     cryptoOptions.mode === "pgp"
-      ? await protectPgp(account, { ...mail, crypto: cryptoOptions }, content)
+      ? await protectPgp(
+          account,
+          {
+            ...mail,
+            crypto: cryptoOptions,
+          },
+          content,
+        )
       : await protectSmime(
           account,
-          { ...mail, crypto: cryptoOptions },
+          {
+            ...mail,
+            crypto: cryptoOptions,
+          },
           content,
         );
   const messageId =
@@ -370,17 +408,30 @@ export async function protectOutgoing(account, mail, outgoing) {
     },
   };
 }
-
 async function verifyPgp(content, armoredSignature, userId, sender) {
-  const armored = senderKey(userId, sender);
-  if (!armored) return { signed: true, signature: "unknown-key" };
+  const armored = await senderKey(userId, sender);
+  if (!armored)
+    return {
+      signed: true,
+      signature: "unknown-key",
+    };
   try {
     const key = armored.includes("PRIVATE KEY")
-      ? (await openpgp.readPrivateKey({ armoredKey: armored })).toPublic()
-      : await openpgp.readKey({ armoredKey: armored });
-    const signature = await openpgp.readSignature({ armoredSignature });
+      ? (
+          await openpgp.readPrivateKey({
+            armoredKey: armored,
+          })
+        ).toPublic()
+      : await openpgp.readKey({
+          armoredKey: armored,
+        });
+    const signature = await openpgp.readSignature({
+      armoredSignature,
+    });
     const result = await openpgp.verify({
-      message: await openpgp.createMessage({ binary: new Uint8Array(content) }),
+      message: await openpgp.createMessage({
+        binary: new Uint8Array(content),
+      }),
       signature,
       verificationKeys: key,
       format: "binary",
@@ -389,14 +440,18 @@ async function verifyPgp(content, armoredSignature, userId, sender) {
     await result.signatures[0].verified;
     return {
       signed: true,
-      signature: senderKeyVerified(userId, sender) ? "valid" : "untrusted",
+      signature: (await senderKeyVerified(userId, sender))
+        ? "valid"
+        : "untrusted",
       fingerprint: key.getFingerprint().toUpperCase(),
     };
   } catch {
-    return { signed: true, signature: "invalid" };
+    return {
+      signed: true,
+      signature: "invalid",
+    };
   }
 }
-
 async function readPgp(account, raw, parsed, kind) {
   const sender = parsed.from?.value?.[0]?.address || "";
   if (kind === "signed") {
@@ -432,26 +487,42 @@ async function readPgp(account, raw, parsed, kind) {
   if (!account.pgp_private_enc)
     return {
       parsed: await simpleParser("Content-Type: text/plain\r\n\r\n"),
-      security: { kind: "pgp", encrypted: true, status: "missing-key" },
+      security: {
+        kind: "pgp",
+        encrypted: true,
+        status: "missing-key",
+      },
     };
   const key = await unlockedPgp(account);
-  const signer = senderKey(account.user_id, sender);
+  const signer = await senderKey(account.user_id, sender);
   const verificationKeys = signer
     ? signer.includes("PRIVATE KEY")
-      ? (await openpgp.readPrivateKey({ armoredKey: signer })).toPublic()
-      : await openpgp.readKey({ armoredKey: signer })
+      ? (
+          await openpgp.readPrivateKey({
+            armoredKey: signer,
+          })
+        ).toPublic()
+      : await openpgp.readKey({
+          armoredKey: signer,
+        })
     : undefined;
   const result = await openpgp.decrypt({
-    message: await openpgp.readMessage({ armoredMessage: armored }),
+    message: await openpgp.readMessage({
+      armoredMessage: armored,
+    }),
     decryptionKeys: key,
-    ...(verificationKeys ? { verificationKeys } : {}),
+    ...(verificationKeys
+      ? {
+          verificationKeys,
+        }
+      : {}),
     format: "binary",
   });
   let signature = result.signatures?.length ? "unknown-key" : "none";
   if (result.signatures?.length && verificationKeys) {
     try {
       await result.signatures[0].verified;
-      signature = senderKeyVerified(account.user_id, sender)
+      signature = (await senderKeyVerified(account.user_id, sender))
         ? "valid"
         : "untrusted";
     } catch {
@@ -477,7 +548,6 @@ async function readPgp(account, raw, parsed, kind) {
     },
   };
 }
-
 async function readSmime(
   account,
   raw,
@@ -489,7 +559,11 @@ async function readSmime(
   if (encrypted && (!account.smime_cert || !account.smime_key_enc))
     return {
       parsed: await simpleParser("Content-Type: text/plain\r\n\r\n"),
-      security: { kind: "smime", encrypted: true, status: "missing-key" },
+      security: {
+        kind: "smime",
+        encrypted: true,
+        status: "missing-key",
+      },
     };
   return withCryptoTemp(async (dir) => {
     const source = path.join(dir, "source.mime");
@@ -497,7 +571,9 @@ async function readSmime(
     const cert = path.join(dir, "cert.pem");
     const key = path.join(dir, "key.pem");
     const signer = path.join(dir, "signer.pem");
-    await fs.writeFile(source, raw, { mode: 0o600 });
+    await fs.writeFile(source, raw, {
+      mode: 0o600,
+    });
     let current = source;
     let security = {
       kind: "smime",
@@ -507,8 +583,12 @@ async function readSmime(
     };
     let discoveredSmime = null;
     if (encrypted) {
-      await fs.writeFile(cert, account.smime_cert, { mode: 0o600 });
-      await fs.writeFile(key, decrypt(account.smime_key_enc), { mode: 0o600 });
+      await fs.writeFile(cert, account.smime_cert, {
+        mode: 0o600,
+      });
+      await fs.writeFile(key, decrypt(account.smime_key_enc), {
+        mode: 0o600,
+      });
       await runOpenSSL([
         "cms",
         "-decrypt",
@@ -591,14 +671,14 @@ async function readSmime(
       const signerCert = new crypto.X509Certificate(await fs.readFile(signer));
       const identityMatches = !!senderCertEmail(signerCert, outerSender);
       const certificateCurrent = certificateIsCurrent(signerCert);
-      const savedContact = db
+      const savedContact = await db
         .prepare(
-          "SELECT smime_cert,smime_verified FROM contacts WHERE user_id=? AND email=? COLLATE NOCASE",
+          "SELECT smime_cert,smime_verified FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
         )
         .get(account.user_id, outerSender);
-      const savedOwn = db
+      const savedOwn = await db
         .prepare(
-          "SELECT smime_cert FROM accounts WHERE user_id=? AND email=? COLLATE NOCASE",
+          "SELECT smime_cert FROM accounts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
         )
         .get(account.user_id, outerSender);
       const pinned = [
@@ -637,14 +717,16 @@ async function readSmime(
         };
       parsed = await simpleParser(await fs.readFile(verified));
     }
-    return { parsed, security, discoveredSmime };
+    return {
+      parsed,
+      security,
+      discoveredSmime,
+    };
   });
 }
-
 function senderCertEmail(certificate, sender) {
   return sender && certificate.checkEmail(sender);
 }
-
 export async function inspectIncoming(account, raw) {
   const parsed = await simpleParser(raw);
   const type = parsed.headers.get("content-type");
@@ -695,7 +777,7 @@ export async function inspectIncoming(account, raw) {
       return result;
     }
     if (parsed.text?.includes("-----BEGIN PGP SIGNED MESSAGE-----")) {
-      const armored = senderKey(
+      const armored = await senderKey(
         account.user_id,
         parsed.from?.value?.[0]?.address || "",
       );
@@ -704,7 +786,11 @@ export async function inspectIncoming(account, raw) {
       });
       if (!armored)
         return {
-          parsed: { ...parsed, text: clear.getText(), html: "" },
+          parsed: {
+            ...parsed,
+            text: clear.getText(),
+            html: "",
+          },
           security: {
             kind: "pgp",
             signed: true,
@@ -713,8 +799,14 @@ export async function inspectIncoming(account, raw) {
           },
         };
       const key = armored.includes("PRIVATE KEY")
-        ? (await openpgp.readPrivateKey({ armoredKey: armored })).toPublic()
-        : await openpgp.readKey({ armoredKey: armored });
+        ? (
+            await openpgp.readPrivateKey({
+              armoredKey: armored,
+            })
+          ).toPublic()
+        : await openpgp.readKey({
+            armoredKey: armored,
+          });
       const result = await openpgp.verify({
         message: clear,
         verificationKeys: key,
@@ -723,17 +815,21 @@ export async function inspectIncoming(account, raw) {
       try {
         await result.signatures[0].verified;
         if (
-          !senderKeyVerified(
+          !(await senderKeyVerified(
             account.user_id,
             parsed.from?.value?.[0]?.address || "",
-          )
+          ))
         )
           signature = "untrusted";
       } catch {
         signature = "invalid";
       }
       return {
-        parsed: { ...parsed, text: result.data, html: "" },
+        parsed: {
+          ...parsed,
+          text: result.data,
+          html: "",
+        },
         security: {
           kind: "pgp",
           signed: true,
@@ -743,7 +839,10 @@ export async function inspectIncoming(account, raw) {
         },
       };
     }
-    return { parsed, security: null };
+    return {
+      parsed,
+      security: null,
+    };
   } catch {
     const smimeEncrypted =
       type?.value?.includes("pkcs7-mime") &&
