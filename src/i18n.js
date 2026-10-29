@@ -1,4 +1,46 @@
 const translations = {
+  "Ungültige Nachricht.": "Invalid message.",
+  "Bitte mindestens einen Empfänger in An, Cc oder Bcc eingeben.":
+    "Enter at least one recipient in To, Cc or Bcc.",
+  "Betreff ist ungültig (maximal 998 Zeichen, keine Zeilenumbrüche).":
+    "Invalid subject (maximum 998 characters, no line breaks).",
+  "Die Antwortkennung der ursprünglichen Nachricht ist ungültig. Bitte als neue Nachricht verfassen.":
+    "The original message has an invalid reply identifier. Please compose a new message.",
+  "Die Referenzkennungen der ursprünglichen Nachricht sind ungültig. Bitte als neue Nachricht verfassen.":
+    "The original message has invalid reference identifiers. Please compose a new message.",
+  "Nachrichtentext fehlt oder überschreitet 500000 Zeichen.":
+    "Message text is missing or exceeds 500000 characters.",
+  "Die Einstellungen für Signatur oder Verschlüsselung sind ungültig.":
+    "The signing or encryption settings are invalid.",
+  "Anhänge sind ungültig. Dateien bitte erneut hinzufügen.":
+    "Invalid attachments. Please add the files again.",
+  "Ein Anhang hat einen ungültigen Dateinamen oder Inhalt. Bitte erneut hinzufügen.":
+    "An attachment has an invalid filename or content. Please add it again.",
+  "Empfänger im Feld An sind ungültig (Adressen prüfen; keine Zeilenumbrüche).":
+    "Invalid recipients in To (check addresses; no line breaks).",
+  "Das Feld An ist zu lang (maximal 4096 Zeichen).":
+    "The To field is too long (maximum 4096 characters).",
+  "Empfänger im Feld Cc sind ungültig (Adressen prüfen; keine Zeilenumbrüche).":
+    "Invalid recipients in Cc (check addresses; no line breaks).",
+  "Das Feld Cc ist zu lang (maximal 4096 Zeichen).":
+    "The Cc field is too long (maximum 4096 characters).",
+  "Empfänger im Feld Bcc sind ungültig (Adressen prüfen; keine Zeilenumbrüche).":
+    "Invalid recipients in Bcc (check addresses; no line breaks).",
+  "Das Feld Bcc ist zu lang (maximal 4096 Zeichen).":
+    "The Bcc field is too long (maximum 4096 characters).",
+
+  "Nachricht konnte nicht verschoben werden.":
+    "The message could not be moved.",
+  "Nachricht konnte nicht gelöscht werden.":
+    "The message could not be deleted.",
+  "Nachrichtenstatus konnte nicht geändert werden.":
+    "The message status could not be changed.",
+  "Entwurfsspeicher voll. Bitte alte Entwürfe löschen.":
+    "Draft storage is full. Please delete old drafts.",
+  "Anmeldung ausgelastet. Bitte kurz warten.":
+    "Sign-in is busy. Please try again shortly.",
+  "Komprimierte Anfragen werden nicht unterstützt.":
+    "Compressed requests are not supported.",
   "In Spam verschieben": "Move to spam",
   "Kein Spam-Ordner auf diesem Postfach gefunden.":
     "No spam folder found in this mailbox.",

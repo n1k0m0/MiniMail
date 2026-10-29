@@ -4,3 +4,17 @@ data/
 .cli-test/
 .env
 *.log
+
+# Private deployment material is never part of the repository.
+.env.*
+!.env.example
+local/
+backups/
+*.ovpn
+*.key
+*.pem
+*.p12
+*.pfx
+*.sqlite*
+compose.local*.yaml
+compose.override*.yaml

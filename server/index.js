@@ -1,4 +1,5 @@
-import { validOutgoingMail } from "./mailInput.js";
+import { MailOperationError } from "./mailActions.js";
+import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
 import express from "express";
 import crypto from "node:crypto";
@@ -34,6 +35,7 @@ import {
   decrypt,
   hashPassword,
   verifyPassword,
+  PasswordBusyError,
   randomToken,
   tokenHash,
   newTotpSecret,
@@ -96,11 +98,43 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use("/api/drafts", express.json({ limit: "12mb" }));
-app.use("/api/accounts/:id/send", express.json({ limit: "12mb" }));
-app.use("/api/accounts/:id/crypto", express.json({ limit: "2mb" }));
-app.use("/api/contacts/:id/crypto", express.json({ limit: "512kb" }));
-app.use(express.json({ limit: "64kb" }));
+app.use("/api", (req, res, next) => {
+  const token = cookie(req, sessionCookieName);
+  if (token)
+    req.user = db
+      .prepare(
+        "SELECT users.* FROM users JOIN sessions ON sessions.user_id=users.id WHERE sessions.token_hash=? AND sessions.expires_at>?",
+      )
+      .get(tokenHash(token), Date.now());
+  next();
+});
+app.use(
+  [
+    "/api/drafts",
+    "/api/accounts",
+    "/api/contacts",
+    "/api/admin",
+    "/api/settings",
+    "/api/ai",
+    "/api/vpn-profiles",
+  ],
+  authenticated,
+  ready,
+);
+app.use("/api/drafts", express.json({ inflate: false, limit: "14mb" }));
+app.use(
+  "/api/accounts/:id/send",
+  express.json({ inflate: false, limit: "14mb" }),
+);
+app.use(
+  "/api/accounts/:id/crypto",
+  express.json({ inflate: false, limit: "2mb" }),
+);
+app.use(
+  "/api/contacts/:id/crypto",
+  express.json({ inflate: false, limit: "512kb" }),
+);
+app.use(express.json({ inflate: false, limit: "64kb" }));
 const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res)).catch(next);
 function cookie(req, name) {
@@ -132,16 +166,6 @@ function rotateSessions(res, userId) {
   db.prepare("DELETE FROM sessions WHERE user_id=?").run(userId);
   issueSession(res, userId);
 }
-app.use("/api", (req, res, next) => {
-  const token = cookie(req, sessionCookieName);
-  if (token)
-    req.user = db
-      .prepare(
-        "SELECT users.* FROM users JOIN sessions ON sessions.user_id=users.id WHERE sessions.token_hash=? AND sessions.expires_at>?",
-      )
-      .get(tokenHash(token), Date.now());
-  next();
-});
 function authenticated(req, res, next) {
   if (!req.user) return res.status(401).json({ error: "Bitte anmelden." });
   next();
@@ -161,6 +185,10 @@ function adminOnly(req, res, next) {
   next();
 }
 const loginAttempts = new Map();
+setInterval(() => {
+  for (const [key, entry] of loginAttempts)
+    if (entry.until < Date.now()) loginAttempts.delete(key);
+}, 60000).unref();
 function canAttempt(key) {
   const data = loginAttempts.get(key);
   if (data?.until < Date.now()) {
@@ -206,10 +234,10 @@ app.post(
         .status(429)
         .json({ error: "Zu viele Versuche. Bitte später erneut versuchen." });
     if (
-      !user ||
       typeof password !== "string" ||
       password.length > 1024 ||
-      !verifyPassword(password, user.password_hash) ||
+      !(await verifyPassword(password, user?.password_hash)) ||
+      !user ||
       (user.totp_secret && !verifyTotp(decrypt(user.totp_secret), code))
     ) {
       failedAttempt(key);
@@ -229,24 +257,30 @@ app.post("/api/auth/logout", authenticated, (req, res) => {
   sessionCookie(res, "", true);
   res.json({ ok: true });
 });
-app.post("/api/auth/change-password", authenticated, (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  if (
-    !verifyPassword(String(currentPassword || ""), req.user.password_hash) ||
-    typeof newPassword !== "string" ||
-    newPassword.length < 12 ||
-    newPassword.length > 1024
-  )
-    return res.status(400).json({
-      error:
-        "Aktuelles Passwort prüfen und ein neues mit mindestens 12 Zeichen wählen.",
-    });
-  db.prepare(
-    "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
-  ).run(hashPassword(newPassword), req.user.id);
-  rotateSessions(res, req.user.id);
-  res.json({ ok: true });
-});
+app.post(
+  "/api/auth/change-password",
+  authenticated,
+  asyncRoute(async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    if (
+      typeof currentPassword !== "string" ||
+      currentPassword.length > 1024 ||
+      !(await verifyPassword(currentPassword, req.user.password_hash)) ||
+      typeof newPassword !== "string" ||
+      newPassword.length < 12 ||
+      newPassword.length > 1024
+    )
+      return res.status(400).json({
+        error:
+          "Aktuelles Passwort prüfen und ein neues mit mindestens 12 Zeichen wählen.",
+      });
+    db.prepare(
+      "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?",
+    ).run(hashPassword(newPassword), req.user.id);
+    rotateSessions(res, req.user.id);
+    res.json({ ok: true });
+  }),
+);
 app.post(
   "/api/auth/2fa/start",
   authenticated,
@@ -270,12 +304,20 @@ app.post(
   }),
 );
 app.post("/api/auth/2fa/verify", authenticated, (req, res) => {
+  const attemptKey = `setup:${req.user.id}`;
+  if (!canAttempt(attemptKey))
+    return res
+      .status(429)
+      .json({ error: "Zu viele Versuche. Bitte später erneut versuchen." });
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id);
   if (
     !user.pending_totp_secret ||
     !verifyTotp(decrypt(user.pending_totp_secret), req.body?.code)
-  )
+  ) {
+    failedAttempt(attemptKey);
     return res.status(400).json({ error: "Der Code ist ungültig." });
+  }
+  loginAttempts.delete(attemptKey);
   db.prepare(
     "UPDATE users SET totp_secret=pending_totp_secret,pending_totp_secret=NULL WHERE id=?",
   ).run(user.id);
@@ -1269,10 +1311,9 @@ app.post(
         encrypt: account.crypto_encrypt_default ? "auto" : false,
       },
     };
-    if (!validOutgoingMail(b))
-      return res
-        .status(400)
-        .json({ error: "Empfänger, Nachricht oder Anhänge sind ungültig." });
+    const validationError = outgoingMailError(b);
+    if (validationError)
+      return res.status(400).json({ error: validationError });
     if (
       (b.crypto.sign || b.crypto.encrypt) &&
       b.crypto.mode === "pgp" &&
@@ -1323,6 +1364,17 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error instanceof MailOperationError)
+    return res.status(502).json({ error: error.message });
+  if (error instanceof PasswordBusyError)
+    return res
+      .status(503)
+      .set("Retry-After", "1")
+      .json({ error: "Anmeldung ausgelastet. Bitte kurz warten." });
+  if (error.type === "encoding.unsupported")
+    return res
+      .status(415)
+      .json({ error: "Komprimierte Anfragen werden nicht unterstützt." });
   if (error instanceof AiInputError)
     return res.status(400).json({ error: error.message });
   if (error instanceof AiServiceError)

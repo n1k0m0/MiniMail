@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -133,6 +134,30 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       body: JSON.stringify({ username: "owner", password: "wrong" }),
     });
     assert.equal(crossSite.status, 403);
+    const unparsedPrivate = await fetch(base + "/accounts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MiniMail-Request": "1",
+      },
+      body: "x".repeat(70000),
+    });
+    assert.equal(unparsedPrivate.status, 401);
+    const compressed = await fetch(base + "/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-MiniMail-Request": "1",
+        "Content-Encoding": "gzip",
+      },
+      body: Buffer.concat([
+        gzipSync(JSON.stringify({ username: "synthetic", password: "wrong" })),
+        Buffer.from("trailing bytes"),
+      ]),
+    });
+    assert.equal(compressed.status, 415);
+    assert.equal((await admin("/auth/me")).status, 200);
+
     const wrongOrigin = await fetch(base + "/auth/login", {
       method: "POST",
       headers: {
@@ -653,6 +678,58 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await admin("/drafts/review-draft", "DELETE")).status, 200);
     assert.equal((await admin("/drafts/review-draft")).status, 404);
+    const quotaDb = new DatabaseSync(path.join(cwd, "data", "minimail.sqlite"));
+    const encryptDraft = (value) => {
+      const nonce = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv(
+        "aes-256-gcm",
+        Buffer.from(encryptionKey, "hex"),
+        nonce,
+      );
+      const encrypted = Buffer.concat([
+        cipher.update(JSON.stringify(value)),
+        cipher.final(),
+      ]);
+      return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]).toString(
+        "base64",
+      );
+    };
+    for (let i = 0; i < 50; i++)
+      quotaDb
+        .prepare(
+          "INSERT INTO drafts (user_id,id,data_enc,updated_at) VALUES (1,?,?,?)",
+        )
+        .run(`quota-${i}`, encryptDraft(savedDraft), Date.now());
+    assert.equal(
+      (await admin("/drafts/quota-extra", "PUT", savedDraft)).status,
+      413,
+    );
+    assert.equal(
+      (await admin("/drafts/quota-0", "PUT", savedDraft)).status,
+      200,
+    );
+    assert.equal((await admin("/drafts")).data.length, 50);
+    assert.equal(
+      quotaDb
+        .prepare(
+          "SELECT count(*) AS n FROM drafts WHERE metadata_enc IS NOT NULL",
+        )
+        .get().n,
+      50,
+    );
+    quotaDb.prepare("DELETE FROM drafts WHERE id LIKE 'quota-%'").run();
+    // An existing large draft also enforces the encrypted-byte budget.
+    quotaDb
+      .prepare(
+        "INSERT INTO drafts (user_id,id,data_enc,updated_at) VALUES (1,'quota-large',?,?)",
+      )
+      .run("x".repeat(64 * 1024 * 1024), Date.now());
+    assert.equal(
+      (await admin("/drafts/quota-extra", "PUT", savedDraft)).status,
+      413,
+    );
+    quotaDb.prepare("DELETE FROM drafts WHERE id='quota-large'").run();
+    quotaDb.close();
 
     assert.equal((await member("/admin/users")).status, 403);
     assert.equal(
@@ -786,6 +863,41 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(configured.data.is_primary, true);
     assert.equal((await admin(`/accounts/${draft.id}`, "DELETE")).status, 200);
     assert.equal((await admin("/accounts")).data[0].is_primary, true);
+
+    const enrollmentUser = await admin("/admin/users", "POST", {
+      username: "enrollment",
+    });
+    const enrollment = client();
+    assert.equal(
+      (
+        await enrollment("/auth/login", "POST", {
+          username: "enrollment",
+          password: enrollmentUser.data.temporaryPassword,
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await enrollment("/auth/change-password", "POST", {
+          currentPassword: enrollmentUser.data.temporaryPassword,
+          newPassword: "synthetic-enrollment-password",
+        })
+      ).status,
+      200,
+    );
+    assert.equal((await enrollment("/auth/2fa/start", "POST")).status, 200);
+    for (let i = 0; i < 8; i++)
+      assert.equal(
+        (await enrollment("/auth/2fa/verify", "POST", { code: "invalid" }))
+          .status,
+        400,
+      );
+    assert.equal(
+      (await enrollment("/auth/2fa/verify", "POST", { code: "invalid" }))
+        .status,
+      429,
+    );
   } finally {
     child.kill();
     if (child.exitCode === null)

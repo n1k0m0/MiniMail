@@ -1,4 +1,3 @@
-import { X } from "lucide-react";
 import { t, dateLocale } from "./i18n.js";
 
 export const PAGE_SIZE = 60;

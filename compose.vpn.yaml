@@ -1,15 +1,14 @@
 services:
   minimail:
     environment:
-      MAIL_VPN_PROFILE_ID: private
-      MAIL_VPN_PROFILE_LABEL: Private mail VPN
+      MAIL_VPN_PROFILE_ID: ${MAIL_VPN_PROFILE_ID:-private}
+      MAIL_VPN_PROFILE_LABEL: ${MAIL_VPN_PROFILE_LABEL:-Private mail VPN}
       MAIL_VPN_PROXY_URL: http://vpn-gateway:3128
     networks:
       - mail-vpn
     depends_on:
       vpn-gateway:
         condition: service_healthy
-
   vpn-gateway:
     build: ./vpn
     restart: unless-stopped
@@ -19,8 +18,21 @@ services:
       - /dev/net/tun:/dev/net/tun
     security_opt:
       - no-new-privileges:true
+    environment:
+      VPN_TARGETS_FILE: /config/targets.json
     volumes:
-      - ./local/vpn:/vpn:ro
+      - type: bind
+        source: ${VPN_CONFIG_DIR:?Set VPN_CONFIG_DIR in .env}
+        target: /vpn
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${VPN_TARGETS_FILE:?Set VPN_TARGETS_FILE in .env}
+        target: /config/targets.json
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - mail-vpn
       - vpn-egress
@@ -29,8 +41,7 @@ services:
       interval: 20s
       timeout: 5s
       retries: 3
-      start_period: 90s
-
+      start_period: 130s
 networks:
   mail-vpn:
     internal: true

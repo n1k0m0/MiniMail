@@ -1,3 +1,5 @@
+import { normalizeReferences } from "./mailInput.js";
+import { requireMailResult } from "./mailActions.js";
 import { saveSentCopy } from "./sentCopy.js";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
@@ -413,11 +415,13 @@ export async function getMessage(account, folder, uid) {
       uid: item.uid,
       subject: parsed.subject || "(Kein Betreff)",
       messageId: parsed.messageId || "",
-      references: Array.isArray(parsed.references)
-        ? parsed.references
-        : parsed.references
-          ? [parsed.references]
-          : [],
+      references: normalizeReferences(
+        Array.isArray(parsed.references)
+          ? parsed.references
+          : parsed.references
+            ? [parsed.references]
+            : [],
+      ),
       date: parsed.date,
       from: address(parsed.from?.value),
       replyTo: address(parsed.replyTo?.value),
@@ -490,8 +494,16 @@ export async function updateFlags(account, folder, uid, flags) {
       const imapFlag =
         flag === "seen" ? "\\Seen" : flag === "flagged" ? "\\Flagged" : null;
       if (!imapFlag) continue;
-      if (enabled) await client.messageFlagsAdd(uid, [imapFlag], { uid: true });
-      else await client.messageFlagsRemove(uid, [imapFlag], { uid: true });
+      if (enabled)
+        requireMailResult(
+          await client.messageFlagsAdd(uid, [imapFlag], { uid: true }),
+          "Nachrichtenstatus konnte nicht geändert werden.",
+        );
+      else
+        requireMailResult(
+          await client.messageFlagsRemove(uid, [imapFlag], { uid: true }),
+          "Nachrichtenstatus konnte nicht geändert werden.",
+        );
     }
   });
   updateIndexedFlags(db, account.id, folder || "INBOX", uid, flags);
@@ -499,14 +511,25 @@ export async function updateFlags(account, folder, uid, flags) {
 }
 export async function markFolderRead(account, folder) {
   const result = await inFolder(account, folder, (client) =>
-    client.messageFlagsAdd({ seen: false }, ["\\Seen"]),
+    client
+      .messageFlagsAdd({ seen: false }, ["\\Seen"])
+      .then((result) =>
+        requireMailResult(
+          result,
+          "Nachrichtenstatus konnte nicht geändert werden.",
+        ),
+      ),
   );
   markIndexedFolderRead(db, account.id, folder || "INBOX");
   return result;
 }
 export async function moveMessage(account, folder, uid, destination) {
   const result = await inFolder(account, folder, (client) =>
-    client.messageMove(uid, destination, { uid: true }),
+    client
+      .messageMove(uid, destination, { uid: true })
+      .then((result) =>
+        requireMailResult(result, "Nachricht konnte nicht verschoben werden."),
+      ),
   );
   removeIndexedMessage(db, account.id, folder || "INBOX", uid);
   return result;
@@ -521,8 +544,15 @@ export async function deleteMessage(account, folder, uid) {
     const lock = await client.getMailboxLock(folder);
     try {
       if (trash && trash !== folder)
-        await client.messageMove(uid, trash, { uid: true });
-      else await client.messageDelete(uid, { uid: true });
+        requireMailResult(
+          await client.messageMove(uid, trash, { uid: true }),
+          "Nachricht konnte nicht verschoben werden.",
+        );
+      else
+        requireMailResult(
+          await client.messageDelete(uid, { uid: true }),
+          "Nachricht konnte nicht gelöscht werden.",
+        );
     } finally {
       lock.release();
     }
@@ -601,7 +631,7 @@ export async function sendMessage(account, mail) {
             disableUrlAccess: true,
           })
           .sendMail(
-            { ...outgoing, messageId: info.messageId },
+            { ...outgoing, keepBcc: true, messageId: info.messageId },
             (error, result) =>
               error ? reject(error) : resolve(result.message),
           );

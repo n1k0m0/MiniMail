@@ -1,0 +1,11 @@
+services:
+  minimail:
+    environment:
+      MAIL_TRACE_GEOIP_DB: /app/geoip/city.mmdb
+    volumes:
+      - type: bind
+        source: ${GEOIP_DB_FILE:?Set GEOIP_DB_FILE in .env}
+        target: /app/geoip/city.mmdb
+        read_only: true
+        bind:
+          create_host_path: false

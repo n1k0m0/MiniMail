@@ -1,107 +1,242 @@
 # MiniMail
 
-MiniMail is a self-hosted webmail client with IMAP, SMTP, multiple mailboxes, search, a reading pane, attachments, and message composition. The interface supports light and dark themes and can be switched between German and English. Web access requires a username, password, and TOTP two-factor authentication.
+A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Express and SQLite. MiniMail keeps your messages on your mail servers and provides a lightweight browser interface for reading, searching, composing and organizing mail.
 
-## Run locally
+## Features
 
-Requires Node.js 24 or newer.
+- Multiple isolated web users, administrator-managed accounts and mandatory TOTP two-factor authentication.
+- Multiple mailboxes per user, a primary inbox, nested folders, search, conversation view, drag-and-drop, spam/archive/trash actions and automatic inbox checks.
+- Plain-text composition, reply/reply-all, forwarding, Cc/Bcc, signatures, contacts and attachments.
+- Encrypted saved drafts, including attachments; protection against accidentally closing an unsaved message.
+- OpenPGP and S/MIME signing/decryption/encryption, manually confirmed recipient keys, and collection of public keys from incoming mail.
+- Optional AI-assisted writing and summaries through an administrator-configured self-hosted OpenAI-compatible endpoint.
+- Raw message source and relay trace inspection, with optional offline IP geolocation.
+- German and English interfaces, light/dark themes and responsive layouts.
+- Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
 
-```bash
+## Requirements
+
+**Recommended:** Docker Engine with Docker Compose v2, or Docker Desktop using Linux containers. The shell installer also uses OpenSSL to generate an encryption key. The PowerShell installer uses the operating system's cryptographic random generator.
+
+For development without Docker, use **Node.js 24 or newer** and npm. S/MIME operations also require an OpenSSL executable. OAuth-only mail providers are not supported; many providers require an app password for IMAP/SMTP.
+
+The optional VPN container requires a Linux Docker host with `/dev/net/tun`, `NET_ADMIN` and iptables support. It is separate from the unprivileged MiniMail application.
+
+## Quick installation with Docker
+
+Clone the repository:
+
+```sh
+git clone https://github.com/n1k0m0/minimail.git
+cd minimail
+```
+
+On Linux or macOS:
+
+```sh
+sh scripts/install.sh admin
+```
+
+On Windows, from PowerShell:
+
+```powershell
+.\scripts\install.ps1 -AdminUsername admin
+```
+
+The installer:
+
+1. Creates `.env` with a random 256-bit encryption key **only if the file does not already exist**.
+2. Builds the application image from the included `Dockerfile`.
+3. Checks whether an administrator exists and, on a new installation, prompts for a password in an interactive terminal. The password is not echoed or passed as a command-line argument.
+4. Starts MiniMail at **http://127.0.0.1:3000**.
+
+Open the local address, sign in and enroll an authenticator app. Then connect a mailbox in Settings. Additional users can be created by an administrator under **Settings → User management**. Temporary passwords must be changed before a new user enrolls their own 2FA.
+
+**Production cookies require HTTPS.** Direct HTTP access is intended only to check whether the service responds; production sign-in must go through an HTTPS reverse proxy. For local sign-in during development, use the development instructions below.
+
+Keep `.env` private and back it up with the database. On Windows, restrict its filesystem permissions to the account operating the installation. Do not replace an existing encryption key: doing so makes saved credentials, private keys, TOTP secrets and drafts unreadable.
+
+### Manual Docker installation
+
+```sh
+cp .env.example .env
+# Generate a key and paste its output into APP_ENCRYPTION_KEY in .env:
+openssl rand -hex 32
+
+docker compose build
+docker compose run --rm minimail node server/create-admin.js admin
+docker compose up -d
+```
+
+`APP_ENCRYPTION_KEY` must contain exactly 64 hexadecimal characters. `.env.example` contains placeholders, never working credentials. There is no public user registration.
+
+### HTTPS reverse proxy
+
+The default Compose file publishes only `127.0.0.1:3000`. A reverse proxy running on the host can forward to it. For example, after configuring your own DNS name, a host-based Caddy configuration can use:
+
+```caddyfile
+mail.example.com {
+    reverse_proxy 127.0.0.1:3000
+    header Strict-Transport-Security "max-age=31536000"
+}
+```
+
+Replace the example domain before use. Preserve the original `Host` header and redirect HTTP to HTTPS. Keep the application port and VPN proxy private. A reverse proxy in another container needs a private shared network and a deployment-specific override, such as `compose.local.yaml`; do not publish your host's topology in the repository.
+
+### Everyday Docker commands
+
+```sh
+docker compose ps
+docker compose logs --tail=100 minimail
+docker compose stop minimail
+docker compose start minimail
+```
+
+The Docker image runs as an unprivileged user, with a read-only application filesystem, no application capabilities and a built-in HTTP health check. The named `minimail-data` volume contains SQLite state. The `Dockerfile` uses a separate frontend build stage and installs only production dependencies into the runtime image. No third-party geolocation download is required during image builds.
+
+## Optional generic VPN
+
+Only the selected mailbox's IMAP and SMTP traffic use the tunnel. VPN profiles and credentials are provisioned by the administrator on the Docker host; they cannot be uploaded through the web interface.
+
+1. Create a private directory outside version control. The ignored `local/` directory is suitable:
+
+   ```sh
+   mkdir -p local/vpn
+   cp vpn/targets.example.json local/vpn-targets.json
+   ```
+
+2. Place your own OpenVPN client profile at `local/vpn/profile.ovpn`, together with any files it references. Use paths relative to `/vpn` inside the container. If the private key needs a passphrase, put it in the optional `local/vpn/key.pass` file. An `auth-user-pass` file can also be referenced by the profile. Restrict access to these files. Do not put shell hooks or custom privilege changes into the profile; the container owns tunnel startup and routing.
+
+3. Replace the documentation values in `local/vpn-targets.json` with your mail servers:
+
+   ```json
+   [
+     { "host": "mail.private.example", "ip": "192.0.2.10", "ports": [993, 587] }
+   ]
+   ```
+
+   The hostname is what you enter in MiniMail. The IP is the fixed IPv4 destination reachable through the VPN. The example address is reserved for documentation and must be replaced. Add one entry per permitted mail host, and only the ports you need. Direct TLS commonly uses 993/465; STARTTLS commonly uses 143/587. IPv6 VPN destinations are not implemented.
+
+4. Add these settings to your private `.env`:
+
+   ```dotenv
+   VPN_CONFIG_DIR=./local/vpn
+   VPN_TARGETS_FILE=./local/vpn-targets.json
+   MAIL_VPN_PROFILE_ID=private
+   MAIL_VPN_PROFILE_LABEL=Private mail VPN
+   ```
+
+5. Build and start with the VPN override:
+
+   ```sh
+   docker compose -f compose.yaml -f compose.vpn.yaml up -d --build
+   ```
+
+   Alternatively, use `sh scripts/compose.sh --vpn up -d --build`. On Windows, the wrapper accepts `-Vpn` and `-DockerArgs @('up','-d','--build')`; the actual VPN Docker host must still provide the Linux tunnel prerequisites.
+
+6. As an administrator, choose the configured **VPN connection** when adding or editing a mailbox.
+
+The proxy allows only explicitly configured hostname/port pairs and connects to the pinned IP without resolving that hostname again. The unprivileged proxy's outbound packets, including established connections, are restricted to `tun0`. If the tunnel fails, VPN mailboxes fail instead of silently connecting directly. TLS verification still authenticates the mail server. The proxy has no published host port. Profiles, certificates, keys, destination lists and local Compose overrides are excluded from Git and Docker build contexts.
+
+Keep the profile ID stable for existing mailboxes. Changing or removing it leaves those mailboxes unavailable until their settings are updated; there is no automatic direct fallback. Use the same Compose overrides for later upgrades and recreation of services.
+
+## Optional offline relay geolocation
+
+MiniMail extracts public relay addresses from `Received` headers. It does not send those addresses or email content to a geolocation API. Without a local database it still lists relays, but cannot place them on the map.
+
+To enable locations, obtain a compatible City MMDB database, for example DB-IP City Lite, following its license and attribution terms. Put it outside Git and configure:
+
+```dotenv
+GEOIP_DB_FILE=./local/geoip.mmdb
+```
+
+Then start with `docker compose -f compose.yaml -f compose.geoip.yaml up -d --build`, or `sh scripts/compose.sh --geoip up -d --build`. For VPN and geolocation together, include both overrides or use both wrapper switches. The map includes DB-IP attribution; keep the appropriate attribution if using a different provider.
+
+Relay headers can be forged, IP geolocation is approximate, and the lines describe visible mail relays rather than packet-level network routing.
+
+## Development without Docker
+
+```sh
 npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. On first launch, MiniMail creates `data/minimail.sqlite` and `data/secret.key`. These local files are excluded from Git. `npm run build` produces the frontend assets; `npm start` serves the frontend and API together on port 3000. Production requires `APP_ENCRYPTION_KEY`.
+Open **http://127.0.0.1:5173**. Development mode permits local HTTP sign-in. In another interactive terminal, create the first administrator:
 
-Create the first administrator from an interactive terminal before signing in:
-
-```bash
+```sh
 npm run admin:create -- admin
 ```
 
-The script accepts the password without echoing it. Reload the page afterward. There is no public registration. On first sign-in, the administrator sets up TOTP. Administrators can then create other users in **Settings → User management**. Each new user receives a one-time temporary password and must change it and set up their own 2FA on first sign-in. Users can access only their own mailboxes.
+The application creates `data/minimail.sqlite` and, in development only, `data/secret.key`. Both are ignored by Git. With no browser open, connected inboxes are still checked at each mailbox's configured interval; use `0` to disable automatic checks.
 
-## Deploy on a server
+For S/MIME on Windows, install OpenSSL and set `OPENSSL_BIN` to its executable if it is not on `PATH`. For a local GeoIP database set `MAIL_TRACE_GEOIP_DB` to the MMDB path. Optional server VPN configuration is read from `MAIL_VPN_PROFILE_ID`, `MAIL_VPN_PROFILE_LABEL` and `MAIL_VPN_PROXY_URL`; the administrator must provide a restricted proxy, not a public general-purpose proxy.
 
-1. Create `.env` from `.env.example`. `APP_ENCRYPTION_KEY` must be exactly 64 random hexadecimal characters, for example from `openssl rand -hex 32`.
-2. Build the image and create the administrator interactively: `docker compose build` and `docker compose run --rm -it minimail node server/create-admin.js admin`.
-3. Start the service with `docker compose up -d`. The container is exposed only on the server's `127.0.0.1:3000`.
-4. Configure an HTTPS reverse proxy for your domain that forwards to `http://127.0.0.1:3000` and preserves the original `Host` header. Redirect HTTP to HTTPS and enable HSTS where possible.
-5. Open the domain, sign in as administrator, set up TOTP in an authenticator app, and connect a mailbox.
+Build and test:
 
-**Backups:** Back up the `minimail-data` Docker volume and store `APP_ENCRYPTION_KEY` separately. Without the key, saved mailbox passwords and TOTP secrets cannot be decrypted. Email messages remain on their respective mail servers.
+```sh
+npm test
+npm run build
+npm audit
+```
 
-## Mailboxes
+For production without Docker, build the frontend, set `NODE_ENV=production`, provide `APP_ENCRYPTION_KEY` in the process environment and run `npm start`. The default bind address is loopback; `HOST` and `PORT` can be set explicitly. Node does not automatically read `.env` for `npm start`; use your service manager's environment configuration or Node's `--env-file` option. Use HTTPS for production sign-in.
 
-MiniMail connects to IMAP and SMTP over TLS: direct TLS on ports 993/465, or required STARTTLS on ports 143/587. When running Node directly, a local mail server is reachable through `localhost`. From Docker, use `host.docker.internal` for a mail server on the host if it accepts connections from the container. **MiniMail does not read Maildir or mbox files directly.**
+## Mail, drafts and protected messages
 
-Many providers with their own two-factor authentication require an app password for IMAP/SMTP. MiniMail's TOTP code protects the web sign-in and does not replace the provider's app password. OAuth sign-in is not implemented.
+MiniMail talks to IMAP/SMTP over validated TLS, either direct TLS or required STARTTLS. Separate SMTP credentials are supported; empty SMTP credentials use the IMAP credentials. Sending uses the mailbox selected in the From field and appends that mailbox's signature.
 
-If SMTP uses a different username or password from IMAP, enter those values separately in the mailbox dialog. Empty SMTP credential fields use the IMAP credentials.
+- Up to eight attachments totaling 8 MiB per outgoing message. Messages over 25 MiB are not loaded in the web reader.
+- External images and active HTML content are removed from displayed mail.
+- A successful SMTP submission is distinct from successfully storing a Sent copy. If saving the copy fails, MiniMail reports the problem without asking you to send the message again. Some providers save Sent messages themselves.
+- **Save draft** stores an encrypted draft in MiniMail, including attachments and reply references. It is explicit, not automatic, and is separate from the provider's IMAP Drafts folder. Use **Saved drafts** to resume or delete it. Draft storage is limited to 50 drafts and 64 MiB of encrypted draft payload per user.
+- Closing an edited message offers Save and close, Keep editing or Discard changes. Leaving/reloading the page warns about unsaved changes. Discarding edits to an existing draft keeps its last saved version.
 
-Set a sender name and a plain-text signature for each mailbox in its settings. The compose window can send from any connected mailbox whose credentials are available; choosing another sender uses that mailbox's SMTP connection and shows its signature immediately. The signature is appended to the outgoing message and saved copy. Mailboxes without credentials appear as unavailable senders until their password is added.
+Under **Mailbox → Keys**, import an OpenPGP private key or S/MIME PKCS#12/PEM identity matching the sender address. Recipient public keys/certificates can be imported into contacts. Automatically collected public keys are not trusted for encryption until confirmed. Verify fingerprints with the recipient through another trusted channel.
 
-### private VPN VPN mailbox
+Select **Enforce** if a message must be encrypted. **Automatic** encrypts only when all required recipient material is available and can otherwise send without encryption; the composer displays that state. Encrypted Sent copies also include the sender as a recipient. Expired personal S/MIME certificates can be used to read old messages but cannot be selected for new protected mail.
 
-An administrator can make a server-side OpenVPN profile available to one mailbox. The **VPN connection** setting in the mailbox dialog then selects the tunnel for both IMAP and SMTP. Other mailboxes keep their direct connection. The VPN profile and its client key stay on the server; MiniMail never accepts arbitrary OpenVPN files through the web interface.
+OpenPGP signature trust uses the confirmed contact key. S/MIME verifies the signature, sender identity and certificate dates, using a trusted chain or a manually confirmed contact certificate. Certificate revocation is not checked. Hardware tokens, provider OAuth, Maildir/mbox import and calendar features are not implemented.
 
-For the Private mail VPN profile, place `profile.ovpn`, its `certs/` directory, and `key.pass` in `./local/vpn` on the Docker host. Keep the private key and passphrase readable only by root. The passphrase file contains one line. Start with `docker compose -f compose.yaml -f compose.local.yaml -f compose.vpn.yaml up -d --build`. On a different host, omit `compose.local.yaml` and adapt the VPN profile and target restrictions in `vpn/proxy.mjs` and `vpn/start.sh` before starting.
+## Optional self-hosted AI
 
-The VPN container has the tunnel device and `NET_ADMIN`; the MiniMail container does not. Its HTTP CONNECT proxy only accepts `mail.private.example` on IMAP/TLS port 993 and SMTP/STARTTLS port 587 and pins the destination IP. The proxy process can send new outbound traffic only over `tun0`. The Compose override exposes no VPN or proxy port publicly. TLS still authenticates the mail server inside the tunnel. If the tunnel or VPN profile is unavailable, mailbox access fails rather than falling back to a direct connection.
+An administrator can configure an OpenAI-compatible base URL, model and optional API key under **Settings → AI features**. MiniMail sends requests to `<base URL>/chat/completions`; there is no default external provider or commercial fallback. Only HTTP loopback/private IP endpoints or HTTPS endpoints are accepted. Configuring an AI endpoint is a trusted administrator operation. Changing its URL clears the previous endpoint's stored API key.
 
-Set a primary mailbox under **Settings → Connected mailboxes**. MiniMail opens its inbox automatically after sign-in; you can switch mailboxes at any time.
+Writing and summarizing each require an explicit click. Rewriting can start with an empty message and instructions or bullet points. It includes the selected sender, To/Cc recipients and available names; Bcc, saved signatures, automatically attached reply quotes and attachments are not sent. Generated text is shown as an editable proposal and must be applied with **Apply**. **Undo AI change** restores the previous draft. Treat output as a draft and review it before sending.
 
-By default, the server checks each connected inbox every five minutes, even when no browser is open. Set an interval of 1–1440 minutes for each mailbox under **Settings → Edit mailbox → Automatic check**, or enter `0` to disable it. Open browsers update message and unread counts automatically.
+Separate output token limits can be configured for writing and summarizing. A blank limit lets the AI server choose its limit. Requests have input limits, a timeout and per-user rate limits.
 
-Choose German or English in **Settings → Appearance → Language**. The choice is stored in your browser.
+## Updates, backups and private configuration
 
-### Drafts and delivery status
+Before updating, back up the data volume and the encryption key. For a consistent filesystem backup, stop MiniMail first:
 
-Use **Save draft** in the compose window to keep an unfinished message, including attachments, sender, reply references, and signing/encryption choices. **Saved drafts** in the sidebar opens them again. Drafts belong to the signed-in user and are encrypted in the server database with `APP_ENCRYPTION_KEY`; they are stored in MiniMail rather than the mail server's Drafts folder. Saving is explicit, not automatic. Closing an edited message offers Save and close, Keep editing, or Discard changes; reloading or leaving the page warns about unsaved edits. Clicking the backdrop does not close the composer. Discarding edits to an existing draft keeps its last saved version; use the draft list to delete it entirely.
+```sh
+mkdir -p backups
+chmod 700 backups
+docker compose stop minimail
+docker compose run --rm --no-deps -T --entrypoint tar minimail -czf - -C /app/data . > backups/data.tar.gz
+docker compose start minimail
+cp .env backups/environment
+chmod 600 backups/environment
+```
 
-After SMTP accepts a message, MiniMail reports successful delivery to the SMTP server even if it cannot save the Sent copy. A persistent notice explains the missing copy and asks you to check the mail server's Sent folder before taking further action. Some providers store sent messages themselves. A successfully sent draft is removed from MiniMail.
+If the backup command fails, restart the service with `docker compose start minimail` before retrying. Store the backup and key privately, preferably in separate protected locations. Email messages stay on the mail servers; MiniMail's users, credentials, contacts, drafts, private keys and local indexes live in the data volume. The encrypted database is not recoverable without the original key.
 
-### OpenPGP and S/MIME
+Upgrade the default installation with:
 
-Open **Settings → Connected mailboxes → Keys** for each sending address. Import an armored OpenPGP private key and its passphrase, or an S/MIME `.p12`/`.pfx` bundle (or PEM certificate and private key). The key identity must match the mailbox address. Private keys and passphrases are encrypted in the server database with `APP_ENCRYPTION_KEY`; the server decrypts them only while processing mail. Back up this key with the database.
+```sh
+git pull --ff-only
+docker compose build
+docker compose up -d
+```
 
-Expired personal S/MIME certificates may be imported to read older encrypted mail. MiniMail does not allow an expired or not-yet-valid certificate to be selected as the sending default or used for new S/MIME mail. Export personal keys from Thunderbird using its key manager or certificate manager, then enter the export password in MiniMail's key dialog. The Thunderbird Primary Password never needs to leave Thunderbird.
+Include your VPN/geolocation/local overrides when building and recreating services. Back up before applying database migrations. To restore, stop MiniMail, restore the complete data volume and its matching `.env`, then recreate the service. Do not mix a database backup with another encryption key.
 
-MiniMail collects public keys from matching Autocrypt headers, OpenPGP key attachments, S/MIME signed messages, and certificate attachments in received mail. The background scanner checks all accessible folders in batches, saves its UID checkpoint per folder, and keeps scanning new mail. It creates address book entries for discovered senders. An automatically found OpenPGP key or an S/MIME certificate without a trusted signing chain remains unconfirmed and is not used to encrypt until you confirm its fingerprint in the contact's **Keys** dialog. A certificate from a valid S/MIME signature with a trusted chain can be used immediately. A different key never silently replaces a contact's current key; it appears as an alternative in the same dialog. Private keys are never collected from mail.
+Keep deployment-specific networks, proxy settings and bind paths in ignored files such as `compose.local.yaml` and `.env`. Never commit profiles, credentials or backups. The repository contains generic examples only.
 
-Open a contact in the address book to inspect or manually import that recipient's OpenPGP public key or S/MIME certificate. Verify an unconfirmed fingerprint with the recipient through a trusted channel before accepting it. For messages sent to several recipients, including Cc and Bcc, every recipient needs a confirmed public key or certificate. MiniMail also encrypts a copy for the sending mailbox so it can read its Sent copy. Missing or unconfirmed recipient material stops forced encryption and disables automatic encryption for that message. To finish a historical scan from the command line, run `node server/backfillKeys.js` in the MiniMail container; it resumes from the saved per-folder checkpoints.
+## Security and operating assumptions
 
-The default mode for each mailbox is **Off**. Select OpenPGP or S/MIME and save the desired signing and encryption defaults, or change them for an individual message in the compose window. The reader decrypts supported PGP/MIME, inline PGP, and S/MIME messages when the corresponding private key is configured, and reports signature verification status. The message toolbar's **View source** action shows the original MIME source as text.
+Passwords use scrypt; credentials, TOTP secrets, private keys and drafts use AES-256-GCM. Production cookies are HttpOnly, Secure and SameSite=Strict, with the `__Host-` prefix. State-changing API requests check origin metadata and require a custom header or browser same-origin metadata. API responses are not cached. Authentication precedes large protected request-body parsing, compressed request bodies are rejected, password checks have bounded concurrency, and both login and TOTP enrollment have attempt limits.
 
-## AI assistance
+Give web accounts only to people you trust: authenticated users can choose IMAP/SMTP destinations. Restrict container egress at the network/firewall level when internal services must be unreachable. DNS hostname checks alone do not provide that restriction. VPN profiles and AI endpoints are administrator-controlled server configuration.
 
-An administrator can configure a self-hosted OpenAI-compatible **base URL**, model ID, and optional API key in **Settings → AI features**. For example, an AI service on the Docker host can use `http://host.docker.internal:11434/v1`; a remote server under your control should use HTTPS. MiniMail calls `<base URL>/chat/completions` from its server. There is no preset provider, model, or commercial fallback. HTTP is accepted only for private or local addresses. The API key is encrypted in the server database with `APP_ENCRYPTION_KEY` and is never returned to the browser. Changing the URL clears its stored key unless a new key is supplied. The migration from the former fixed OpenAI integration clears the old key and leaves AI disabled until the administrator configures their own server.
-
-The compose window's **Revise with AI** dialog accepts instructions or bullet points, even with an empty draft. It displays an editable suggestion before applying it, and **Undo AI change** restores the prior draft. Existing quoted reply text and the mailbox signature are kept outside the AI revision. The reader's **Summarize with AI** dialog generates a plain-text summary of the selected message. Both dialogs require an explicit click before any text is sent to the configured AI server. Attachments are not sent. Requests use the OpenAI-compatible Chat Completions API. MiniMail does not save suggestions or summaries in its database. The server limits input size and requests per user. Treat AI output as a draft and review it before sending.
-
-For revision, MiniMail also sends the subject, the selected sending mailbox's address and display name, and the To/Cc addresses with names available from the address book or reply headers. Bcc addresses, the mailbox signature, and quoted reply history are excluded. The assistant produces a complete plain-text email with a suitable salutation, paragraphs and closing, while avoiding a duplicate sender name when MiniMail appends the mailbox signature.
-
-The administrator can set separate output-token limits for revising and summarizing. Existing installations start at 8,192 and 4,096 respectively. Leaving a field empty omits `max_tokens` from that request; the model or server may still apply its own limit. MiniMail keeps a request timeout and input-size limit so stalled or oversized requests cannot monopolize the mail server.
-
-The reader's **Show mail trace on map** action extracts public relay IP addresses from the message's `Received` headers, lists them in delivery order, and draws approximate locations and connections. Private, loopback, and reserved IPs are omitted. `Received` headers may be forged, IP geolocation is approximate, and the lines connect visible mail relays rather than showing the packet-level network route. Lookups use a local DB-IP City Lite database; email data and relay IPs are not sent to an external geolocation API. The Docker image includes the October 2026 database. To update it, change the pinned DB-IP release and checksum in `Dockerfile`, then rebuild. For local development, set `MAIL_TRACE_GEOIP_DB` to a downloaded City Lite MMDB file. The map credits [DB-IP](https://db-ip.com) as required by the database's CC BY 4.0 license.
-
-OpenPGP identity trust is based on a manually imported or fingerprint-confirmed key for the sender's address. A signature that matches an automatically discovered but unconfirmed PGP key is shown as untrusted. S/MIME checks the cryptographic signature, sender certificate email, validity dates, and either a trusted certificate chain or an exact confirmed certificate for that contact. Certificate revocation is not checked. There is no hardware token support or Thunderbird key store import. An unknown or untrusted key is shown as such; it is never reported as a verified signature.
-
-Enable **Conversation view** in **Settings → Appearance**, or switch it directly above the message list. Replies in the same folder are grouped using message identifiers and references; opening a conversation displays its newest message. Expand the group or use the conversation links in the reader to open older messages. The choice is stored in your browser. Messages in different folders remain separate conversations.
-
-## Features and limitations
-
-- Read mailboxes and folders; search subject, sender, recipients, and message text on the mail server.
-- Read messages, inspect their original source, and download attachments; mark messages read, unread, or starred; archive and delete messages.
-- Inspect the approximate route of a message's visible mail relays on a map.
-- Send messages with up to eight attachments totaling 8 MB. MiniMail saves a copy in Sent when the server allows IMAP APPEND.
-- Keep multiple web users and their mailboxes separate. Only administrators can create users or reset another user's temporary password or 2FA.
-- Messages larger than 25 MB are not loaded in the web viewer. External images in HTML mail are removed for privacy.
-
-Keep public installations, the reverse proxy, and the host operating system updated. MiniMail does not yet provide OAuth provider integration, Maildir/mbox import, or full calendar features.
-
-The stack is React/Vite, Express, ImapFlow, Nodemailer, and SQLite (`node:sqlite`). User passwords are hashed with scrypt. Mailbox credentials and TOTP secrets are encrypted with AES-256-GCM. Production session cookies are HttpOnly, Secure, SameSite=Strict, and use the `__Host-` prefix. State-changing API requests require a custom request header and check Origin/Fetch Metadata; API responses are not cached. The Docker container runs as a non-root user with a read-only filesystem and no Linux capabilities.
-
-**Trust boundary:** Authenticated users can freely choose IMAP and SMTP destinations. Give accounts only to trusted people. If users should not reach services on the server's internal network, restrict the container's outbound traffic to approved mail servers. Hostname checks alone are insufficient because DNS answers can change before a connection is established.
-
-Existing single-user installations are migrated automatically: the original user becomes an administrator, and their mailboxes and credentials remain assigned to them.
+See [the security review](docs/SECURITY-REVIEW.md) for the reviewed scope, corrected findings and remaining limitations. The review and test suite are not a guarantee that the software has no vulnerabilities. Keep dependencies, the reverse proxy and the host updated.

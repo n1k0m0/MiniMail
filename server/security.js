@@ -46,15 +46,29 @@ export function hashPassword(password) {
   const derived = crypto.scryptSync(password, salt, 64);
   return `${salt.toString("hex")}:${derived.toString("hex")}`;
 }
-export function verifyPassword(password, stored) {
-  const [salt, expected] = String(stored).split(":");
-  if (!salt || !expected) return false;
-  const actual = crypto.scryptSync(password, Buffer.from(salt, "hex"), 64);
-  const expectedBuffer = Buffer.from(expected, "hex");
-  return (
-    actual.length === expectedBuffer.length &&
-    crypto.timingSafeEqual(actual, expectedBuffer)
-  );
+export class PasswordBusyError extends Error {}
+let passwordChecks = 0;
+export async function verifyPassword(password, stored) {
+  if (typeof password !== "string" || password.length > 1024) return false;
+  if (passwordChecks >= 4) throw new PasswordBusyError("Password checks busy");
+  const validStored = /^[a-f0-9]{32}:[a-f0-9]{128}$/i.test(String(stored));
+  const [salt, expected] = validStored
+    ? stored.split(":")
+    : ["00".repeat(16), "00".repeat(64)];
+  passwordChecks++;
+  try {
+    const actual = await new Promise((resolve, reject) => {
+      crypto.scrypt(password, Buffer.from(salt, "hex"), 64, (error, key) =>
+        error ? reject(error) : resolve(key),
+      );
+    });
+    return (
+      validStored &&
+      crypto.timingSafeEqual(actual, Buffer.from(expected, "hex"))
+    );
+  } finally {
+    passwordChecks--;
+  }
 }
 export function randomToken() {
   return crypto.randomBytes(32).toString("base64url");
