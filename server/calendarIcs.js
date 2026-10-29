@@ -25,7 +25,7 @@ export function validEmail(input) {
     input.length <= 254
   );
 }
-export function parseCalendar(raw) {
+export function parseCalendar(raw, resolveZones = true) {
   if (
     typeof raw !== "string" ||
     Buffer.byteLength(raw) > 5 * 1024 * 1024 ||
@@ -46,6 +46,10 @@ export function parseCalendar(raw) {
     throw new CalendarError("Eine VCALENDAR-Datei wird benötigt.");
   if (root.getAllSubcomponents().length > 5000)
     throw new CalendarError("Der Kalender enthält zu viele Einträge.");
+  if (resolveZones) resolveTimezones(root);
+  return root;
+}
+function resolveTimezones(root) {
   // Resolve zones on this calendar, never in the process-wide registry. An
   // untrusted attachment must not redefine a timezone for another user.
   const known = new Set(
@@ -66,7 +70,6 @@ export function parseCalendar(raw) {
       known.add(zone);
     }
   }
-  return root;
 }
 function newRoot() {
   const root = new ICAL.Component(["vcalendar", [], []]);
@@ -134,8 +137,10 @@ function localString(time) {
     : "";
 }
 export function itemDetails(raw) {
-  const root = parseCalendar(raw),
-    component = main(root);
+  return detailsFromRoot(parseCalendar(raw));
+}
+function detailsFromRoot(root) {
+  const component = main(root);
   if (!component)
     throw new CalendarError("Kein Termin oder keine Aufgabe gefunden.");
   const start = value(component, "dtstart", null),
@@ -461,21 +466,73 @@ export function removeOccurrence(raw, recurrenceId) {
   );
   return root.toString();
 }
+// A conservative wall-date test avoids resolving timezones and hydrating old
+// nonrecurring events. Two days of padding cover UTC offsets and date-only
+// boundaries; unknown dates and all recurring components stay candidates.
+function mayOverlap(component, fromMs, toMs) {
+  const properties = component.jCal[1];
+  if (properties.some((p) => p[0] === "rrule" || p[0] === "rdate")) return true;
+  const prop = (name) => properties.find((p) => p[0] === name);
+  const start = prop("dtstart") || prop("due");
+  if (!start) return component.name !== "vtodo";
+  const wallDay = (property) =>
+    typeof property?.[3] === "string"
+      ? Date.parse(`${property[3].slice(0, 10)}T00:00:00Z`)
+      : NaN;
+  const begin = wallDay(start);
+  let finish = wallDay(prop(component.name === "vtodo" ? "due" : "dtend"));
+  if (!Number.isFinite(finish)) {
+    let duration = 86400;
+    if (prop("duration")) {
+      try {
+        duration += Math.abs(
+          ICAL.Duration.fromString(prop("duration")[3]).toSeconds(),
+        );
+      } catch {
+        return true;
+      }
+    }
+    finish = begin + duration * 1000;
+  }
+  return (
+    !Number.isFinite(begin) ||
+    !Number.isFinite(finish) ||
+    (finish >= fromMs - 2 * 86400000 && begin < toMs + 2 * 86400000)
+  );
+}
 export function expandItem(raw, from, to, zone = "UTC", exceptionPass = false) {
   const milliseconds = (time) =>
     !time.isDate && time.zone === ICAL.Timezone.localTimezone
       ? DateTime.fromISO(time.toString(), { zone }).toMillis()
       : time.toJSDate().getTime();
-  const root = parseCalendar(raw),
+  const startMs = Date.parse(from),
+    endMs = Date.parse(to);
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs <= startMs ||
+    endMs - startMs > 370 * 86400000
+  )
+    throw new CalendarError(
+      "Der Kalenderzeitraum ist ungültig oder größer als ein Jahr.",
+    );
+  const root = parseCalendar(raw, false),
     component = main(root);
   if (!component) return [];
-  const details = itemDetails(raw);
+  if (
+    !root
+      .getAllSubcomponents(component.name)
+      .some((part) => mayOverlap(part, startMs, endMs))
+  )
+    return [];
+  resolveTimezones(root);
+  const details = detailsFromRoot(root);
   if (details.kind === "vtodo") {
     // Tasks without dates remain in the task list; dated tasks also appear in
     // the agenda. Keep the actual VTODO unchanged in storage and exports.
     if (!details.start && !details.end) return [];
   }
-  const working = copy(root);
+  const working = component.name === "vtodo" ? copy(root) : root;
   for (const todo of working.getAllSubcomponents("vtodo")) {
     todo.jCal[0] = "vevent";
     const due = todo.getFirstProperty("due");
@@ -488,23 +545,40 @@ export function expandItem(raw, from, to, zone = "UTC", exceptionPass = false) {
   const eventComponent = main(working),
     event = new ICAL.Event(eventComponent);
   if (!event.startDate) return [];
-  const startMs = Date.parse(from),
-    endMs = Date.parse(to);
-  if (
-    !Number.isFinite(startMs) ||
-    !Number.isFinite(endMs) ||
-    endMs <= startMs ||
-    endMs - startMs > 370 * 86400000
-  )
-    throw new CalendarError(
-      "Der Kalenderzeitraum ist ungültig oder größer als ein Jahr.",
-    );
   const recurring = event.isRecurring(),
     iterator = recurring ? event.iterator() : null;
+  const hasRangeExceptions = root
+    .getAllSubcomponents(component.name)
+    .some(
+      (part) =>
+        part.getFirstProperty("recurrence-id")?.getParameter("range") ===
+        "THISANDFUTURE",
+    );
+  const firstPossibleDay =
+    startMs -
+    Math.max(86400, Math.abs(event.duration.toSeconds())) * 1000 -
+    3 * 86400000;
   const result = [];
   for (let count = 0; count < 30000; count++) {
     const occurrence = recurring ? iterator.next() : event.startDate;
     if (!occurrence) break;
+    if (count === 29999)
+      throw new CalendarError(
+        "Dieser Serienkalender ist zu umfangreich. Bitte die Wiederholungen begrenzen.",
+      );
+    const occurrenceDay = Date.UTC(
+      occurrence.year,
+      occurrence.month - 1,
+      occurrence.day,
+    );
+    if (recurring && !hasRangeExceptions && occurrenceDay < firstPossibleDay)
+      continue;
+    if (
+      recurring &&
+      !hasRangeExceptions &&
+      occurrenceDay >= endMs + 2 * 86400000
+    )
+      break;
     const current = event.getOccurrenceDetails(occurrence),
       item = current.item.component;
     const start = current.startDate,
@@ -716,6 +790,7 @@ export function previousInvitationState(raw, incoming) {
 }
 export function taskItems(rows) {
   return rows.flatMap(({ ics, ...metadata }) => {
+    if (!/(?:^|\r?\n)BEGIN:VTODO(?:\r?\n|$)/i.test(ics)) return [];
     const item = itemDetails(ics);
     return item.kind === "vtodo" ? [{ ...item, ...metadata }] : [];
   });

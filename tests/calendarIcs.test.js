@@ -21,6 +21,80 @@ import {
 } from "../server/calendarRemote.js";
 import { runCalendar } from "../server/calendarWorker.js";
 
+test("large calendar histories fit the worker deadline without losing current series or tasks", async () => {
+  const history = editItem(null, {
+    title: "Historical event",
+    start: "2000-01-01T09:00",
+    end: "2000-01-01T10:00",
+    timezone: "Europe/Berlin",
+  });
+  const active = editItem(null, {
+    title: "Current series",
+    start: "2026-10-01T09:00",
+    end: "2026-10-01T10:00",
+    timezone: "Europe/Berlin",
+    recurrence: "FREQ=WEEKLY;COUNT=10",
+  });
+  const task = editItem(
+    null,
+    { title: "Undated task", start: "", end: "", timezone: "UTC" },
+    { kind: "vtodo" },
+  );
+  const rows = Array.from({ length: 5000 }, (_, id) => ({ id, ics: history }));
+  rows.push({ id: 5000, ics: active }, { id: 5001, ics: task });
+  const expanded = await runCalendar(
+    "expandItems",
+    rows,
+    "2026-10-01T00:00:00Z",
+    "2026-11-01T00:00:00Z",
+    "Europe/Berlin",
+  );
+  assert.equal(expanded.length, 5);
+  assert.ok(expanded.every((item) => item.eventId === 5000));
+  const tasks = await runCalendar("taskItems", rows);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].id, 5001);
+});
+
+test("date pruning preserves long events, duration-only events and range exceptions", () => {
+  const from = "2026-10-01T00:00:00Z",
+    to = "2026-11-01T00:00:00Z";
+  const long = editItem(null, {
+    title: "Long event",
+    start: "2026-08-01",
+    end: "2026-11-10",
+    allDay: true,
+    timezone: "UTC",
+  });
+  assert.equal(expandItem(long, from, to).length, 1);
+  const duration = parseCalendar(long);
+  const event = duration.getFirstSubcomponent("vevent");
+  event.removeAllProperties("dtend");
+  event.addPropertyWithValue("duration", "P120D");
+  assert.equal(expandItem(duration.toString(), from, to).length, 1);
+  let series = editItem(null, {
+    title: "Range series",
+    start: "2000-01-01T09:00",
+    end: "2000-01-01T10:00",
+    timezone: "UTC",
+    recurrence: "FREQ=WEEKLY;COUNT=4",
+  });
+  series = editItem(series, {
+    scope: "occurrence",
+    recurrenceId: "2000-01-08T09:00:00Z",
+    start: "2026-10-01T09:00",
+    end: "2026-10-01T10:00",
+  });
+  const parsed = parseCalendar(series);
+  parsed
+    .getAllSubcomponents("vevent")
+    .find((c) => c.hasProperty("recurrence-id"))
+    .getFirstProperty("recurrence-id")
+    .setParameter("range", "THISANDFUTURE");
+  assert.equal(expandItem(parsed.toString(), from, to).length, 3);
+  assert.throws(() => expandItem(long, "invalid", to), /zeitraum/i);
+});
+
 test("calendar series keep local time over DST and individual edits/exclusions survive", () => {
   let raw = editItem(null, {
     title: "Weekly",

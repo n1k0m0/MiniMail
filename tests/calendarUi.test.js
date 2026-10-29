@@ -4,6 +4,40 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import { eventForm, calendarTextColor } from "../src/calendar/calendarUi.js";
+import { loadCalendarData } from "../src/calendar/calendarLoad.js";
+
+test("a failed event request does not hide updated connection status or tasks", async () => {
+  const calendars = {
+    calendars: [{ id: 1, setupPending: false }],
+    preferences: { defaultCalendarId: 1 },
+  };
+  const tasks = [{ id: 2, title: "Synthetic task" }];
+  const data = await loadCalendarData(
+    async (path) => {
+      if (path === "/calendar/calendars") return calendars;
+      if (path === "/calendar/tasks") return tasks;
+      throw new Error("Synthetic event timeout");
+    },
+    { start: "2026-10-01", end: "2026-11-01", zone: "Europe/Berlin" },
+  );
+  assert.deepEqual(data.calendars, calendars);
+  assert.deepEqual(data.tasks, tasks);
+  assert.equal(data.events, undefined);
+  assert.deepEqual(data.errors, [
+    { section: "events", message: "Synthetic event timeout" },
+  ]);
+});
+
+test("calendar loading treats empty successful lists as current data", async () => {
+  const data = await loadCalendarData(
+    async (path) =>
+      path === "/calendar/calendars" ? { calendars: [], preferences: {} } : [],
+    { start: "2026-10-01", end: "2026-11-01", zone: "UTC" },
+  );
+  assert.deepEqual(data.events, []);
+  assert.deepEqual(data.tasks, []);
+  assert.deepEqual(data.errors, []);
+});
 
 test("calendar forms preserve floating times, all-day dates and readable calendar colors", () => {
   const form = eventForm(

@@ -31,6 +31,7 @@ import { t, choose, getLanguage, dateLocale } from "../i18n.js";
 import { browserZone, calendarTextColor, formTime } from "./calendarUi.js";
 import EventEditor from "./EventEditor.jsx";
 import CalendarConnection from "./CalendarConnection.jsx";
+import { loadCalendarData } from "./calendarLoad.js";
 import "./calendar.css";
 
 const plugins = [
@@ -83,28 +84,36 @@ export default function CalendarView({
   }));
   const [importTarget, setImportTarget] = useState("");
   const calendarRef = useRef(null),
-    importRef = useRef(null);
+    importRef = useRef(null),
+    loadVersion = useRef(0);
+  const [loadErrors, setLoadErrors] = useState([]);
+  useEffect(
+    () => () => {
+      loadVersion.current++;
+    },
+    [],
+  );
   const writable = calendars.filter((c) => !c.readOnly && !c.setupPending);
   const target =
     importTarget || preferences.defaultCalendarId || writable[0]?.id || "";
   const reload = useCallback(async () => {
+    const generation = ++loadVersion.current;
     setLoading(true);
     try {
-      const [data, entries, todo] = await Promise.all([
-        api("/calendar/calendars"),
-        api(
-          `/calendar/events?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}&timezone=${encodeURIComponent(zone)}`,
-        ),
-        api("/calendar/tasks"),
-      ]);
-      setCalendars(data.calendars);
-      setPreferences(data.preferences);
-      setEvents(entries);
-      setTasks(todo);
+      const data = await loadCalendarData(api, { ...range, zone });
+      if (generation !== loadVersion.current) return;
+      if (data.calendars) {
+        setCalendars(data.calendars.calendars);
+        setPreferences(data.calendars.preferences);
+      }
+      if (data.events) setEvents(data.events);
+      if (data.tasks) setTasks(data.tasks);
+      setLoadErrors(data.errors);
     } catch (error) {
-      setError(error.message);
+      if (generation === loadVersion.current)
+        setLoadErrors([{ section: "events", message: error.message }]);
     } finally {
-      setLoading(false);
+      if (generation === loadVersion.current) setLoading(false);
     }
   }, [range.start, range.end, username, zone]);
   useEffect(() => {
@@ -175,6 +184,9 @@ export default function CalendarView({
       calendar?.updateSize();
     }
   }, [view]);
+  useEffect(() => {
+    calendarRef.current?.getApi().updateSize();
+  }, [loadErrors.length]);
   useEffect(() => {
     const key = (event) => {
       if (
@@ -685,6 +697,30 @@ export default function CalendarView({
             )}
         </div>
         <div className="calendar-body" aria-busy={loading}>
+          {loadErrors.length > 0 && (
+            <div className="calendar-load-error" role="status">
+              <div>
+                {loadErrors.map((error) => (
+                  <p key={error.section}>
+                    <strong>
+                      {t(
+                        error.section === "calendars"
+                          ? "Kalenderliste konnte nicht geladen werden."
+                          : error.section === "tasks"
+                            ? "Aufgaben konnten nicht geladen werden."
+                            : "Termine konnten nicht geladen werden.",
+                      )}
+                    </strong>{" "}
+                    {error.message}
+                  </p>
+                ))}
+                <span>{t("Bereits geladene Daten bleiben sichtbar.")}</span>
+              </div>
+              <button type="button" onClick={reload} disabled={loading}>
+                {t("Erneut laden")}
+              </button>
+            </div>
+          )}
           <div className="calendar-grid" hidden={view === "tasks"}>
             <FullCalendar
               ref={calendarRef}

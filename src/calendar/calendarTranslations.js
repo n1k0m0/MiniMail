@@ -1,4 +1,13 @@
 export const calendarTranslations = {
+  "Die Kalenderverarbeitung hat das Zeitlimit überschritten. Bitte erneut laden.":
+    "Calendar processing exceeded its time limit. Please reload.",
+  "Kalenderliste konnte nicht geladen werden.":
+    "Could not load the calendar list.",
+  "Termine konnten nicht geladen werden.": "Could not load events.",
+  "Aufgaben konnten nicht geladen werden.": "Could not load tasks.",
+  "Bereits geladene Daten bleiben sichtbar.":
+    "Previously loaded data remains visible.",
+  "Erneut laden": "Reload",
   "Zugangsdaten ergänzen": "Add credentials",
   "Verbindung später einrichten": "Set up connection later",
   "Dieser Kalender ist vorbereitet. Ergänze das App-Passwort und speichere, um die Verbindung zu aktivieren.":

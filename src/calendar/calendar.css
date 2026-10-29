@@ -341,10 +341,35 @@
   min-width: 0;
   min-height: 0;
   padding: 0 26px;
+  display: flex;
+  flex-direction: column;
 }
 .calendar-grid {
   height: 100%;
   min-height: 0;
+  flex: 1;
+}
+.calendar-load-error {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex: none;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--cal-panel);
+  border: 1px solid var(--cal-line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.calendar-load-error > div {
+  flex: 1;
+}
+.calendar-load-error p {
+  margin: 0 0 4px;
+}
+.calendar-load-error span {
+  color: var(--cal-muted);
+  font-size: 11px;
 }
 .calendar-grid[hidden] {
   display: none;
@@ -417,6 +442,8 @@
   color: var(--cal-muted);
 }
 .calendar-tasks {
+  min-height: 0;
+  flex: 1;
   max-height: 100%;
   overflow: auto;
 }

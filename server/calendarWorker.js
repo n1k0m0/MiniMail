@@ -45,8 +45,8 @@ function execute(operation, args) {
       worker.terminate();
       reject(
         new calendar.CalendarError(
-          "Der Kalender ist zu komplex und konnte nicht rechtzeitig verarbeitet werden.",
-          422,
+          "Die Kalenderverarbeitung hat das Zeitlimit überschritten. Bitte erneut laden.",
+          503,
         ),
       );
     }, 5000);
