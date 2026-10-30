@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-rc.5
+
+- Verify that the exact running application and database images remain available before maintenance starts. If an old image was removed or cannot be resolved, stop before pausing the application or touching the database.
+- Require host updater 0.1.2. Missing images require separate verified maintenance; the updater does not silently replace the production database image with another build.
+
 ## 0.1.0-rc.4
 
 - Back up legacy app-data files owned by a different user without changing their contents, ownership or permissions. The temporary backup helper has read-only mounts and filesystem, no network, and one capability for reading protected files.

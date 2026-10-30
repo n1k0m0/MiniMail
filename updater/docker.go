@@ -166,6 +166,11 @@ func (d DockerRuntime) Snapshot(ctx context.Context, c Config) (Snapshot, error)
 	if !app.State.Running || !database.State.Running || database.State.Health.Status != "healthy" {
 		return result, errors.New("application and database must be running and database healthy before an update")
 	}
+	for name, image := range map[string]string{"application": app.Image, "database": database.Image} {
+		if _, err := docker(ctx, "image", "inspect", image); err != nil {
+			return result, fmt.Errorf("the running %s image is unavailable locally; restore its exact image or perform separately verified container maintenance before updating; no services changed", name)
+		}
+	}
 	for _, info := range []containerInfo{app, database} {
 		if info.Config.Labels["com.docker.compose.project"] != c.Project {
 			return result, errors.New("Compose project identity differs from running containers")

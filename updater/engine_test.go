@@ -31,6 +31,9 @@ type fakeRuntime struct {
 
 func (r *fakeRuntime) Snapshot(context.Context, Config) (Snapshot, error) {
 	r.calls = append(r.calls, "snapshot")
+	if r.fail == "snapshot" {
+		return Snapshot{}, errors.New("running image unavailable")
+	}
 	s := r.snapshot
 	if r.active != "stopped" {
 		s.AppImage = r.active
@@ -164,7 +167,7 @@ func TestSuccessfulUpdateAndRollbackPreserveDataAndConfiguration(t *testing.T) {
 	}
 }
 func TestFailureStagesRecoverWithoutRestoringSQLOrSecrets(t *testing.T) {
-	for _, failure := range []string{"pull", "backup", "migration", "health"} {
+	for _, failure := range []string{"snapshot", "pull", "backup", "migration", "health"} {
 		t.Run(failure, func(t *testing.T) {
 			e, r := fixtureEngine(t)
 			r.fail = failure

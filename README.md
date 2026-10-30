@@ -46,7 +46,7 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.4`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+The current candidate release is `v0.1.0-rc.5`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
 
 ## Build and install from source
 
@@ -399,7 +399,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.4
+.minimail/bin/minimail apply --version 0.1.0-rc.5
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover
@@ -408,7 +408,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 `check` verifies signed release metadata. `apply` accepts a newer published version and updates only the app service. Its compatibility gate rejects schema changes that the previous application could not read. It never changes the database/VPN image, recreates a data volume, resets an administrator, or regenerates an existing encryption key/password. Those components need their own tested maintenance procedure. Updater binaries also remain separately managed; a release requiring a newer updater stops before changing services.
 
-When a newer host updater is required, download and extract the new release package separately. Run its `minimail install --bundle /path/to/extracted/package --root /path/to/existing/minimail` (or `install.ps1 -Root C:\path\to\existing\minimail`). An already initialized installation verifies the signed bundle and replaces only its updater binary; it does not recreate services, rewrite `.env` or initialize data. Then use the installed updater's `apply` command. Release 0.1.0-rc.4 requires updater 0.1.1 to include the protected-file backup fix.
+When a newer host updater is required, download and extract the new release package separately. Run its `minimail install --bundle /path/to/extracted/package --root /path/to/existing/minimail` (or `install.ps1 -Root C:\path\to\existing\minimail`). An already initialized installation verifies the signed bundle and replaces only its updater binary; it does not recreate services, rewrite `.env` or initialize data. Then use the installed updater's `apply` command. Release 0.1.0-rc.5 requires updater 0.1.2 to include protected-file backups, clean recovery retries and image-availability preflight checks.
 
 The update sequence is:
 

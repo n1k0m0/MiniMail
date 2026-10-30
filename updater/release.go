@@ -22,7 +22,7 @@ import (
 
 const repository = "n1k0m0/minimail"
 
-var updaterVersion = "0.1.1"
+var updaterVersion = "0.1.2"
 
 //go:embed public-key.pem
 var trustedKeyPEM []byte
