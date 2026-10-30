@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.11
+
+- Teach the compatibility reader the exact next additive migration. It leaves schema 1 unchanged on normal startup and can safely finish an interrupted column addition when recovering an upgrade.
+
 ## 0.1.0-rc.10
 
 - Prepare a compatibility reader for the additive mailbox-filter schema. Keep the existing schema and data unchanged while allowing a compatible application rollback after the next upgrade.

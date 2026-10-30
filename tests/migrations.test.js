@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { testDatabase, insertTestUser } from "./mysqlTestHelper.js";
 import { runMigrations, migrationStatus } from "../server/migrations.js";
 import { encrypt, decrypt } from "../server/security.js";
+import crypto from "node:crypto";
+import {mailRuleMigrationSQL} from "../server/mailRuleMigration.js";
 
 test("versioned migrations adopt the existing schema without rewriting encrypted data or configuration", async (t) => {
   const db = await testDatabase(t);
@@ -86,8 +88,8 @@ test("the compatibility reader preserves an additive future schema without rewri
     "ALTER TABLE accounts ADD COLUMN mail_rules_enc MEDIUMTEXT NULL",
   );
   await db
-    .prepare("INSERT INTO schema_migrations VALUES(2,?,'applied',1,1)")
-    .run("b".repeat(64));
+    .prepare("INSERT INTO schema_migrations VALUES(2,?,'applying',1,1)")
+    .run(crypto.createHash("sha256").update(mailRuleMigrationSQL.join("\0")).digest("hex"));
   await runMigrations(db);
   assert.equal((await migrationStatus(db)).schema, 2);
   assert.equal(
