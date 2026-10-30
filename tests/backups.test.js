@@ -82,6 +82,11 @@ test("a complete database backup restores identities, encrypted data and calenda
     .run(encrypt("private-mailbox-password"));
   await db
     .prepare(
+      "UPDATE accounts SET smtp_password_enc=?,pgp_passphrase_enc=? WHERE id=1",
+    )
+    .run(encrypt(""), encrypt(""));
+  await db
+    .prepare(
       "INSERT INTO key_scan_folders(account_id,folder,uid_validity,inline_uids,updated_at) VALUES(1,'INBOX','42','[17,23]',1)",
     )
     .run();
@@ -125,6 +130,8 @@ test("a complete database backup restores identities, encrypted data and calenda
   assert.equal(mailbox.signature, "Private signature");
   assert.equal(mailbox.primary_user_id, 1);
   assert.equal(decrypt(mailbox.password_enc), "private-mailbox-password");
+  assert.equal(decrypt(mailbox.smtp_password_enc), "");
+  assert.equal(decrypt(mailbox.pgp_passphrase_enc), "");
   assert.equal(
     (
       await db

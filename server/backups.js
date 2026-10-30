@@ -189,9 +189,13 @@ export async function exportDatabase(db, destination, password) {
             for await (const row of db.iterate(
               `SELECT ${fields} FROM ${identifier(table)}`,
             )) {
+              const sealed = [];
               for (const name of encrypted[table] || [])
-                if (row[name]) row[name] = decrypt(row[name]);
-              await writeRecord(stream, { table, row }, state);
+                if (row[name]) {
+                  row[name] = decrypt(row[name]);
+                  sealed.push(name);
+                }
+              await writeRecord(stream, { table, row, sealed }, state);
               if (writeError) throw writeError;
               counts[table]++;
             }
@@ -285,7 +289,7 @@ export async function prepareImport(db, source, password, folder) {
           );
         ended = true;
       } else {
-        const { table, row } = record;
+        const { table, row, sealed } = record;
         const index = allTableNames.indexOf(table);
         if (
           index < previousTable ||
@@ -301,6 +305,21 @@ export async function prepareImport(db, source, password, folder) {
             "Ungültige Tabelle oder Spalten in der Sicherung.",
           );
         previousTable = index;
+        const secretColumns = encrypted[table] || [];
+        if (
+          !Array.isArray(sealed) ||
+          JSON.stringify(sealed) !==
+            JSON.stringify(
+              secretColumns.filter((name) => sealed.includes(name)),
+            ) ||
+          secretColumns.some(
+            (name) =>
+              !sealed.includes(name) && row[name] !== null && row[name] !== "",
+          )
+        )
+          throw new BackupError(
+            "Ungültige Verschlüsselungsmetadaten in der Sicherung.",
+          );
         if (
           table === "users" &&
           (!["admin", "user"].includes(row.role) ||
@@ -320,8 +339,7 @@ export async function prepareImport(db, source, password, folder) {
           /^[a-f0-9]{32}:[a-f0-9]{128}$/i.test(row.password_hash)
         )
           usableAdmins++;
-        for (const name of encrypted[table] || [])
-          if (row[name]) row[name] = encrypt(row[name]);
+        for (const name of sealed) row[name] = encrypt(row[name]);
         // Sessions are deliberately not restored: all browsers must log in again.
         if (table !== "sessions")
           await writeRecord(output, { table, row }, state);
