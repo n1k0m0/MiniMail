@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Info,
+  DatabaseBackup,
   RefreshCw,
   ChevronRight,
   Contact,
@@ -23,6 +24,7 @@ import ContactSettings from "./settings/ContactSettings.jsx";
 import AppearanceSettings from "./settings/AppearanceSettings.jsx";
 import SecuritySettings from "./settings/SecuritySettings.jsx";
 import UpdateSettings from "./settings/UpdateSettings.jsx";
+import BackupSettings from "./settings/BackupSettings.jsx";
 
 const icons = {
   mailboxes: Inbox,
@@ -32,6 +34,7 @@ const icons = {
   ai: Sparkles,
   users: Users,
   updates: RefreshCw,
+  backups: DatabaseBackup,
 };
 
 export default function SettingsModal({
@@ -271,6 +274,9 @@ export default function SettingsModal({
                   )}
                   {entry.id === "updates" && (
                     <UpdateSettings setError={setError} />
+                  )}
+                  {entry.id === "backups" && isAdmin && (
+                    <BackupSettings setError={setError} />
                   )}
                   {entry.id === "ai" && (
                     <>

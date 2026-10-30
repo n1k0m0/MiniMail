@@ -668,3 +668,35 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.backup-settings > label,
+.backup-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+  font-weight: 600;
+}
+.backup-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+}
+.backup-settings input {
+  min-width: 0;
+  width: 100%;
+}
+.backup-settings hr {
+  margin: 28px 0;
+  border: 0;
+  border-top: 1px solid var(--settings-line);
+}
+.backup-settings h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .backup-fields {
+    grid-template-columns: 1fr;
+  }
+}

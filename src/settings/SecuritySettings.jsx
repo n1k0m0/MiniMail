@@ -28,7 +28,7 @@ export default function SecuritySettings({ auth, onLogout }) {
         </p>
         <p>
           {t(
-            "Administratoren können Passwörter und 2FA zurücksetzen. Personen mit direktem Serverzugriff können technisch auf gespeicherte Daten zugreifen.",
+            "Administratoren können Passwörter und 2FA zurücksetzen sowie die gespeicherten Anwendungsdaten aller Benutzer sichern und wiederherstellen. Personen mit direktem Serverzugriff können technisch auf gespeicherte Daten zugreifen.",
           )}
         </p>
       </div>

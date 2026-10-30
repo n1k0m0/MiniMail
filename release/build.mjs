@@ -68,6 +68,37 @@ const goroot = execFileSync("go", ["env", "GOROOT"], {
   env: childEnvironment,
   encoding: "utf8",
 }).trim();
+const thirdPartyNotices = [
+  ...new Set(
+    execFileSync(
+      "go",
+      [
+        "list",
+        "-deps",
+        "-f",
+        "{{with .Module}}{{if .Version}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}",
+        ".",
+      ],
+      {
+        cwd: path.join(root, "updater"),
+        env: childEnvironment,
+        encoding: "utf8",
+      },
+    )
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean),
+  ),
+]
+  .map((line) => {
+    const [name, version, folder] = line.split("|");
+    const license = ["LICENSE", "LICENSE.txt", "LICENSE.md"]
+      .map((file) => path.join(folder, file))
+      .find((file) => fs.existsSync(file));
+    if (!license) throw new Error(`Missing dependency license for ${name}`);
+    return `${name} ${version}\n\n${fs.readFileSync(license, "utf8")}\n`;
+  })
+  .join("\n---\n\n");
 const artifacts = {};
 const text = (name) =>
   fs.readFileSync(path.join(root, name), "utf8").replace(/\r\n/g, "\n");
@@ -137,6 +168,10 @@ for (const [os, arch] of [
   fs.copyFileSync(
     path.join(goroot, "LICENSE"),
     path.join(folder, "GO-LICENSE"),
+  );
+  fs.writeFileSync(
+    path.join(folder, "THIRD-PARTY-NOTICES.txt"),
+    thirdPartyNotices,
   );
   fs.copyFileSync(
     path.join(root, "updater/public-key.pem"),

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.7
+
+- Add password-encrypted administrator export/import of all stored application data, with password/2FA reauthentication, authenticated streaming encryption, bounded parsing, cross-key portability and an automatic encrypted safety backup before transactional restore.
+- Fence stale HTTP/background database writes during restore, preserve 2FA replay protection and invalidate restored sessions. Preserve existing schema, server configuration and encryption keys.
+- Add standalone encrypted full installation backup/recovery commands to host updater 0.1.3, including verified SQL, private configuration, complete app-data and runtime images. Disaster recovery only accepts an empty directory and new Docker volumes; unsafe archive paths, links and existing resources are rejected.
+- Document backup scope, external IMAP data, recovery steps and dependency licenses. Test tampering, rollback, different encryption keys, role restrictions and real Docker disaster recovery.
+
 ## 0.1.0-rc.6
 
 - Add a per-user primary calendar for new events and tasks, including writable CalDAV calendars. Preserve the independent email-invitation destination and existing event calendars. Store the preference with calendar metadata without a schema change.

@@ -45,6 +45,15 @@ const pages = [
     adminOnly: true,
   },
   {
+    id: "backups",
+    title: "Backup und Wiederherstellung",
+    description:
+      "Alle MiniMail-Anwendungsdaten verschlüsselt sichern und wiederherstellen.",
+    scope: "Nur Administratoren",
+    group: "shared",
+    adminOnly: true,
+  },
+  {
     id: "users",
     title: "Benutzerverwaltung",
     description: "Benutzer anlegen und den Zugang bei Bedarf zurücksetzen.",

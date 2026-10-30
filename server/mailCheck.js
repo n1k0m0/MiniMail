@@ -4,6 +4,9 @@ import { checkInbox, scanAccountKeys } from "./mail.js";
 let running = false;
 let scanningKeys = false;
 export async function checkDueMailboxes() {
+  return db.activity(checkDueMailboxesInActivity, true);
+}
+async function checkDueMailboxesInActivity() {
   if (running) return;
   running = true;
   try {
@@ -73,8 +76,17 @@ export function startMailChecks() {
       }
     } finally {
       scanningKeys = false;
-      setTimeout(scan, pending ? 10000 : 300000).unref();
+    }
+    return pending;
+  };
+  const tick = async () => {
+    let pending = true;
+    try {
+      pending = await db.activity(scan, true);
+    } catch {
+    } finally {
+      setTimeout(tick, pending ? 10000 : 300000).unref();
     }
   };
-  setTimeout(scan, 10000).unref();
+  setTimeout(tick, 10000).unref();
 }

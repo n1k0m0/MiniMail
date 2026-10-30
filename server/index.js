@@ -1,6 +1,9 @@
 import { MailOperationError } from "./mailActions.js";
 import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
+import { registerBackupRoutes } from "./backupRoutes.js";
+import { cleanupBackupWork } from "./backups.js";
+import { MaintenanceError } from "./database.js";
 import { consumeTotp } from "./totp.js";
 import { accountCredentials, AccountInputError } from "./accountCredentials.js";
 import { systemInfo, checkUpdates } from "./updates.js";
@@ -60,9 +63,17 @@ import {
   sendMessage,
 } from "./mail.js";
 const app = express();
+cleanupBackupWork();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 app.disable("x-powered-by");
+app.use("/api", (req, res, next) => {
+  try {
+    db.activity(next, true);
+  } catch (error) {
+    next(error);
+  }
+});
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -111,12 +122,14 @@ app.use((req, res, next) => {
 });
 app.use("/api", async (req, res, next) => {
   const token = cookie(req, sessionCookieName);
-  if (token)
+  if (token) {
+    req.sessionHash = tokenHash(token);
     req.user = await db
       .prepare(
         "SELECT users.* FROM users JOIN sessions ON sessions.user_id=users.id WHERE sessions.token_hash=? AND sessions.expires_at>?",
       )
-      .get(tokenHash(token), Date.now());
+      .get(req.sessionHash, Date.now());
+  }
   next();
 });
 app.use(
@@ -254,6 +267,41 @@ function failedAttempt(key) {
         },
   );
 }
+registerBackupRoutes(app, db, adminOnly, async (req, res) => {
+  const key = `backup:${req.user.id}`;
+  if (!canAttempt(key)) {
+    res
+      .status(429)
+      .json({ error: "Zu viele Versuche. Bitte später erneut versuchen." });
+    return false;
+  }
+  const passwordOK = await verifyPassword(
+    req.body?.adminPassword,
+    req.user.password_hash,
+  );
+  const accepted =
+    passwordOK &&
+    (await db.transaction(async () => {
+      const current = await db
+        .prepare("SELECT * FROM users WHERE id=? FOR UPDATE")
+        .get(req.user.id);
+      return (
+        current?.role === "admin" &&
+        current.password_hash === req.user.password_hash &&
+        current.totp_secret &&
+        (await consumeTotp(db, current.id, current.totp_secret, req.body?.code))
+      );
+    }));
+  if (!accepted) {
+    failedAttempt(key);
+    res
+      .status(401)
+      .json({ error: "Anmeldedaten oder 2FA-Code stimmen nicht." });
+    return false;
+  }
+  loginAttempts.delete(key);
+  return true;
+});
 app.get("/api/auth/me", async (req, res) => {
   const exists = !!(await db.prepare("SELECT id FROM users LIMIT 1").get());
   res.json({
@@ -792,12 +840,10 @@ app.post("/api/admin/system/check-updates", adminOnly, async (_req, res) => {
   try {
     res.json(await checkUpdates());
   } catch {
-    res
-      .status(502)
-      .json({
-        error:
-          "Die Update-Prüfung ist fehlgeschlagen. Es wurden keine Änderungen installiert.",
-      });
+    res.status(502).json({
+      error:
+        "Die Update-Prüfung ist fehlgeschlagen. Es wurden keine Änderungen installiert.",
+    });
   }
 });
 app.post("/api/admin/users", adminOnly, async (req, res) => {
@@ -1642,6 +1688,12 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  if (error instanceof MaintenanceError)
+    return res
+      .status(503)
+      .set("Retry-After", "5")
+      .json({ error: error.message });
   if (error instanceof MailOperationError)
     return res.status(502).json({
       error: error.message,

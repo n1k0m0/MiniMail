@@ -696,6 +696,34 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       200,
     );
+    assert.equal((await admin("/admin/backups")).status, 200);
+    assert.equal(
+      (
+        await admin("/admin/backups/export", "POST", {
+          backupPassword: "long-enough-backup-password",
+        })
+      ).status,
+      401,
+    );
+    for (const route of [
+      "/admin/backups",
+      "/admin/backups/authorize-import",
+      "/admin/backups/export",
+      "/admin/backups/import",
+    ]) {
+      assert.equal(
+        (
+          await member(
+            route,
+            route === "/admin/backups" ? "GET" : "POST",
+            route === "/admin/backups"
+              ? undefined
+              : { ignored: "x".repeat(4096) },
+          )
+        ).status,
+        403,
+      );
+    }
     // Incomplete messages, reply metadata, and binary attachments survive saving.
     const savedDraft = {
       accountId: ownerAccount.data.id,

@@ -1495,7 +1495,9 @@ export function startCalendarSync(db) {
     }
   };
   const tick = () =>
-    sync().catch(() => console.error("Calendar synchronization deferred"));
+    Promise.resolve()
+      .then(() => db.activity(sync, true))
+      .catch(() => console.error("Calendar synchronization deferred"));
   setTimeout(tick, 10000).unref();
   setInterval(tick, 60000).unref();
 }

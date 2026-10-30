@@ -15,6 +15,7 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 - Optional unread-only view with correct search/pagination, plus stronger unread styling for messages, mailboxes and folders. Read emails remain visible by default.
 - Personal calendars with local storage, iCalendar/Webcal subscriptions and CalDAV synchronization, including Nextcloud; day/week/month/multiweek/agenda views, tasks, recurring events, reminders, per-calendar colors, import/export and email invitations.
 - Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
+- Password-encrypted administrator backups and transactional restore of all stored application data; a separate host command also backs up installation files, persistent app-data and Docker images for disaster recovery.
 
 ## Requirements
 
@@ -46,7 +47,52 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.6`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+The current candidate release is `v0.1.0-rc.7`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+
+## Encrypted backups and restore
+
+### Application data, in the administrator interface
+
+Open **Settings → Backup and restore** as an administrator. Export and import require your administrator password and a **fresh TOTP code**. Choose a separate backup password of at least 12 characters; export asks you to repeat it. Save the downloaded `.minimail-backup.pgp` file off the server and keep its password separately. MiniMail cannot recover a lost backup password.
+
+This backup contains every user's account and 2FA data, mailbox settings and passwords, private mail keys, contacts, saved drafts including attachments, the mail index, shared AI settings, calendars, events, tasks and calendar preferences. It is encrypted with the existing OpenPGP.js dependency, using RFC 9580 authenticated encryption and Argon2 password derivation. Processing runs in a separate bounded worker. The maximum file/plaintext size is **512 MiB**. Interrupted plaintext staging files are removed on application startup.
+
+**Messages and attachments stored on external IMAP servers are not downloaded by this backup.** Server files, external VPN/calendar/mail services and browser-local preferences are also outside the application-data export. The full installation command below additionally captures MiniMail's own server files. Back up the external services separately.
+
+Import replaces **all users' application data**; type `ALLE DATEN ERSETZEN` to confirm. The entire file is authenticated and its schema checked first. While restoring, MiniMail fences old requests and background sync jobs. Before changing rows, it saves an encrypted safety backup under `data/backups/`, using the entered backup password. The SQL replacement is a transaction: invalid rows, constraints or storage failures roll it back. Safety backups remain downloadable in this settings page after signing in again; they are not automatically pruned.
+
+All sessions are invalidated on restore. Sign in using the credentials and 2FA secret **from the backup**, with the next fresh authenticator code. Recently used codes remain blocked. Encrypted fields are re-encrypted with the target installation's existing key, so application-data imports can move between installations without overwriting their `.env`, database passwords or encryption keys. The source and target database schemas must match. Importing calendar data does not overwrite the remote CalDAV server; subsequent synchronization uses the restored calendar configuration.
+
+An administrator with backup privileges can read every user's stored data after decrypting a backup. Only give that role to people you trust with those data.
+
+### Full installation backup, on the Docker host
+
+Updater **0.1.3** adds a standalone full installation backup. Run it as the installation owner with Docker access. The command prompts for a password without echoing it; it never accepts passwords as command arguments. For unattended jobs, `--password-stdin` accepts a password from a secret-manager pipe.
+
+```sh
+# Store the result OUTSIDE the installation directory; existing files are never replaced.
+/opt/minimail/.minimail/bin/minimail backup-export \
+  --root /opt/minimail --output /safe-location/minimail-installation.age
+```
+
+This includes a verified SQL dump, the complete application-data volume (including legacy private files), installation files, `.env`, private `local/` configuration, updater configuration and the exact images of the running Compose services. Existing nested backups, Git metadata and `node_modules` are excluded. SQL is restored into a disposable MySQL container and all table counts/checksums compared before the archive is produced. The app is briefly stopped for consistency and restarted even if verification fails. An interruption journal lets the next updater invocation restart it after an interrupted export. Archive encryption uses the standard `age` password format. Copy the resulting file off-host; allow space for SQL, a temporary restore, exported images, a staging archive and the encrypted result. The archive and expanded payload are limited to **16 GiB**.
+
+Supported installation layout: named Docker volumes for MySQL and `/app/data`, and regular installation/configuration files inside the installation directory. Additional persistent volumes, external bind mounts and symlinks cause export to stop explicitly; they are never silently omitted. External reverse proxies, firewall rules and unrelated services are not part of MiniMail's installation.
+
+### Disaster recovery into an empty installation
+
+Use a compatible standalone MiniMail updater binary from a verified release package. Docker with Compose v2 must be installed. **Use the original absolute installation path and the same host operating system.** The archive contains its runtime images, so image registries are not required for recovery. The original Compose project must have no containers and its target volumes must not already exist. This command refuses to overwrite a live installation or existing volumes; use the administrator application-data import for an existing installation.
+
+```sh
+# On the replacement host, with a copy of the encrypted backup and updater binary:
+mkdir -p /opt/minimail
+./minimail backup-import --root /opt/minimail \
+  --input /safe-location/minimail-installation.age --confirm-restore
+```
+
+The full archive is authenticated before extraction. Recovery rejects unsafe paths and links, restores private configuration bytes, creates new volumes, imports SQL, compares table counts/checksums, restores app-data ownership and permissions, invalidates sessions and starts the application. If a recovery step fails, a private `restore-in-progress.json` marker blocks the updater; the app is not started on partial data. Inspect the failed **new** recovery resources before removing them and retrying into a clean destination. Never remove production volumes to make room for a restore.
+
+After recovery, verify HTTPS, external mail/calendar/VPN connectivity and DNS. Reinstall the update timer with `minimail service-install --root /opt/minimail` if required. Earlier update rollback snapshots are excluded from a standalone recovery point; a fresh update history starts from the restored version.
 
 ## Build and install from source
 
@@ -401,7 +447,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.6
+.minimail/bin/minimail apply --version 0.1.0-rc.7
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover

@@ -1,5 +1,37 @@
 import { calendarTranslations } from "./calendar/calendarTranslations.js";
 const translations = {
+  "Backup und Wiederherstellung": "Backup and restore",
+  "Alle MiniMail-Anwendungsdaten verschlüsselt sichern und wiederherstellen.":
+    "Create encrypted backups of all MiniMail application data and restore them.",
+  "Enthält alle Benutzer, Postfächer und Zugangsdaten, 2FA, Schlüssel, Kontakte, Entwürfe samt Anhängen, KI-Einstellungen sowie Kalender, Termine und Aufgaben.":
+    "Includes all users, mailbox settings and credentials, 2FA, keys, contacts, drafts with attachments, AI settings, calendars, events and tasks.",
+  "E-Mails und Anhänge auf externen Mailservern, Serverdateien und lokale Browser-Einstellungen sind nicht enthalten. Für Serverdateien gibt es zusätzlich den Installations-Backup-Befehl.":
+    "Messages and attachments on external mail servers, server files and local browser preferences are not included. Use the additional installation backup command for server files.",
+  "Dein Admin-Passwort": "Your administrator password",
+  "Aktueller 2FA-Code": "Current 2FA code",
+  "Backup-Passwort (mindestens 12 Zeichen)":
+    "Backup password (at least 12 characters)",
+  "Backup-Passwort wiederholen (Export)": "Repeat backup password (export)",
+  "Das Backup-Passwort muss mindestens 12 Zeichen lang sein.":
+    "The backup password must contain at least 12 characters.",
+  "Die Backup-Passwörter stimmen nicht überein.":
+    "The backup passwords do not match.",
+  "Bewahre das Backup-Passwort getrennt von der Datei auf. Ohne dieses Passwort ist keine Wiederherstellung möglich. Für jede Aktion wird ein neuer 2FA-Code benötigt.":
+    "Store the backup password separately from the file. Recovery is impossible without this password. Each operation requires a new 2FA code.",
+  "Sicherung wird erstellt …": "Creating backup …",
+  "Verschlüsseltes Backup herunterladen": "Download encrypted backup",
+  "Alle Anwendungsdaten wiederherstellen": "Restore all application data",
+  "Der Import ersetzt die Daten aller Benutzer. Vorher wird automatisch ein Sicherheitsbackup mit dem eingegebenen Backup-Passwort auf dem Server gespeichert. Bei einem Fehler bleibt die bestehende Datenbank erhalten. Danach müssen sich alle neu anmelden; es gelten die Zugangsdaten aus dem Backup.":
+    "Import replaces every user's data. A safety backup encrypted with the entered backup password is saved on the server first. If an error occurs, the existing database is preserved. Afterwards everyone must sign in again using the credentials from the backup.",
+  "Sicherungsdatei (maximal 512 MiB)": "Backup file (maximum 512 MiB)",
+  "Zur Bestätigung ALLE DATEN ERSETZEN eingeben":
+    "Type ALLE DATEN ERSETZEN to confirm",
+  "Wiederherstellung läuft …": "Restoring …",
+  "Alle Daten wiederherstellen": "Restore all data",
+  "Sicherheitsbackups vor früheren Importen":
+    "Safety backups from earlier imports",
+  "Administratoren können Passwörter und 2FA zurücksetzen sowie die gespeicherten Anwendungsdaten aller Benutzer sichern und wiederherstellen. Personen mit direktem Serverzugriff können technisch auf gespeicherte Daten zugreifen.":
+    "Administrators can reset passwords and 2FA and back up and restore all users' stored application data. People with direct server access can technically access stored data.",
   "System und Updates": "System and updates",
   "Version und geprüfte GitHub-Releases.":
     "Version and verified GitHub releases.",

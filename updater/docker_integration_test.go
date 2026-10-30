@@ -35,7 +35,7 @@ func runDockerLifecycle(t *testing.T, previousRelease bool) {
 	if os.Getenv("MINIMAIL_DOCKER_TEST") != "1" {
 		t.Skip("requires disposable Docker test images")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	oldImage, newImage, dbImage := os.Getenv("MINIMAIL_TEST_OLD_IMAGE"), os.Getenv("MINIMAIL_TEST_NEW_IMAGE"), os.Getenv("MINIMAIL_TEST_DB_IMAGE")
 	if previousRelease {
@@ -269,4 +269,72 @@ volumes:
 		t.Fatal(err)
 	}
 	t.Log("Fresh install, verified dump/restore, upgrade and rollback preserve ciphertext, credentials, 2FA replay state, drafts, binary files, private configuration and post-update writes.")
+	if !previousRelease {
+		archive := filepath.Join(t.TempDir(), "installation.age")
+		password := "synthetic-installation-backup-passphrase"
+		if err = exportInstallation(ctx, &e, archive, password); err != nil {
+			t.Fatal("installation export:", err)
+		}
+		if err = restoreInstallation(ctx, root, archive, password, true); err == nil {
+			t.Fatal("restore accepted an existing installation")
+		}
+		// Only this disposable test project is removed. The encrypted archive is
+		// then recovered at its original path into entirely new Docker volumes.
+		if !strings.HasPrefix(project, "minimail-e2e-") {
+			t.Fatal("not a disposable project")
+		}
+		ids, err := docker(ctx, "ps", "-aq", "--filter", "label=com.docker.compose.project="+project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range strings.Fields(string(ids)) {
+			if _, err = docker(ctx, "rm", "-f", "-v", id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, kind := range []string{"volume", "network"} {
+			items, err := docker(ctx, kind, "ls", "-q", "--filter", "label=com.docker.compose.project="+project)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range strings.Fields(string(items)) {
+				if _, err = docker(ctx, kind, "rm", item); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if err = os.Rename(root, root+"-retired"); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.Mkdir(root, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = restoreInstallation(ctx, root, archive, password, true); err != nil {
+			t.Fatal("installation restore:", err)
+		}
+		if err = assertProtected(config, protected); err != nil {
+			t.Fatal("configuration changed in installation restore:", err)
+		}
+		databaseID, err = containerID(ctx, config, "database")
+		if err != nil {
+			t.Fatal(err)
+		}
+		recovered, err := inventory(ctx, databaseID, "minimail", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, _ := json.Marshal(postUpdate)
+		second, _ := json.Marshal(recovered)
+		if string(first) != string(second) {
+			t.Fatal("installation recovery lost database contents")
+		}
+		id, err = containerID(ctx, config, "minimail")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');const p='/app/data/legacy-private/snapshot.bin',s=fs.statSync(p);if(fs.readFileSync(p).toString('hex')!=='0100ff07'||s.uid!==0||(s.mode&0o777)!==0o600)process.exit(1)`); err != nil {
+			t.Fatal("installation recovery lost private binary data:", err)
+		}
+		t.Log("Encrypted installation backup recovered into an empty directory and new volumes, preserving config bytes, SQL checksums, private binary contents and ownership.")
+	}
 }

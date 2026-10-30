@@ -50,6 +50,10 @@ func runCLI(ctx context.Context, args []string) error {
 	project := flags.String("project", "minimail", "Compose project name (fresh installs only)")
 	bundle := flags.String("bundle", "", "extracted signed installation package")
 	admin := flags.String("admin", "admin", "initial administrator username")
+	backupOutput := flags.String("output", "", "new encrypted installation backup file")
+	backupInput := flags.String("input", "", "encrypted installation backup to restore")
+	passwordStdin := flags.Bool("password-stdin", false, "read backup password from a pipe instead of a hidden terminal prompt")
+	confirmRestore := flags.Bool("confirm-restore", false, "restore into an empty directory and new Docker volumes")
 	var composeFiles pathFlags
 	flags.Var(&composeFiles, "compose", "configuration file (repeat to register overrides)")
 	if e := flags.Parse(args[1:]); e != nil {
@@ -74,6 +78,13 @@ func runCLI(ctx context.Context, args []string) error {
 	}
 	if action == "install" {
 		return install(ctx, *rootArg, *bundle, *project, *admin)
+	}
+	if action == "backup-import" {
+		password, err := backupPassword(*passwordStdin, false)
+		if err != nil {
+			return err
+		}
+		return restoreInstallation(ctx, *rootArg, *backupInput, password, *confirmRestore)
 	}
 	root, e := safeRoot(*rootArg)
 	if e != nil {
@@ -114,6 +125,12 @@ func runCLI(ctx context.Context, args []string) error {
 	}
 	if c.Root != root {
 		return errors.New("installation path differs from saved configuration")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".minimail/restore-in-progress.json")); err == nil {
+		return errors.New("an installation restore is incomplete; the updater will not change data or start the application")
+	}
+	if e = recoverBackupExport(ctx, c); e != nil {
+		return e
 	}
 	engine := Engine{Config: c, Runtime: DockerRuntime{}, Source: GitHubSource{}}
 	if action == "status" {
@@ -186,6 +203,12 @@ func runCLI(ctx context.Context, args []string) error {
 		return command.Run()
 	}
 	switch action {
+	case "backup-export":
+		password, err := backupPassword(*passwordStdin, true)
+		if err != nil {
+			return err
+		}
+		return exportInstallation(ctx, &engine, *backupOutput, password)
 	case "check":
 		return engine.Check(ctx, false)
 	case "cycle":
@@ -459,7 +482,7 @@ func installWith(ctx context.Context, directory, bundle, project, admin string, 
 		}
 	}
 	names := []string{"compose.yaml", "compose.vpn.yaml", "compose.https.yaml", "Caddyfile.example", "LICENSE", "NOTICE"}
-	for _, name := range []string{"compose.geoip.yaml", "install-update-task.ps1", "README.md", "GO-LICENSE", "release-public-key.pem"} {
+	for _, name := range []string{"compose.geoip.yaml", "install-update-task.ps1", "README.md", "GO-LICENSE", "THIRD-PARTY-NOTICES.txt", "release-public-key.pem"} {
 		if _, ok := files[name]; ok {
 			names = append(names, name)
 		}
