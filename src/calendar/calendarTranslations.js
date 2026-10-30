@@ -1,4 +1,7 @@
 export const calendarTranslations = {
+  Primärkalender: "Primary calendar",
+  "Automatische Auswahl": "Automatic selection",
+  "Der Primärkalender ist ungültig.": "Invalid primary calendar.",
   "Die Kalenderverarbeitung hat das Zeitlimit überschritten. Bitte erneut laden.":
     "Calendar processing exceeded its time limit. Please reload.",
   "Kalenderliste konnte nicht geladen werden.":

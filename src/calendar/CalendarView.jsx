@@ -28,7 +28,12 @@ import {
 } from "lucide-react";
 import { api } from "../mailUi.js";
 import { t, choose, getLanguage, dateLocale } from "../i18n.js";
-import { browserZone, calendarEventInput, formTime } from "./calendarUi.js";
+import {
+  browserZone,
+  calendarEventInput,
+  formTime,
+  preferredCalendarId,
+} from "./calendarUi.js";
 import EventEditor from "./EventEditor.jsx";
 import CalendarConnection from "./CalendarConnection.jsx";
 import { loadCalendarData } from "./calendarLoad.js";
@@ -154,9 +159,7 @@ export default function CalendarView({
     }
   }, [openEventId]);
   function newEvent(kind = "vevent", selection = null) {
-    const calendarId =
-      writable.find((c) => c.id === preferences.defaultCalendarId)?.id ||
-      writable[0]?.id;
+    const calendarId = preferredCalendarId(calendars, preferences);
     if (!calendarId) {
       setError(t("Ein beschreibbarer Kalender wird benötigt."));
       return;
@@ -429,6 +432,38 @@ export default function CalendarView({
               )}
             </div>
           ))}
+        </div>
+        <div className="calendar-mail-preferences">
+          <label>
+            {t("Primärkalender")}
+            <select
+              value={preferences.primaryCalendarId || ""}
+              disabled={busy}
+              onChange={async (e) => {
+                const calendarId = Number(e.target.value) || null;
+                setBusy(true);
+                try {
+                  setPreferences(
+                    await api("/calendar/primary", {
+                      method: "PUT",
+                      body: { calendarId },
+                    }),
+                  );
+                } catch (error) {
+                  setError(error.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <option value="">{t("Automatische Auswahl")}</option>
+              {writable.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="calendar-mail-preferences">
           <h4>{t("Einladungen aus E-Mails")}</h4>
@@ -854,7 +889,7 @@ export default function CalendarView({
           event={editor}
           calendars={calendars}
           accounts={accounts}
-          defaultCalendarId={preferences.defaultCalendarId}
+          defaultCalendarId={preferredCalendarId(calendars, preferences)}
           zone={zone}
           onClose={() => setEditor(null)}
           onSaved={reload}

@@ -1,6 +1,15 @@
 import { DateTime } from "luxon";
 export const browserZone = () =>
   Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+export function preferredCalendarId(calendars, preferences = {}) {
+  const writable = calendars.filter((c) => !c.readOnly && !c.setupPending);
+  return (
+    writable.find((c) => c.id === Number(preferences.primaryCalendarId))?.id ||
+    writable.find((c) => c.id === Number(preferences.defaultCalendarId))?.id ||
+    writable[0]?.id ||
+    null
+  );
+}
 export function formTime(value, zone, allDay = false) {
   if (!value) return "";
   const date =

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.6
+
+- Add a per-user primary calendar for new events and tasks, including writable CalDAV calendars. Preserve the independent email-invitation destination and existing event calendars. Store the preference with calendar metadata without a schema change.
+
 ## 0.1.0-rc.5
 
 - Verify that the exact running application and database images remain available before maintenance starts. If an old image was removed or cannot be resolved, stop before pausing the application or touching the database.

@@ -81,6 +81,17 @@ export async function calendarPreferences(db, userId) {
     }
     return {
       defaultCalendarId: row.default_calendar_id,
+      primaryCalendarId:
+        (
+          await db
+            .prepare("SELECT * FROM calendars WHERE user_id=? ORDER BY id")
+            .all(userId)
+        ).find(
+          (calendar) =>
+            !calendar.read_only &&
+            !configOf(calendar).setupPending &&
+            configOf(calendar).primaryForNewItems,
+        )?.id || null,
       autoImport: !!row.auto_import,
     };
   });
@@ -349,8 +360,6 @@ export async function updateCalendar(db, userId, id, body, request) {
   return exclusive(Number(id), async () => {
     const old = await calendarFor(db, userId, id),
       item = calendarInput(body, old);
-    const config =
-      item.kind === "local" ? null : encrypt(JSON.stringify(item.config));
     // Connection edits are verified before replacing the existing connection.
     if (
       item.kind !== "local" &&
@@ -362,24 +371,41 @@ export async function updateCalendar(db, userId, id, body, request) {
         (configOf(old).setupPending && body.setupPending === false))
     )
       await fetchRemoteCalendar(item.config, item.kind, request);
-    await db
-      .prepare(
-        "UPDATE calendars SET name=?,color=?,config_enc=?,read_only=?,visible=?,timezone=? WHERE id=? AND user_id=?",
+    await db.transaction(async () => {
+      const current = await db
+        .prepare("SELECT * FROM calendars WHERE id=? AND user_id=? FOR UPDATE")
+        .get(old.id, userId);
+      if (!current) throw new CalendarError("Kalender nicht gefunden.", 404);
+      const nextConfig = { ...item.config };
+      if (
+        configOf(current).primaryForNewItems &&
+        !item.readOnly &&
+        !item.config.setupPending
       )
-      .run(
-        item.name,
-        item.color,
-        config,
-        Number(item.readOnly),
-        Number(item.visible),
-        item.timezone,
-        old.id,
-        userId,
-      );
+        nextConfig.primaryForNewItems = true;
+      const config = Object.keys(nextConfig).length
+        ? encrypt(JSON.stringify(nextConfig))
+        : null;
+      await db
+        .prepare(
+          "UPDATE calendars SET name=?,color=?,config_enc=?,read_only=?,visible=?,timezone=? WHERE id=? AND user_id=?",
+        )
+        .run(
+          item.name,
+          item.color,
+          config,
+          Number(item.readOnly),
+          Number(item.visible),
+          item.timezone,
+          old.id,
+          userId,
+        );
+    });
     if (
       item.kind !== "local" &&
       !item.config.setupPending &&
-      JSON.stringify(configOf(old)) !== JSON.stringify(item.config)
+      JSON.stringify({ ...configOf(old), primaryForNewItems: undefined }) !==
+        JSON.stringify(item.config)
     )
       await syncUnlocked(db, await calendarFor(db, userId, id), request);
     return publicCalendar(await calendarFor(db, userId, id));
@@ -863,6 +889,41 @@ export async function setCalendarPreferences(db, userId, body) {
     .run(calendar?.id || null, Number(body.autoImport), userId);
   return calendarPreferences(db, userId);
 }
+export async function setPrimaryCalendar(db, userId, id) {
+  if (id !== null && (!Number.isSafeInteger(id) || id <= 0))
+    throw new CalendarError("Der Primärkalender ist ungültig.");
+  await calendarPreferences(db, userId);
+  await db.transaction(async () => {
+    await db.prepare("SELECT id FROM users WHERE id=? FOR UPDATE").get(userId);
+    const calendars = await db
+      .prepare("SELECT * FROM calendars WHERE user_id=? ORDER BY id FOR UPDATE")
+      .all(userId);
+    const selected = calendars.find((calendar) => calendar.id === id);
+    if (id !== null) {
+      if (!selected) throw new CalendarError("Kalender nicht gefunden.", 404);
+      if (selected.read_only || configOf(selected).setupPending)
+        throw new CalendarError(
+          "Ein beschreibbarer Kalender wird benötigt.",
+          403,
+        );
+    }
+    for (const calendar of calendars) {
+      const config = configOf(calendar),
+        primary = calendar.id === id;
+      if (!!config.primaryForNewItems === primary) continue;
+      if (primary) config.primaryForNewItems = true;
+      else delete config.primaryForNewItems;
+      await db
+        .prepare("UPDATE calendars SET config_enc=? WHERE id=? AND user_id=?")
+        .run(
+          Object.keys(config).length ? encrypt(JSON.stringify(config)) : null,
+          calendar.id,
+          userId,
+        );
+    }
+  });
+  return calendarPreferences(db, userId);
+}
 export async function importMailInvitations(
   db,
   account,
@@ -1163,6 +1224,12 @@ export function registerCalendarRoutes(
     "/api/calendar/preferences",
     route(async (req, res) =>
       res.json(await setCalendarPreferences(db, req.user.id, req.body || {})),
+    ),
+  );
+  app.put(
+    "/api/calendar/primary",
+    route(async (req, res) =>
+      res.json(await setPrimaryCalendar(db, req.user.id, req.body?.calendarId)),
     ),
   );
   app.get(

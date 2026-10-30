@@ -7,8 +7,39 @@ import {
   eventForm,
   calendarTextColor,
   calendarEventInput,
+  preferredCalendarId,
 } from "../src/calendar/calendarUi.js";
 import { loadCalendarData } from "../src/calendar/calendarLoad.js";
+test("new events prefer a writable primary calendar while existing events keep their calendar", () => {
+  const calendars = [
+    { id: 1 },
+    { id: 2 },
+    { id: 3, readOnly: true },
+    { id: 4, setupPending: true },
+  ];
+  assert.equal(
+    preferredCalendarId(calendars, {
+      primaryCalendarId: 2,
+      defaultCalendarId: 1,
+    }),
+    2,
+  );
+  for (const id of [3, 4, 99])
+    assert.equal(
+      preferredCalendarId(calendars, {
+        primaryCalendarId: id,
+        defaultCalendarId: 1,
+      }),
+      1,
+    );
+  assert.equal(preferredCalendarId([]), null);
+  assert.equal(eventForm({ calendarId: 1 }, 2).calendarId, 1);
+  assert.equal(
+    eventForm({}, preferredCalendarId(calendars, { primaryCalendarId: 2 }))
+      .calendarId,
+    2,
+  );
+});
 
 test("imported event URLs remain editor data and cannot become navigation links", () => {
   for (const url of [

@@ -14,6 +14,7 @@ import {
   importCalendar,
   exportCalendar,
   setCalendarPreferences,
+  setPrimaryCalendar,
   importMailInvitations,
   syncCalendar,
   calendarAlerts,
@@ -36,6 +37,76 @@ const event = {
   timezone: "Europe/Berlin",
   reminder: 15,
 };
+test("primary calendars are personal, survive edits, allow writable CalDAV and do not change invitation targets", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  await insertTestUser(db, 2);
+  const initial = await listCalendars(db, 1),
+    other = await listCalendars(db, 2);
+  const local = initial.calendars[0];
+  const remote = await createCalendar(db, 1, {
+    name: "Remote",
+    kind: "caldav",
+    url: "https://calendar.example.test/dav/",
+    readOnly: false,
+    setupPending: true,
+  });
+  await assert.rejects(setPrimaryCalendar(db, 1, remote.id), { status: 403 });
+  await db
+    .prepare("UPDATE calendars SET config_enc=? WHERE id=?")
+    .run(
+      encrypt(
+        JSON.stringify({
+          url: "https://calendar.example.test/dav/",
+          username: "fixture",
+          password: "preserved",
+        }),
+      ),
+      remote.id,
+    );
+  let preferences = await setPrimaryCalendar(db, 1, remote.id);
+  assert.equal(preferences.primaryCalendarId, remote.id);
+  assert.equal(
+    preferences.defaultCalendarId,
+    initial.preferences.defaultCalendarId,
+  );
+  assert.equal(preferences.autoImport, initial.preferences.autoImport);
+  await updateCalendar(db, 1, remote.id, { name: "Renamed" });
+  assert.equal(
+    (await listCalendars(db, 1)).preferences.primaryCalendarId,
+    remote.id,
+  );
+  const config = JSON.parse(
+    decrypt(
+      (
+        await db
+          .prepare("SELECT config_enc FROM calendars WHERE id=?")
+          .get(remote.id)
+      ).config_enc,
+    ),
+  );
+  assert.equal(config.password, "preserved");
+  await assert.rejects(setPrimaryCalendar(db, 1, other.calendars[0].id), {
+    status: 404,
+  });
+  assert.equal(
+    (await listCalendars(db, 2)).preferences.primaryCalendarId,
+    null,
+  );
+  await setPrimaryCalendar(db, 1, local.id);
+  assert.equal(
+    (await listCalendars(db, 1)).preferences.primaryCalendarId,
+    local.id,
+  );
+  await updateCalendar(db, 1, remote.id, { readOnly: true });
+  await assert.rejects(setPrimaryCalendar(db, 1, remote.id), { status: 403 });
+  await setPrimaryCalendar(db, 1, null);
+  assert.equal(
+    (await listCalendars(db, 1)).preferences.primaryCalendarId,
+    null,
+  );
+  await assert.rejects(setPrimaryCalendar(db, 1, "1"));
+});
 
 test("parallel writes to different calendars cannot exceed the shared entry quota", async (t) => {
   const db = await testDatabase(t);

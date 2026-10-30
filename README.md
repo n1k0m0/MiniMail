@@ -46,7 +46,7 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.5`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+The current candidate release is `v0.1.0-rc.6`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
 
 ## Build and install from source
 
@@ -148,6 +148,8 @@ The mail APIs enforce ownership on the server; hiding controls is not the access
 Open the **Calendar** icon in the left rail. A personal calendar is created for each user. Use **Add calendar** to create another local calendar, subscribe to an iCalendar/Webcal URL, or connect a CalDAV collection. Each calendar has its own color, visibility and read-only setting. Removing an online connection removes MiniMail's cache; it does not delete that collection on the provider. Local calendars and their events are deleted when removed, so export them first if you need a copy.
 
 Choose **Set up connection later** to save the name, address, username, color and read-only setting before entering credentials. These prepared connections remain paused, including background synchronization. Use **Add credentials** beside the calendar to complete setup. Entering an app password clears the pending flag; saving validates the connection and starts synchronization. Failed validation leaves the prepared connection intact.
+
+Choose a **Primary calendar** in the calendar sidebar to preselect it for new events and tasks. This preference belongs to your MiniMail user and follows you across browsers. Only writable, configured calendars are offered, including CalDAV calendars. Existing events retain their calendar, and the destination for email invitations remains independent. If the primary calendar is unavailable, MiniMail uses another writable calendar.
 
 ### Connect Nextcloud
 
@@ -399,7 +401,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.5
+.minimail/bin/minimail apply --version 0.1.0-rc.6
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover
@@ -408,7 +410,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 `check` verifies signed release metadata. `apply` accepts a newer published version and updates only the app service. Its compatibility gate rejects schema changes that the previous application could not read. It never changes the database/VPN image, recreates a data volume, resets an administrator, or regenerates an existing encryption key/password. Those components need their own tested maintenance procedure. Updater binaries also remain separately managed; a release requiring a newer updater stops before changing services.
 
-When a newer host updater is required, download and extract the new release package separately. Run its `minimail install --bundle /path/to/extracted/package --root /path/to/existing/minimail` (or `install.ps1 -Root C:\path\to\existing\minimail`). An already initialized installation verifies the signed bundle and replaces only its updater binary; it does not recreate services, rewrite `.env` or initialize data. Then use the installed updater's `apply` command. Release 0.1.0-rc.5 requires updater 0.1.2 to include protected-file backups, clean recovery retries and image-availability preflight checks.
+When a newer host updater is required, download and extract the new release package separately. Run its `minimail install --bundle /path/to/extracted/package --root /path/to/existing/minimail` (or `install.ps1 -Root C:\path\to\existing\minimail`). An already initialized installation verifies the signed bundle and replaces only its updater binary; it does not recreate services, rewrite `.env` or initialize data. Then use the installed updater's `apply` command. Release 0.1.0-rc.6 requires updater 0.1.2 to include protected-file backups, clean recovery retries and image-availability preflight checks.
 
 The update sequence is:
 
