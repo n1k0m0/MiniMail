@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.1.0-rc.13
+## 0.1.0-rc.14
 
 - Replace the top navigation envelope with a compact two-line MiniMail wordmark, using the application's local Manrope font and colors matched to the blue rail.
+- Allow the host updater to adopt existing labeled schema 2 installations. Keep unknown schema versions blocked; retain the same configuration/data protections. This is covered by the previous-release Docker upgrade test. Includes host updater 0.1.6.
+
+The rc.13 tag was used for validation; its release was not published.
 
 ## 0.1.0-rc.12
 

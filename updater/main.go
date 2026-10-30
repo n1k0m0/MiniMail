@@ -300,7 +300,7 @@ func adopt(ctx context.Context, root string) error {
 			return errors.New("invalid image revision")
 		}
 		schema, e := strconv.Atoi(labels["io.minimail.schema"])
-		if e != nil || schema != 1 {
+		if e != nil || schema < 1 || schema > 2 {
 			return errors.New("unsupported adoption schema")
 		}
 		deployment.Schema = schema
