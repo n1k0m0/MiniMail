@@ -9,7 +9,33 @@ import {
   compareVersions,
   checkUpdates,
   systemInfo,
+  matchingReleaseAsset,
 } from "../server/updates.js";
+
+test("web update checks accept GitHub repository capitalization without changing trusted asset identity", () => {
+  const expected =
+    "https://github.com/n1k0m0/minimail/releases/download/v0.1.0-rc.17/release.json";
+  assert.equal(
+    matchingReleaseAsset(
+      "https://github.com/N1K0M0/MiniMail/releases/download/v0.1.0-rc.17/release.json",
+      expected,
+    ),
+    true,
+  );
+  for (const value of [
+    expected.replace("https:", "http:"),
+    expected.replace("github.com", "github.com.example"),
+    expected.replace("n1k0m0", "someone"),
+    expected.replace("minimail", "different"),
+    expected.replace("rc.17", "rc.18"),
+    expected.replace("release.json", "Release.json"),
+    expected.replace("release.json", "%72elease.json"),
+    expected + "?",
+    expected + "#fragment",
+    "https://user@github.com/n1k0m0/minimail/releases/download/v0.1.0-rc.17/release.json",
+  ])
+    assert.equal(matchingReleaseAsset(value, expected), false, value);
+});
 
 test("update metadata needs a trusted signature and valid version/image identity", () => {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");

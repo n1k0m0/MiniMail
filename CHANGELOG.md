@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.1.0-rc.19
+## 0.1.0-rc.20
 
 - Give desktop notifications a MiniMail wordmark icon with distinct envelope and calendar badges, served locally as PNG images for native browser compatibility. Identify notification types in their titles while preserving lock-screen privacy and click actions.
 - Add separate mail/calendar notification test buttons. Keep all notification preferences, permission handling and existing delivery/deduplication behavior unchanged.
-- Update host updater to 0.1.8: accept GitHub's display capitalization of the same owner/repository while preserving exact host, tag, filename and signature validation. Existing installations must install the new verified host updater before applying this release.
+- Update host updater to 0.1.8 and the web update checker: accept GitHub's display capitalization of the same owner/repository while preserving exact host, tag, filename and signature validation. Existing installations must install the new verified host updater before applying this release.
 
-The rc.18 tag was used for validation; its release was not published.
+The rc.18 and rc.19 tags were used for validation; their releases were not published.
 
 ## 0.1.0-rc.17
 

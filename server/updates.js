@@ -10,6 +10,19 @@ const versionPattern =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.([1-9]\d*))?$/;
 const repository = "n1k0m0/minimail";
 const releaseBase = `https://github.com/${repository}/releases/`;
+export function matchingReleaseAsset(actual, expected) {
+  const pattern =
+    /^https:\/\/github\.com\/([^/?#]+)\/([^/?#]+)\/(releases\/download\/[^?#]+)$/;
+  const a = typeof actual === "string" && pattern.exec(actual);
+  const b = typeof expected === "string" && pattern.exec(expected);
+  return !!(
+    a &&
+    b &&
+    a[1].toLowerCase() === b[1].toLowerCase() &&
+    a[2].toLowerCase() === b[2].toLowerCase() &&
+    a[3] === b[3]
+  );
+}
 export function compareVersions(left, right) {
   const a = versionPattern.exec(left),
     b = versionPattern.exec(right);
@@ -171,7 +184,8 @@ export async function checkUpdates(fetcher = fetch) {
       if (
         !candidate.assets?.some(
           (asset) =>
-            asset.name === name && asset.browser_download_url === base + name,
+            asset.name === name &&
+            matchingReleaseAsset(asset.browser_download_url, base + name),
         )
       )
         throw new Error(

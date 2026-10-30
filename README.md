@@ -511,7 +511,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 When a newer host updater is required, download and extract the new release package separately. Run its `minimail install --bundle /path/to/extracted/package --root /path/to/existing/minimail` (or `install.ps1 -Root C:\path\to\existing\minimail`). An already initialized installation verifies the signed bundle and replaces only its updater binary; it does not recreate services, rewrite `.env` or initialize data. Then use the installed updater's `apply` command. Release 0.1.0-rc.6 requires updater 0.1.2 to include protected-file backups, clean recovery retries and image-availability preflight checks.
 
-Release 0.1.0-rc.19 requires updater **0.1.8**. This also fixes release discovery after GitHub changes the display capitalization of the repository name: older tools may report "release has no signed deployment manifest" despite valid published signatures. Download the new package from GitHub Releases and run its installer against the existing installation as described above; no data/configuration reset is needed. Hostname, release-tag, filename and Ed25519 signature checks remain strict.
+Release 0.1.0-rc.20 requires updater **0.1.8**. This also fixes release discovery after GitHub changes the display capitalization of the repository name: older tools may report "release has no signed deployment manifest" despite valid published signatures. Download the new package from GitHub Releases and run its installer against the existing installation as described above; no data/configuration reset is needed. Hostname, release-tag, filename and Ed25519 signature checks remain strict.
 
 The update sequence is:
 
