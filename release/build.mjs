@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { schemaSupport } from "../server/buildInfo.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json")));
@@ -53,9 +54,7 @@ const common = {
   version,
   revision,
   ...images,
-  schema: 1,
-  readSchemaMin: 1,
-  readSchemaMax: 1,
+  ...schemaSupport,
   minUpdater: updaterVersion,
   automaticPatchSafe: true,
 };

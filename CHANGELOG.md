@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-rc.10
+
+- Prepare a compatibility reader for the additive mailbox-filter schema. Keep the existing schema and data unchanged while allowing a compatible application rollback after the next upgrade.
+- Derive signed schema support from the application source and keep future mailbox filter state out of account API responses.
+
 ## 0.1.0-rc.9
 
 - Preserve recovered read-only configuration mounts and non-application image pins during updates, rollback and failure recovery. Include relocated private configuration in protected update backups.

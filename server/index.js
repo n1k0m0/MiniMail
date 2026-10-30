@@ -577,6 +577,7 @@ function publicContact(contact) {
   const {
     pgp_public,
     smime_cert,
+    mail_rules_enc,
     pgp_verified,
     smime_verified,
     pgp_source,

@@ -69,9 +69,27 @@ test("interrupted idempotent migrations resume and changed/unknown migration his
     .prepare("UPDATE schema_migrations SET checksum=? WHERE version=1")
     .run(baseline.checksum);
   await db
-    .prepare("INSERT INTO schema_migrations VALUES (2,?,'applied',1,1)")
+    .prepare("INSERT INTO schema_migrations VALUES (3,?,'applied',1,1)")
     .run("a".repeat(64));
   await assert.rejects(runMigrations(db), /newer/);
+  assert.equal(
+    (await db.prepare("SELECT COUNT(*) AS n FROM users").get()).n,
+    1,
+  );
+});
+
+test("the compatibility reader preserves an additive future schema without rewriting its data", async (t) => {
+  const db = await testDatabase(t);
+  await insertTestUser(db);
+  await runMigrations(db);
+  await db.exec(
+    "ALTER TABLE accounts ADD COLUMN mail_rules_enc MEDIUMTEXT NULL",
+  );
+  await db
+    .prepare("INSERT INTO schema_migrations VALUES(2,?,'applied',1,1)")
+    .run("b".repeat(64));
+  await runMigrations(db);
+  assert.equal((await migrationStatus(db)).schema, 2);
   assert.equal(
     (await db.prepare("SELECT COUNT(*) AS n FROM users").get()).n,
     1,
