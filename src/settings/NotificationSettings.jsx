@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { CalendarDays, Mail } from "lucide-react";
 import { t } from "../i18n.js";
 import { notificationSupport, showNotification } from "../notifications.js";
 import SettingsRow from "./SettingsRow.jsx";
@@ -73,25 +73,40 @@ export default function NotificationSettings({
               : "MiniMail muss in einem geöffneten Tab bleiben. Browser und Betriebssystem steuern, ob Pop-ups erscheinen; Fokusmodus kann sie unterdrücken.",
         )}
       </p>
-      <button
-        type="button"
-        className="secondary-button"
-        disabled={permission !== "granted"}
-        onClick={() => {
-          if (
-            !showNotification("MiniMail", {
-              body: t("Benachrichtigungen funktionieren."),
-              tag: "minimail-test",
-            })
-          )
-            setError(
-              t("Browserbenachrichtigungen konnten nicht aktiviert werden."),
-            );
-        }}
-      >
-        <Bell size={16} />
-        {t("Testbenachrichtigung")}
-      </button>
+      <div className="notification-test-actions">
+        {[
+          ["mail", Mail, "E-Mail testen", "Neue E-Mails"],
+          ["calendar", CalendarDays, "Kalender testen", "Terminerinnerung"],
+        ].map(([kind, Icon, label, title]) => (
+          <button
+            key={kind}
+            type="button"
+            className="secondary-button"
+            disabled={permission !== "granted"}
+            onClick={() => {
+              if (
+                !showNotification(
+                  `MiniMail · ${t(title)}`,
+                  {
+                    body: t("Benachrichtigungen funktionieren."),
+                    tag: `minimail-test-${kind}`,
+                  },
+                  undefined,
+                  kind,
+                )
+              )
+                setError(
+                  t(
+                    "Browserbenachrichtigungen konnten nicht aktiviert werden.",
+                  ),
+                );
+            }}
+          >
+            <Icon size={16} />
+            {t(label)}
+          </button>
+        ))}
+      </div>
     </>
   );
 }

@@ -839,6 +839,11 @@
   gap: 8px;
   margin: 16px 0;
 }
+.notification-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .installation-backup-settings input[type="checkbox"] {
   width: auto;
   flex-shrink: 0;

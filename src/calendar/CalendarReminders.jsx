@@ -36,14 +36,15 @@ export default function CalendarReminders({
             void notifyOnce(username, "calendar", key, () => {
               if (!active || !current.current.desktopEnabled) return false;
               return showNotification(
-                "MiniMail",
+                `MiniMail · ${t("Terminerinnerung")}`,
                 {
-                  body: `${t("Terminerinnerung")}: ${new Date(alert.start).toLocaleString(dateLocale())}`,
+                  body: new Date(alert.start).toLocaleString(dateLocale()),
                   tag: `minimail-calendar-${key}`,
                 },
                 () => {
                   if (active) current.current.onOpen(alert.itemId);
                 },
+                "calendar",
               );
             });
         }

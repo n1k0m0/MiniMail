@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-rc.18
+
+- Give desktop notifications a MiniMail wordmark icon with distinct envelope and calendar badges, served locally as PNG images for native browser compatibility. Identify notification types in their titles while preserving lock-screen privacy and click actions.
+- Add separate mail/calendar notification test buttons. Keep all notification preferences, permission handling and existing delivery/deduplication behavior unchanged.
+
 ## 0.1.0-rc.17
 
 - Add a personal Notifications settings page with independent mail/calendar switches, browser permission handling, a test pop-up, background inbox observation and cross-tab deduplication. Keep in-app reminders independent and notify again for snoozed occurrences. Preferences are isolated by user and browser; both default off.

@@ -445,9 +445,9 @@ export default function App() {
           )
             return false;
           return showNotification(
-            "MiniMail",
+            `MiniMail · ${t("Neue E-Mails")}`,
             {
-              body: `${t("Neue E-Mails")}: ${account.name || account.email}`,
+              body: account.name || account.email,
               tag: `minimail-mail-${account.id}`,
             },
             () => {
@@ -456,6 +456,7 @@ export default function App() {
               setAccountId(account.id);
               selectFolder("INBOX");
             },
+            "mail",
           );
         },
       );

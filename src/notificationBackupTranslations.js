@@ -1,4 +1,6 @@
 export const notificationBackupTranslations = {
+  "E-Mail testen": "Test email",
+  "Kalender testen": "Test calendar",
   Benachrichtigungen: "Notifications",
   "Browser-Pop-ups für neue E-Mails und Termine getrennt einstellen.":
     "Configure browser pop-ups separately for new mail and calendar reminders.",

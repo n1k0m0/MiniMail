@@ -23,11 +23,22 @@ export function notificationSupport() {
   );
 }
 
-export function showNotification(title, options, onOpen) {
+const notificationIcons = {
+  brand: "/notifications/brand.png",
+  mail: "/notifications/mail.png",
+  calendar: "/notifications/calendar.png",
+};
+
+export function showNotification(title, options, onOpen, kind = "brand") {
   if (!notificationSupport() || Notification.permission !== "granted")
     return false;
   try {
-    const notification = new Notification(title, options);
+    const notification = new Notification(title, {
+      ...options,
+      icon: Object.hasOwn(notificationIcons, kind)
+        ? notificationIcons[kind]
+        : notificationIcons.brand,
+    });
     notification.onclick = () => {
       window.focus();
       onOpen?.();
