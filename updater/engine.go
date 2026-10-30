@@ -396,11 +396,22 @@ func (e *Engine) Recover(ctx context.Context) error {
 	if err = e.Runtime.Health(ctx, e.Config, t.Before.Current, t.Snapshot); err != nil {
 		return err
 	}
+	// Recovery starts the exact previous image ID. Keep our own image pointer in
+	// step with that frozen spec so a later retry does not mistake a tag-vs-ID
+	// spelling difference for an operator's private configuration change.
+	override := map[string]any{"services": map[string]any{"minimail": map[string]any{}}}
 	if len(t.OldOverride) > 0 {
-		if err = writeAtomic(e.path("current.compose.json"), t.OldOverride, 0600); err != nil {
+		if err = json.Unmarshal(t.OldOverride, &override); err != nil {
 			return err
 		}
-	} else if err = os.Remove(e.path("current.compose.json")); err != nil && !os.IsNotExist(err) {
+	}
+	app, err := service(override, "minimail")
+	if err != nil {
+		return err
+	}
+	app["image"] = t.Snapshot.AppImage
+	app["pull_policy"] = "never"
+	if err = writeJSON(e.path("current.compose.json"), override, 0600); err != nil {
 		return err
 	}
 	if err = writeJSON(e.path("state.json"), t.Before, 0600); err != nil {

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +192,22 @@ volumes:
 	}
 	next := testManifest()
 	next.Version = "999.0.0-rc.1"
+	e.afterPhase = func(phase string) error {
+		if phase == "migrating" {
+			return errors.New("synthetic migration-boundary failure")
+		}
+		return nil
+	}
+	if err = e.Apply(ctx, next, false); err == nil {
+		t.Fatal("injected failure was ignored")
+	}
+	e.afterPhase = nil
+	if _, err = d.Snapshot(ctx, config); err != nil {
+		t.Fatal("recovery prevented a clean retry:", err)
+	}
+	if err = assertProtected(config, protected); err != nil {
+		t.Fatal(err)
+	}
 	if err = e.Apply(ctx, next, false); err != nil {
 		t.Fatal("upgrade:", err)
 	}
