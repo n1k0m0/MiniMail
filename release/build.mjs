@@ -37,6 +37,10 @@ const images = {
   databaseImage: process.env.DATABASE_IMAGE,
   vpnImage: process.env.VPN_IMAGE,
 };
+const updaterVersion = fs
+  .readFileSync(path.join(root, "updater/release.go"), "utf8")
+  .match(/var updaterVersion = "([0-9]+\.[0-9]+\.[0-9]+)"/)?.[1];
+if (!updaterVersion) throw new Error("The updater version is missing");
 for (const [name, image] of Object.entries(images))
   if (
     !/^ghcr\.io\/n1k0m0\/minimail(?:-database|-vpn)?@sha256:[a-f0-9]{64}$/.test(
@@ -52,7 +56,7 @@ const common = {
   schema: 1,
   readSchemaMin: 1,
   readSchemaMax: 1,
-  minUpdater: "0.1.0",
+  minUpdater: updaterVersion,
   automaticPatchSafe: true,
 };
 const hash = (data) => crypto.createHash("sha256").update(data).digest("hex");

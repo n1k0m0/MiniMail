@@ -301,6 +301,17 @@ func TestIncompatibleSchemaStopsBeforePullOrMaintenance(t *testing.T) {
 		t.Fatal(r.calls)
 	}
 }
+func TestRequiredUpdaterUpgradeStopsBeforeRuntimeChanges(t *testing.T) {
+	e, r := fixtureEngine(t)
+	m := testManifest()
+	m.MinUpdater = "99.0.0"
+	if err := e.Apply(context.Background(), m, false); err == nil || !strings.Contains(err.Error(), "newer updater") {
+		t.Fatal("unsupported updater accepted", err)
+	}
+	if len(r.calls) != 0 {
+		t.Fatal("runtime changed before updater version verification")
+	}
+}
 func TestAutomaticPolicyRequiresStablePatchWindowAndExplicitOptIn(t *testing.T) {
 	e, r := fixtureEngine(t)
 	if err := e.Check(context.Background(), true); err != nil {

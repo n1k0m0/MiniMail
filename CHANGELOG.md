@@ -1,9 +1,13 @@
 # Changelog
 
-## 0.1.0-rc.2
+## 0.1.0-rc.3
 
 - Back up legacy app-data files owned by a different user without changing their contents, ownership or permissions. The temporary backup helper has read-only mounts and filesystem, no network, and one capability for reading protected files.
 - Test protected legacy files during installation, upgrade and rollback. Updates continue to abort before migration when a backup cannot be completed and verified.
+- Require host updater 0.1.1 so existing installations receive the backup fix too. Download the new package and run its installer with the existing installation as the target; this replaces the updater without resetting the installation. Then run `apply`.
+- Derive the signed minimum updater version from the updater source to keep compatibility checks in step with host-tool fixes.
+
+The rc.2 tag was used for validation; no rc.2 release was published.
 
 ## 0.1.0-rc.1
 
