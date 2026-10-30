@@ -12,6 +12,8 @@ data
 .env.*
 local
 backups
+*.age
+*.pgp
 *.ovpn
 *.key
 *.pem

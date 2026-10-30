@@ -324,6 +324,17 @@ volumes:
 		if err = assertProtected(config, protected); err != nil {
 			t.Fatal("configuration changed in installation restore:", err)
 		}
+		var restoredState State
+		if err = readJSON(filepath.Join(root, ".minimail/state.json"), &restoredState); err != nil {
+			t.Fatal(err)
+		}
+		restoredSnapshot, err := (DockerRuntime{}).Snapshot(ctx, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = (DockerRuntime{}).Health(ctx, config, restoredState.Current, restoredSnapshot); err != nil {
+			t.Fatal("recovery requires an unavailable registry alias:", err)
+		}
 		databaseID, err = containerID(ctx, config, "database")
 		if err != nil {
 			t.Fatal(err)

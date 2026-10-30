@@ -660,6 +660,10 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 	// recovery point. Do not advertise an unavailable rollback target.
 	backup.State.Previous = nil
 	backup.State.Backup = ""
+	// docker image save/load preserves the image ID, but registry digest aliases
+	// are not guaranteed. Future failure recovery must resolve the restored image
+	// even when the original registry is unavailable.
+	backup.State.Current.Image = backup.Snapshot.AppImage
 	if err = writeJSON(filepath.Join(root, ".minimail/state.json"), backup.State, 0600); err != nil {
 		return err
 	}
