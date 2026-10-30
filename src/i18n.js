@@ -1,7 +1,9 @@
 import { calendarTranslations } from "./calendar/calendarTranslations.js";
 import { mailFilterTranslations } from "./mailFilterTranslations.js";
+import { notificationBackupTranslations } from "./notificationBackupTranslations.js";
 const translations = {
   ...mailFilterTranslations,
+  ...notificationBackupTranslations,
   "Backup und Wiederherstellung": "Backup and restore",
   "Alle MiniMail-Anwendungsdaten verschlüsselt sichern und wiederherstellen.":
     "Create encrypted backups of all MiniMail application data and restore them.",

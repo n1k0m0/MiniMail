@@ -1133,6 +1133,7 @@ export async function calendarAlerts(
               title: event.title,
               start: event.start,
               color: event.color,
+              snoozeUntil: state?.snooze_until || null,
             },
           ]
         : [];

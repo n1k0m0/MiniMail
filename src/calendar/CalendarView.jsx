@@ -59,6 +59,7 @@ export default function CalendarView({
   accounts,
   onMail,
   onSettings,
+  onNotificationSettings,
   setError,
   notify,
   openEventId,
@@ -697,25 +698,10 @@ export default function CalendarView({
             />
             {t("Wochenenden")}
           </label>
-          {typeof window !== "undefined" &&
-            "Notification" in window &&
-            Notification.permission !== "granted" && (
-              <button
-                onClick={async () => {
-                  const result = await Notification.requestPermission();
-                  notify(
-                    t(
-                      result === "granted"
-                        ? "Browserbenachrichtigungen aktiviert."
-                        : "Erinnerungen bleiben innerhalb von MiniMail sichtbar.",
-                    ),
-                  );
-                }}
-              >
-                <Bell size={15} />
-                {t("Benachrichtigungen erlauben")}
-              </button>
-            )}
+          <button onClick={onNotificationSettings}>
+            <Bell size={15} />
+            {t("Benachrichtigungen")}
+          </button>
         </div>
         <div className="calendar-body" aria-busy={loading}>
           {loadErrors.length > 0 && (

@@ -12,6 +12,9 @@ import (
 var kernel = syscall.NewLazyDLL("kernel32.dll")
 
 func serviceOwner(string) (string, error) { return "", errors.New("systemd is unavailable on Windows") }
+func lockBackupDaemon(string) (func(), error) {
+	return nil, errors.New("the web backup host service requires Linux")
+}
 
 func lockInstallation(root string) (func(), error) {
 	file, e := os.OpenFile(root+"/.minimail/update.lock", os.O_CREATE|os.O_RDWR, 0600)

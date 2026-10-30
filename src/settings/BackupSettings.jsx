@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, Upload, DatabaseBackup } from "lucide-react";
 import { api } from "../mailUi.js";
 import { t } from "../i18n.js";
+import InstallationBackupSettings from "./InstallationBackupSettings.jsx";
 
 export default function BackupSettings({ setError }) {
   const [adminPassword, setAdminPassword] = useState(""),
@@ -89,6 +90,7 @@ export default function BackupSettings({ setError }) {
   }
   return (
     <div className="backup-settings">
+      <h4>{t("MiniMail-Anwendungsdaten")}</h4>
       <p>
         {t(
           "Enthält alle Benutzer, Postfächer und Zugangsdaten, 2FA, Schlüssel, Kontakte, Entwürfe samt Anhängen, KI-Einstellungen sowie Kalender, Termine und Aufgaben.",
@@ -225,6 +227,7 @@ export default function BackupSettings({ setError }) {
           </ul>
         </>
       )}
+      <InstallationBackupSettings setError={setError} />
     </div>
   );
 }

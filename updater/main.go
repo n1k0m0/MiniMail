@@ -15,11 +15,12 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := runCLI(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "MiniMail:", err)
@@ -90,6 +91,12 @@ func runCLI(ctx context.Context, args []string) error {
 	if e != nil {
 		return e
 	}
+	if action == "backup-service-install" {
+		return installBackupService(ctx, root)
+	}
+	if action == "backup-serve" {
+		return serveWebBackups(ctx, root)
+	}
 	// Installing a system service may use sudo, but the scheduled updater must
 	// retain the installation owner's identity and Docker access.
 	if action == "service-install" {
@@ -128,6 +135,9 @@ func runCLI(ctx context.Context, args []string) error {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".minimail/restore-in-progress.json")); err == nil {
 		return errors.New("an installation restore is incomplete; the updater will not change data or start the application")
+	}
+	if e = recoverBackupControl(ctx, root); e != nil {
+		return e
 	}
 	if e = recoverBackupExport(ctx, c); e != nil {
 		return e

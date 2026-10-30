@@ -2,10 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { api } from "../mailUi.js";
 import { t, dateLocale } from "../i18n.js";
+import { notifyOnce, showNotification } from "../notifications.js";
 
-export default function CalendarReminders({ username, onOpen, setError }) {
+export default function CalendarReminders({
+  username,
+  desktopEnabled = false,
+  onOpen,
+  setError,
+}) {
   const [alerts, setAlerts] = useState([]),
     shown = useRef(new Set());
+  const current = useRef({ desktopEnabled, onOpen });
+  current.current = { desktopEnabled, onOpen };
   useEffect(() => {
     let active = true,
       busy = false;
@@ -21,25 +29,30 @@ export default function CalendarReminders({ username, onOpen, setError }) {
         if (!active) return;
         setAlerts(result);
         for (const alert of result) {
-          const key = `${alert.itemId}:${alert.occurrence}`;
+          const key = `${alert.itemId}:${alert.occurrence}:${alert.snoozeUntil || ""}`;
           if (shown.current.has(key)) continue;
           shown.current.add(key);
-          if (
-            document.hidden &&
-            "Notification" in window &&
-            Notification.permission === "granted"
-          ) {
-            const notification = new Notification(alert.title, {
-              body: new Date(alert.start).toLocaleString(dateLocale()),
-              tag: `minimail-calendar-${key}`,
+          if (current.current.desktopEnabled)
+            void notifyOnce(username, "calendar", key, () => {
+              if (!active || !current.current.desktopEnabled) return false;
+              return showNotification(
+                "MiniMail",
+                {
+                  body: `${t("Terminerinnerung")}: ${new Date(alert.start).toLocaleString(dateLocale())}`,
+                  tag: `minimail-calendar-${key}`,
+                },
+                () => {
+                  if (active) current.current.onOpen(alert.itemId);
+                },
+              );
             });
-            notification.onclick = () => {
-              window.focus();
-              onOpen(alert.itemId);
-              notification.close();
-            };
-          }
         }
+        shown.current = new Set(
+          result.map(
+            (alert) =>
+              `${alert.itemId}:${alert.occurrence}:${alert.snoozeUntil || ""}`,
+          ),
+        );
       } catch {
       } finally {
         busy = false;

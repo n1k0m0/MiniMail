@@ -191,7 +191,7 @@ func createInstallationArchive(root, payload, destination string) error {
 	compressed := gzip.NewWriter(output)
 	archive := tar.NewWriter(compressed)
 	skip := func(relative string) bool {
-		return relative == ".git" || relative == "node_modules" || relative == ".minimail/backups" || relative == ".minimail/update.lock" || relative == ".minimail/backup-export.json"
+		return relative == ".git" || relative == "node_modules" || relative == ".minimail/backups" || relative == ".minimail/update.lock" || relative == ".minimail/backup-export.json" || relative == ".minimail/backup-control"
 	}
 	if err = archiveTree(archive, root, "installation", skip); err != nil {
 		return err
@@ -628,6 +628,14 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 		return err
 	}
 	if err = copyInstallationTree(filepath.Join(extracted, "installation"), root); err != nil {
+		return err
+	}
+	// Runtime sockets and host-service credentials are intentionally not archived.
+	// Keep a configured read-only bind usable; reinstall the host service after recovery.
+	if err = os.MkdirAll(backupControl(root), 0755); err != nil {
+		return err
+	}
+	if err = os.Chmod(backupControl(root), 0755); err != nil {
 		return err
 	}
 	for source, id := range backup.Bindings {

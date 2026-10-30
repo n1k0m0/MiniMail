@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Info,
+  Bell,
   ListFilter,
   DatabaseBackup,
   RefreshCw,
@@ -27,12 +28,14 @@ import SecuritySettings from "./settings/SecuritySettings.jsx";
 import UpdateSettings from "./settings/UpdateSettings.jsx";
 import BackupSettings from "./settings/BackupSettings.jsx";
 import MailFilterSettings from "./settings/MailFilterSettings.jsx";
+import NotificationSettings from "./settings/NotificationSettings.jsx";
 
 const icons = {
   mailboxes: Inbox,
   filters: ListFilter,
   contacts: Contact,
   appearance: Monitor,
+  notifications: Bell,
   security: ShieldCheck,
   ai: Sparkles,
   users: Users,
@@ -61,6 +64,8 @@ export default function SettingsModal({
   onThreadedChange,
   hideRead = false,
   onHideReadChange,
+  notifications = { mail: false, calendar: false },
+  onNotificationsChange,
   setError,
   onDeleted,
   onPrimary,
@@ -282,6 +287,13 @@ export default function SettingsModal({
                   )}
                   {entry.id === "security" && (
                     <SecuritySettings auth={auth} onLogout={onLogout} />
+                  )}
+                  {entry.id === "notifications" && (
+                    <NotificationSettings
+                      preferences={notifications}
+                      onChange={onNotificationsChange}
+                      setError={setError}
+                    />
                   )}
                   {entry.id === "updates" && (
                     <UpdateSettings setError={setError} />

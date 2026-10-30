@@ -69,6 +69,13 @@ import DraftsModal from "./DraftsModal.jsx";
 import LoginScreen from "./LoginScreen.jsx";
 import CalendarReminders from "./calendar/CalendarReminders.jsx";
 import MailInvitation from "./calendar/MailInvitation.jsx";
+import {
+  notificationKey,
+  notificationPreferences,
+  mailArrivals,
+  notifyOnce,
+  showNotification,
+} from "./notifications.js";
 import { setLanguage as updateLanguage } from "./i18n.js";
 import "./style.css";
 import "./settings.css";
@@ -184,6 +191,13 @@ export default function App() {
     () => localStorage.getItem(THREAD_VIEW_KEY) === "1",
   );
   const [hideRead, setHideRead] = useState(false);
+  const [notifications, setNotifications] = useState({
+    mail: false,
+    calendar: false,
+  });
+  const notificationsRef = useRef(notifications);
+  notificationsRef.current = notifications;
+  const mailNotificationBaseline = useRef(new Map());
   const [expandedThreads, setExpandedThreads] = useState(new Set());
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -315,6 +329,12 @@ export default function App() {
     const identity = next?.user?.username || null;
     if (authIdentityRef.current !== identity) {
       authIdentityRef.current = identity;
+      setNotifications(
+        identity
+          ? notificationPreferences(identity)
+          : { mail: false, calendar: false },
+      );
+      mailNotificationBaseline.current = new Map();
       setHideRead(
         identity ? localStorage.getItem(hideReadKey(identity)) === "1" : false,
       );
@@ -382,6 +402,65 @@ export default function App() {
     setSelected(null);
     setExpandedThreads(new Set());
   }
+  function selectNotifications(next) {
+    try {
+      localStorage.setItem(
+        notificationKey(authIdentityRef.current),
+        JSON.stringify(next),
+      );
+      setNotifications(next);
+    } catch {
+      setError(
+        t("Die Einstellung konnte in diesem Browser nicht gespeichert werden."),
+      );
+    }
+  }
+  useEffect(() => {
+    const sync = (event) => {
+      if (
+        authIdentityRef.current &&
+        event.key === notificationKey(authIdentityRef.current)
+      )
+        setNotifications(notificationPreferences(authIdentityRef.current));
+    };
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, []);
+  function observeMail(data, identity) {
+    const { next, arrivals } = mailArrivals(
+      mailNotificationBaseline.current,
+      data,
+    );
+    mailNotificationBaseline.current = next;
+    if (!notificationsRef.current.mail) return;
+    for (const account of arrivals) {
+      void notifyOnce(
+        identity,
+        "mail",
+        `${account.id}:${account.inbox_uid_next}`,
+        () => {
+          if (
+            authIdentityRef.current !== identity ||
+            !notificationsRef.current.mail
+          )
+            return false;
+          return showNotification(
+            "MiniMail",
+            {
+              body: `${t("Neue E-Mails")}: ${account.name || account.email}`,
+              tag: `minimail-mail-${account.id}`,
+            },
+            () => {
+              if (authIdentityRef.current !== identity) return;
+              setAppView("mail");
+              setAccountId(account.id);
+              selectFolder("INBOX");
+            },
+          );
+        },
+      );
+    }
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("minimail-theme", theme);
@@ -448,6 +527,7 @@ export default function App() {
     api("/accounts")
       .then((data) => {
         if (!active || authIdentityRef.current !== identity) return;
+        observeMail(data, identity);
         setAccounts(data);
         setAccountId(
           (current) =>
@@ -471,15 +551,14 @@ export default function App() {
     let cancelled = false;
     let polling = false;
     async function pollAccounts() {
-      if (polling || document.hidden) return;
+      if (polling || (document.hidden && !notificationsRef.current.mail))
+        return;
       polling = true;
       try {
         const data = await api("/accounts");
-        if (
-          cancelled ||
-          authIdentityRef.current !== identity ||
-          JSON.stringify(data) === JSON.stringify(accountsRef.current)
-        )
+        if (cancelled || authIdentityRef.current !== identity) return;
+        observeMail(data, identity);
+        if (JSON.stringify(data) === JSON.stringify(accountsRef.current))
           return;
         const before = accountsRef.current.find(
           (item) => item.id === activeAccountIdRef.current,
@@ -962,6 +1041,10 @@ export default function App() {
             accounts={accounts}
             onMail={() => setAppView("mail")}
             onSettings={() => setModal("settings")}
+            onNotificationSettings={() => {
+              setSettingsSection("notifications");
+              setModal("settings");
+            }}
             setError={setError}
             notify={setNotice}
             openEventId={calendarEventId}
@@ -2039,6 +2122,7 @@ export default function App() {
       )}
       <CalendarReminders
         username={auth.user.username}
+        desktopEnabled={notifications.calendar}
         onOpen={(id) => {
           setCalendarEventId(id);
           setAppView("calendar");
@@ -2313,6 +2397,8 @@ export default function App() {
           onThreadedChange={selectThreaded}
           hideRead={hideRead}
           onHideReadChange={selectHideRead}
+          notifications={notifications}
+          onNotificationsChange={selectNotifications}
           setError={setError}
           onDeleted={async (id) => {
             const data = await api("/accounts");

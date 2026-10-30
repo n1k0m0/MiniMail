@@ -10,6 +10,7 @@ import {
   changeMailRuleState,
 } from "./mailRuleStore.js";
 import { registerBackupRoutes } from "./backupRoutes.js";
+import { registerInstallationBackupRoutes } from "./installationBackupRoutes.js";
 import { cleanupBackupWork } from "./backups.js";
 import { MaintenanceError } from "./database.js";
 import { consumeTotp } from "./totp.js";
@@ -276,7 +277,7 @@ function failedAttempt(key) {
         },
   );
 }
-registerBackupRoutes(app, db, adminOnly, async (req, res) => {
+async function reauthenticateBackup(req, res) {
   const key = `backup:${req.user.id}`;
   if (!canAttempt(key)) {
     res
@@ -310,7 +311,9 @@ registerBackupRoutes(app, db, adminOnly, async (req, res) => {
   }
   loginAttempts.delete(key);
   return true;
-});
+}
+registerBackupRoutes(app, db, adminOnly, reauthenticateBackup);
+registerInstallationBackupRoutes(app, adminOnly, reauthenticateBackup);
 app.get("/api/auth/me", async (req, res) => {
   const exists = !!(await db.prepare("SELECT id FROM users LIMIT 1").get());
   res.json({

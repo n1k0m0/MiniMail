@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"net"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -307,10 +309,49 @@ volumes:
 	}
 	t.Log("Fresh install, verified dump/restore, upgrade and rollback preserve ciphertext, credentials, 2FA replay state, drafts, binary files, private configuration and post-update writes.")
 	if !previousRelease {
-		archive := filepath.Join(t.TempDir(), "installation.age")
 		password := "synthetic-installation-backup-passphrase"
-		if err = exportInstallation(ctx, &e, archive, password); err != nil {
-			t.Fatal("installation export:", err)
+		if err = initializeBackupControl(root); err != nil {
+			t.Fatal(err)
+		}
+		if err = enableBackupControl(ctx, config); err != nil {
+			t.Fatal("enable scoped host backup mount:", err)
+		}
+		// A real socket is excluded from the archive together with its host token.
+		shortSocket := filepath.Join(t.TempDir(), "s")
+		listener, listenErr := net.Listen("unix", shortSocket)
+		if listenErr != nil {
+			t.Fatal(listenErr)
+		}
+		if err = os.Rename(shortSocket, filepath.Join(backupControl(root), "service.sock")); err != nil {
+			listener.Close()
+			t.Fatal(err)
+		}
+		web, err := newWebBackupService(ctx, root, strings.Repeat("a", 64))
+		if err != nil {
+			listener.Close()
+			t.Fatal(err)
+		}
+		jobID, owner := strings.Repeat("c", 32), strings.Repeat("b", 64)
+		response := backupRequest(web, "POST", "/jobs", owner, `{"id":"`+jobID+`","password":"`+password+`"}`)
+		if response.Code != 202 {
+			listener.Close()
+			t.Fatal("host backup request", response.Code, response.Body.String())
+		}
+		web.workers.Wait()
+		listener.Close()
+		if web.jobs[jobID].State != "ready" {
+			t.Fatal("asynchronous host export failed")
+		}
+		archive := web.archive(jobID)
+		// Download is streamed and resumable without buffering a Docker image archive.
+		request := httptest.NewRequest("GET", "/jobs/"+jobID+"/download", nil)
+		request.Header.Set("Authorization", "Bearer "+web.token)
+		request.Header.Set("X-MiniMail-Backup-Owner", owner)
+		request.Header.Set("Range", "bytes=0-19")
+		partial := httptest.NewRecorder()
+		web.ServeHTTP(partial, request)
+		if partial.Code != 206 || !strings.HasPrefix(partial.Body.String(), "age-encryption.org/") {
+			t.Fatal("encrypted host archive download failed")
 		}
 		if err = restoreInstallation(ctx, root, archive, password, true); err == nil {
 			t.Fatal("restore accepted an existing installation")

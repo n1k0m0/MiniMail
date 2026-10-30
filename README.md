@@ -16,7 +16,8 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 - Optional unread-only view with correct search/pagination, plus stronger unread styling for messages, mailboxes and folders. Read emails remain visible by default.
 - Personal calendars with local storage, iCalendar/Webcal subscriptions and CalDAV synchronization, including Nextcloud; day/week/month/multiweek/agenda views, tasks, recurring events, reminders, per-calendar colors, import/export and email invitations.
 - Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
-- Password-encrypted administrator backups and transactional restore of all stored application data; a separate host command also backs up installation files, persistent app-data and Docker images for disaster recovery.
+- Separate personal browser-notification switches for new email and calendar reminders, with an optional test pop-up.
+- Password-encrypted administrator backups and transactional restore of all stored application data; full installation backups can also be created and downloaded from the admin interface through an optional scoped host service.
 
 ## Mail filters and folder management
 
@@ -88,6 +89,29 @@ All sessions are invalidated on restore. Sign in using the credentials and 2FA s
 
 An administrator with backup privileges can read every user's stored data after decrypting a backup. Only give that role to people you trust with those data.
 
+### Full installation backup from the admin interface
+
+With host updater **0.1.7** or newer on Linux/systemd, enable the scoped backup service once, from the existing managed installation:
+
+```sh
+sudo .minimail/bin/minimail backup-service-install --root /path/to/minimail
+```
+
+This adds a read-only Unix-socket directory to the app using updater-owned Compose metadata and restarts **only the application**. Existing `.env`, private Compose files, database/VPN containers and data volumes are preserved. Installation is journaled; a failed/interrupted mount change is recovered before subsequent managed operations. A previously unmanaged source installation must first adopt the host updater.
+
+Open **Settings → Backup and restore → Complete server backup**. Enter your administrator password, a fresh TOTP code and a separate backup password twice, then confirm the brief application pause. The independently running host service verifies the SQL dump, restarts MiniMail and finishes the encrypted archive. The browser automatically reconnects and displays a download link. You can leave the settings page and return while the job continues. The download streams to disk and supports resuming; it does not load Docker images into browser memory.
+
+Only the administrator session that requested a backup can list or download it. Signing out, password/2FA changes or a database restore invalidate this access. Completed/failed jobs expire after **24 hours**, with cleanup every minute while the host service runs; at most three jobs are retained per installation. Copy downloads off-host before expiry. The private archive store is a sibling of the installation named `.minimail-web-backups-<installation-path-hash>`; it is excluded from subsequent archives. Passwords are passed in memory, never stored in job metadata, command arguments or logs. The web app gets no Docker socket, shell or general host-file API. The host service accepts only export of its fixed installation, serializes with updates and recovers a paused app after interruption. Runtime service sockets/tokens are excluded from archives; reinstall the service after disaster recovery.
+
+Status/logs on the Docker host (replace the default project name if customized):
+
+```sh
+systemctl status minimail-backup-minimail.service
+journalctl -u minimail-backup-minimail.service
+```
+
+This backs up the **MiniMail installation**, not the entire operating system or unrelated services. Full installation restore remains an explicit host operation into an empty destination; the web import restores application data only.
+
 ### Full installation backup, on the Docker host
 
 Updater **0.1.4** provides a standalone full installation backup and preserves recovered configuration during later updates and rollback. Run it as the installation owner with Docker access. The command prompts for a password without echoing it; it never accepts passwords as command arguments. For unattended jobs, `--password-stdin` accepts a password from a secret-manager pipe.
@@ -115,7 +139,13 @@ mkdir -p /opt/minimail
 
 The full archive is authenticated before extraction. Recovery rejects unsafe paths and links, restores private configuration bytes, creates new volumes, imports SQL, compares table counts/checksums, restores app-data ownership and permissions, invalidates sessions and starts the application. If a recovery step fails, a private `restore-in-progress.json` marker blocks the updater; the app is not started on partial data. Inspect the failed **new** recovery resources before removing them and retrying into a clean destination. Never remove production volumes to make room for a restore.
 
-After recovery, verify HTTPS, external mail/calendar/VPN connectivity and DNS. Reinstall the update timer with `minimail service-install --root /opt/minimail` if required. Earlier update rollback snapshots are excluded from a standalone recovery point; a fresh update history starts from the restored version.
+After recovery, verify HTTPS, external mail/calendar/VPN connectivity and DNS. Reinstall the update timer with `minimail service-install --root /opt/minimail` and the optional web backup service with `minimail backup-service-install --root /opt/minimail` if required. Earlier update rollback snapshots are excluded from a standalone recovery point; a fresh update history starts from the restored version.
+
+## Browser notifications
+
+Under **Settings → Notifications**, each user can independently enable **New email** and **Calendar reminders**. Both are off by default and saved for this user in the current browser. Enabling a switch requests the browser's permission; blocking permission does not turn the switch on. Use **Test notification** to check OS/browser delivery. Permission and focus/do-not-disturb modes are controlled by your browser and operating system.
+
+Keep MiniMail open in a tab over HTTPS. This feature does not use a push service and cannot notify after all MiniMail tabs are closed. Inbox notifications follow mailbox check intervals and ignore the initial mailbox snapshot, read-flag changes and UID resets. Background tabs continue polling when mail notifications are enabled, subject to browser throttling. Calendar notifications use the event's configured reminder time and poll every minute, including snoozed reminders. In-app reminders stay available independently of desktop pop-ups. Tabs coordinate notification claims to suppress repeats in the same browser. Pop-ups disclose only the mailbox name or reminder time; opening one returns to the corresponding inbox/calendar item.
 
 ## Build and install from source
 
@@ -456,7 +486,7 @@ The test suite is not a guarantee that the software has no vulnerabilities. Keep
 
 ## Managed updates and safe recovery
 
-The standalone `minimail` executable runs on the host. The web application receives only a read-only update-status directory; it has no Docker socket or host-control API. Administrators see **Settings → System and updates**. Ordinary web users cannot access this page or its API.
+The standalone `minimail` executable runs on the host. The web application receives a read-only update-status directory and, if explicitly enabled, the scoped installation-backup socket described above. It has no Docker socket or arbitrary host-control API. Administrators see **Settings → System and updates**. Ordinary web users cannot access this page or its API.
 
 For an existing Docker installation, run the executable from the downloaded release package:
 

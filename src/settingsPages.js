@@ -30,6 +30,14 @@ const pages = [
     group: "personal",
   },
   {
+    id: "notifications",
+    title: "Benachrichtigungen",
+    description:
+      "Browser-Pop-ups für neue E-Mails und Termine getrennt einstellen.",
+    scope: "Dieses Benutzerkonto in diesem Browser",
+    group: "personal",
+  },
+  {
     id: "security",
     title: "Sicherheit",
     description: "Deine Anmeldung und die Zugriffsrechte in MiniMail.",

@@ -21,6 +21,17 @@ func lockInstallation(root string) (func(), error) {
 	}
 	return func() { file.Close() }, nil
 }
+func lockBackupDaemon(control string) (func(), error) {
+	file, err := os.OpenFile(filepath.Join(control, "daemon.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		file.Close()
+		return nil, errors.New("another backup daemon is active")
+	}
+	return func() { file.Close() }, nil
+}
 func securePath(path string, directory bool) error {
 	mode := os.FileMode(0600)
 	if directory {
