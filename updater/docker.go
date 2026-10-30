@@ -298,14 +298,24 @@ func frozenSpec(s Snapshot, c Config, image string, status bool) map[string]any 
 	delete(app, "build")
 	if status {
 		volumes, _ := app["volumes"].([]any)
+		override, _ := service(imageOverride(image, filepath.Join(c.Root, ".minimail/status")), "minimail")
+		desired := override["volumes"].([]any)[0]
 		filtered := []any{}
+		found := false
 		for _, v := range volumes {
-			if m, ok := v.(map[string]any); !ok || m["target"] != "/app/update-status" {
+			if m, ok := v.(map[string]any); ok && m["target"] == "/app/update-status" {
+				filtered = append(filtered, desired)
+				found = true
+			} else {
 				filtered = append(filtered, v)
 			}
 		}
-		override, _ := service(imageOverride(image, filepath.Join(c.Root, ".minimail/status")), "minimail")
-		app["volumes"] = append(filtered, override["volumes"].([]any)...)
+		// Compose hashes preserve mount order. Replacing an existing managed mount
+		// in place keeps frozen startup and the persistent image override identical.
+		if !found {
+			filtered = append(filtered, desired)
+		}
+		app["volumes"] = filtered
 	}
 	return escaped(spec).(map[string]any)
 }
