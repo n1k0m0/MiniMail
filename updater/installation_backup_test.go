@@ -3,11 +3,33 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInstallationExportUsesOneExtractionBudgetForConfigAndPayload(t *testing.T) {
+	root, payload := t.TempDir(), t.TempDir()
+	for _, folder := range []string{root, payload} {
+		if err := os.WriteFile(filepath.Join(folder, "part"), []byte("123"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer := tar.NewWriter(io.Discard)
+	budget := &installationArchiveBudget{bytes: installationBackupLimit - 4}
+	if err := archiveTree(writer, root, "installation", nil, budget); err != nil {
+		t.Fatal(err)
+	}
+	if err := archiveTree(writer, payload, "payload", nil, budget); err == nil {
+		t.Fatal("published an archive larger than the recovery extraction limit")
+	}
+	budget = &installationArchiveBudget{files: 100000}
+	if err := archiveTree(tar.NewWriter(io.Discard), root, "installation", nil, budget); err == nil {
+		t.Fatal("published too many archive entries")
+	}
+}
 
 func TestInstallationEncryptionAuthenticatesAndNeverOverwrites(t *testing.T) {
 	folder := t.TempDir()

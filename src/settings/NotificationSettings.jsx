@@ -75,6 +75,7 @@ export default function NotificationSettings({
       </p>
       <button
         type="button"
+        className="secondary-button"
         disabled={permission !== "granted"}
         onClick={() => {
           if (

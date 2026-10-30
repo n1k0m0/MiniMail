@@ -78,6 +78,10 @@ export async function notifyOnce(username, category, key, callback) {
     }
   };
   if (globalThis.navigator?.locks) {
-    await navigator.locks.request(storageKey, claim);
+    try {
+      await navigator.locks.request(storageKey, claim);
+    } catch {
+      claim();
+    }
   } else claim();
 }

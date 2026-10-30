@@ -134,7 +134,20 @@ func encryptInstallation(source, destination, password string) error {
 	return nil
 }
 
-func archiveTree(writer *tar.Writer, folder, prefix string, skip func(string) bool) error {
+type installationArchiveBudget struct {
+	bytes int64
+	files int
+}
+
+func (b *installationArchiveBudget) add(size int64) error {
+	if b.files >= 100000 || size < 0 || size > installationBackupLimit-b.bytes {
+		return errors.New("installation backup exceeds extraction limits")
+	}
+	b.bytes += size
+	b.files++
+	return nil
+}
+func archiveTree(writer *tar.Writer, folder, prefix string, skip func(string) bool, budget *installationArchiveBudget) error {
 	return filepath.Walk(folder, func(name string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -161,6 +174,9 @@ func archiveTree(writer *tar.Writer, folder, prefix string, skip func(string) bo
 			return err
 		}
 		header.Name = prefix + "/" + relative
+		if err = budget.add(header.Size); err != nil {
+			return err
+		}
 		// Names and owner IDs from the original machine do not belong in the archive.
 		header.Uname, header.Gname, header.Uid, header.Gid = "", "", 0, 0
 		if err = writer.WriteHeader(header); err != nil {
@@ -190,13 +206,14 @@ func createInstallationArchive(root, payload, destination string) error {
 	defer output.Close()
 	compressed := gzip.NewWriter(output)
 	archive := tar.NewWriter(compressed)
+	budget := &installationArchiveBudget{}
 	skip := func(relative string) bool {
 		return relative == ".git" || relative == "node_modules" || relative == ".minimail/backups" || relative == ".minimail/update.lock" || relative == ".minimail/backup-export.json" || relative == ".minimail/backup-control"
 	}
-	if err = archiveTree(archive, root, "installation", skip); err != nil {
+	if err = archiveTree(archive, root, "installation", skip, budget); err != nil {
 		return err
 	}
-	if err = archiveTree(archive, payload, "payload", nil); err != nil {
+	if err = archiveTree(archive, payload, "payload", nil, budget); err != nil {
 		return err
 	}
 	if err = archive.Close(); err != nil {

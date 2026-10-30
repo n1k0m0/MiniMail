@@ -252,6 +252,10 @@ func (s *webBackupService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 			defer cancel()
 			err := s.export(ctx, s.archive(job.ID), password)
+			diagnostic := "archive was not published"
+			if err != nil {
+				diagnostic = strings.ReplaceAll(err.Error(), password, "[redacted]")
+			}
 			password = ""
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -266,7 +270,7 @@ func (s *webBackupService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if job.State != "ready" {
 				_ = os.Remove(s.archive(job.ID))
-				fmt.Fprintln(os.Stderr, "Installation backup failed; job", job.ID, "(private diagnostics withheld)")
+				fmt.Fprintln(os.Stderr, "Installation backup failed; job", job.ID, diagnostic)
 			}
 			if e := s.save(job); e != nil {
 				fmt.Fprintln(os.Stderr, "Could not persist installation backup status")

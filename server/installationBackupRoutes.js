@@ -63,6 +63,10 @@ export function installationBackupClient(control = "/app/backup-control") {
       response.setTimeout(120000, () => response.destroy());
       return response;
     }
+    if (response.statusCode === 416) {
+      response.resume();
+      throw new HostBackupError("missing", 416);
+    }
     let raw = "";
     for await (const chunk of response) {
       raw += chunk;
@@ -126,20 +130,16 @@ export function registerInstallationBackupRoutes(
         !/^[a-f0-9]{32}$/.test(req.body?.id) ||
         req.body?.confirmPause !== true
       )
-        return res
-          .status(400)
-          .json({
-            error:
-              "Bitte die kurze Unterbrechung für das Serverbackup bestätigen.",
-          });
+        return res.status(400).json({
+          error:
+            "Bitte die kurze Unterbrechung für das Serverbackup bestätigen.",
+        });
       checkBackupPassword(req.body.backupPassword);
       if (Buffer.byteLength(req.body.backupPassword) > 1024)
-        return res
-          .status(400)
-          .json({
-            error:
-              "Das Backup-Passwort darf höchstens 1024 UTF-8-Bytes lang sein.",
-          });
+        return res.status(400).json({
+          error:
+            "Das Backup-Passwort darf höchstens 1024 UTF-8-Bytes lang sein.",
+        });
       if (!(await reauthenticate(req, res))) return;
       const result = await request("POST", "/jobs", owner(req), {
         id: req.body.id,
@@ -154,7 +154,11 @@ export function registerInstallationBackupRoutes(
     route(async (req, res) => {
       if (!/^[a-f0-9]{32}$/.test(req.params.id)) return res.status(404).end();
       const range = req.get("range");
-      if (range && !/^bytes=\d*-\d*$/.test(range)) return res.status(416).end();
+      if (
+        range &&
+        (range.length > 100 || !/^bytes=(?:\d+-\d*|-\d+)$/.test(range))
+      )
+        return res.status(416).end();
       const stream = await request(
         "GET",
         `/jobs/${req.params.id}/download`,

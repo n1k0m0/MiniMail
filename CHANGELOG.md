@@ -1,11 +1,14 @@
 # Changelog
 
-## 0.1.0-rc.15
+## 0.1.0-rc.16
 
 - Add a personal Notifications settings page with independent mail/calendar switches, browser permission handling, a test pop-up, background inbox observation and cross-tab deduplication. Keep in-app reminders independent and notify again for snoozed occurrences. Preferences are isolated by user and browser; both default off.
 - Add asynchronous full installation backup creation and streamed/resumable encrypted downloads to the administrator interface, requiring password/2FA and explicit pause consent. Scope jobs to the requesting admin session; keep backup passwords out of persisted state and logs.
 - Add opt-in Linux/systemd host backup service in updater 0.1.7. Expose only fixed-installation export through an authenticated read-only Unix socket; serialize with updates, recover paused apps after interruption, preserve private configuration, expire encrypted downloads after 24 hours and exclude runtime sockets/credentials from recovery archives.
 - Test admin/session isolation, encryption, interrupted jobs, range downloads and full Docker disaster recovery with the host-service mount, followed by updates and rollback.
+- Reject full archives before publication when their combined configuration/payload exceeds the recovery extraction budget.
+
+The rc.15 tag was used for validation; its release was not published.
 
 ## 0.1.0-rc.14
 
