@@ -276,6 +276,19 @@ func TestNewSecretCreationNeverReplacesAnExistingKey(t *testing.T) {
 		t.Fatal("key changed")
 	}
 }
+func TestOversizedRecoveryMetadataIsRefusedBeforeReplacingState(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "state.json")
+	if err := writeJSON(file, map[string]string{"version": "original"}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(file, map[string]string{"oversized": strings.Repeat("x", 4<<20)}, 0600); err == nil {
+		t.Fatal("unrecoverable metadata was written")
+	}
+	var value map[string]string
+	if err := readJSON(file, &value); err != nil || value["version"] != "original" {
+		t.Fatal("original state was not retained")
+	}
+}
 func TestIncompatibleSchemaStopsBeforePullOrMaintenance(t *testing.T) {
 	e, r := fixtureEngine(t)
 	m := testManifest()

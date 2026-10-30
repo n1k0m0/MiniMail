@@ -46,6 +46,9 @@ func writeJSON(name string, value any, mode os.FileMode) error {
 	if e != nil {
 		return e
 	}
+	if len(raw)+1 >= 4<<20 {
+		return errors.New("updater metadata exceeds its recovery read limit; no state was written")
+	}
 	return writeAtomic(name, append(raw, '\n'), mode)
 }
 
@@ -56,7 +59,7 @@ func writeNew(name string, raw []byte) error {
 		return e
 	}
 	defer os.Remove(file.Name())
-	if e = file.Chmod(0600); e == nil {
+	if e = securePath(file.Name(), false); e == nil {
 		_, e = file.Write(raw)
 	}
 	if e == nil {

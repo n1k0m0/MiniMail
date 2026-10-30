@@ -556,7 +556,19 @@ func (d DockerRuntime) Backup(ctx context.Context, c Config, t Transaction) erro
 	if e != nil {
 		return e
 	}
-	if free < size*3+(512<<20) {
+	dataSizeRaw, e := docker(ctx, "run", "--rm", "--network", "none", "--read-only", "--volumes-from", t.Snapshot.AppID+":ro", "--entrypoint", "du", t.Snapshot.AppImage, "-sk", "/app/data")
+	if e != nil {
+		return e
+	}
+	fields := strings.Fields(string(dataSizeRaw))
+	if len(fields) != 2 {
+		return errors.New("cannot estimate persistent app-data backup size")
+	}
+	dataKiB, e := strconv.ParseUint(fields[0], 10, 64)
+	if e != nil {
+		return e
+	}
+	if size > free/3 || dataKiB > free/2048 || free < size*3+dataKiB*2048+(512<<20) {
 		return errors.New("insufficient backup disk space; no migrations performed")
 	}
 	dbInfo, e := inspect(ctx, t.Snapshot.DBID)
