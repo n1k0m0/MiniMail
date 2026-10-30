@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.13
+
+- Replace the top navigation envelope with a compact two-line MiniMail wordmark, using the application's local Manrope font and colors matched to the blue rail.
+
 ## 0.1.0-rc.12
 
 - Add private per-mailbox filters with AND/OR conditions, priorities, automatic incoming-mail processing, confirmed runs on existing folders, durable checkpoints and resumable failures. Preserve automatic invitation import before moving mail and require IMAP MOVE for filtered moves.

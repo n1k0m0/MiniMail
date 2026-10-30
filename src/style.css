@@ -83,18 +83,25 @@ svg {
   gap: 22px;
 }
 .brand-mark {
-  width: 40px;
+  width: 52px;
   height: 40px;
-  border-radius: 13px;
   display: grid;
-  place-items: center;
-  box-shadow: 0 8px 18px #10226327;
+  align-content: center;
+  justify-items: start;
+  padding-left: 3px;
+  color: #fff;
+  font-family: Manrope, sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 0.94;
+  letter-spacing: -1.1px;
+  user-select: none;
 }
-.brand-mark img {
-  display: block;
-  width: 40px;
-  height: 40px;
-  border-radius: 13px;
+.brand-mark-mail {
+  color: #d4ddff;
+}
+.brand-mark-dot {
+  color: #91a8ff;
 }
 .rail-icon {
   width: 43px;
@@ -3615,8 +3622,9 @@ svg {
   gap: 25px;
 }
 .wide-layout .brand-mark {
-  width: 46px;
+  width: 58px;
   height: 46px;
+  font-size: 23px;
 }
 .wide-layout .rail-icon {
   width: 48px;

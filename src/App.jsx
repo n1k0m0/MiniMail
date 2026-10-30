@@ -883,8 +883,16 @@ export default function App() {
       }}
     >
       <div className="icon-rail">
-        <div className="brand-mark">
-          <img src="/favicon.svg" width="40" height="40" alt="MiniMail" />
+        <div
+          className="brand-mark"
+          role="img"
+          aria-label="MiniMail"
+          title="MiniMail"
+        >
+          <span aria-hidden="true">Mini</span>
+          <span className="brand-mark-mail" aria-hidden="true">
+            Mail<span className="brand-mark-dot">.</span>
+          </span>
         </div>
         <button
           className={`rail-icon${appView === "mail" ? " active" : ""}`}
