@@ -543,6 +543,13 @@ func regexpIdentifier(s string) bool {
 	return true
 }
 func restoreName(t Transaction) string { return "minimail-restore-" + filepath.Base(t.Backup) }
+func appDataReadArgs(s Snapshot, command string, args ...string) []string {
+	// Older deployments may contain root-owned SQLite snapshots or key files.
+	// Read them without changing their owners/modes. The helper has no network,
+	// no writable filesystem, and only the capability required for DAC reads.
+	base := []string{"run", "--rm", "--network", "none", "--read-only", "--user", "0:0", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE", "--security-opt", "no-new-privileges:true", "--pids-limit", "64", "--memory", "64m", "--cpus", "1", "--volumes-from", s.AppID + ":ro", "--entrypoint", command, s.AppImage}
+	return append(base, args...)
+}
 func (d DockerRuntime) Backup(ctx context.Context, c Config, t Transaction) error {
 	sizeRaw, e := sql(ctx, t.Snapshot.DBID, "SELECT COALESCE(SUM(DATA_LENGTH+INDEX_LENGTH),0) FROM information_schema.tables WHERE table_schema=DATABASE()")
 	if e != nil {
@@ -556,7 +563,7 @@ func (d DockerRuntime) Backup(ctx context.Context, c Config, t Transaction) erro
 	if e != nil {
 		return e
 	}
-	dataSizeRaw, e := docker(ctx, "run", "--rm", "--network", "none", "--read-only", "--volumes-from", t.Snapshot.AppID+":ro", "--entrypoint", "du", t.Snapshot.AppImage, "-sk", "/app/data")
+	dataSizeRaw, e := docker(ctx, appDataReadArgs(t.Snapshot, "du", "-sk", "/app/data")...)
 	if e != nil {
 		return e
 	}
@@ -595,7 +602,7 @@ func (d DockerRuntime) Backup(ctx context.Context, c Config, t Transaction) erro
 		return e
 	}
 	data := filepath.Join(t.Backup, "app-data.tar.gz")
-	dataHash, e := artifact(ctx, data, "run", "--rm", "--network", "none", "--read-only", "--volumes-from", t.Snapshot.AppID+":ro", "--entrypoint", "tar", t.Snapshot.AppImage, "-czf", "-", "-C", "/app/data", ".")
+	dataHash, e := artifact(ctx, data, appDataReadArgs(t.Snapshot, "tar", "-czf", "-", "-C", "/app/data", ".")...)
 	if e != nil {
 		return e
 	}

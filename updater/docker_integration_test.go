@@ -174,6 +174,9 @@ volumes:
 	if _, err = docker(ctx, "exec", id, "node", "/tmp/release-seed.mjs"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');fs.mkdirSync('/app/data/legacy-private',{mode:0o700});fs.writeFileSync('/app/data/legacy-private/snapshot.bin',Buffer.from([1,0,255,7]),{mode:0o600})`); err != nil {
+		t.Fatal(err)
+	}
 	protected, err := protectedFiles(config)
 	if err != nil {
 		t.Fatal(err)
@@ -236,6 +239,9 @@ volumes:
 	value, err := docker(ctx, "exec", id, "node", "-e", `const fs=require('fs');if(fs.readFileSync('/app/data/preserved.bin').toString('hex')!=='00ff0107')process.exit(1)`)
 	if err != nil {
 		t.Fatal(err, string(value))
+	}
+	if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');const p='/app/data/legacy-private/snapshot.bin',s=fs.statSync(p);if(fs.readFileSync(p).toString('hex')!=='0100ff07'||s.uid!==0||(s.mode&0o777)!==0o600)process.exit(1)`); err != nil {
+		t.Fatal("legacy file data/ownership/permissions changed:", err)
 	}
 	if !previousRelease {
 		if err = installWith(ctx, root, bundle, project, "another-admin", d); err != nil {

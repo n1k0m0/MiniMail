@@ -67,6 +67,11 @@ const goroot = execFileSync("go", ["env", "GOROOT"], {
 const artifacts = {};
 const text = (name) =>
   fs.readFileSync(path.join(root, name), "utf8").replace(/\r\n/g, "\n");
+const changes = text("CHANGELOG.md")
+  .split(`## ${version}\n`)[1]
+  ?.split("\n## ")[0]
+  ?.trim();
+if (!changes) throw new Error("The release changelog entry is missing");
 for (const [os, arch] of [
   ["linux", "amd64"],
   ["linux", "arm64"],
@@ -178,7 +183,7 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(output, "RELEASE_NOTES.md"),
-  `MiniMail ${version}\n\nApache 2.0 release with prebuilt app, MySQL and optional VPN images, signed installation packages, an administrator update page and a standalone host updater.\n\nUpdates preserve existing encryption keys, private Compose files and persistent volumes. Before migrations, the updater stops the app, backs up data and configuration, and restores the SQL backup into a disposable database to compare table counts and checksums. Compatible image rollback keeps all current SQL data.\n\nDefault policy: notify only. Automatic updates require explicit opt-in and accept stable patch versions within the configured maintenance window. MySQL/VPN image upgrades remain separate maintenance operations.\n\nDownload the package for your host platform, extract it, run install.sh or install.ps1 and configure HTTPS before signing in. Existing installations use the documented adopt command. Source-build instructions and release-package instructions are separate in README.md.\n\nCandidate release: test provider-specific behavior before using it for additional users.\n`,
+  `MiniMail ${version}\n\n${changes}\n\nApache 2.0 release with prebuilt app, MySQL and optional VPN images, signed installation packages, an administrator update page and a standalone host updater.\n\nUpdates preserve existing encryption keys, private Compose files and persistent volumes. Before migrations, the updater stops the app, backs up data and configuration, and restores the SQL backup into a disposable database to compare table counts and checksums. Compatible image rollback keeps all current SQL data.\n\nDefault policy: notify only. Automatic updates require explicit opt-in and accept stable patch versions within the configured maintenance window. MySQL/VPN image upgrades remain separate maintenance operations.\n\nDownload the package for your host platform, extract it, run install.sh or install.ps1 and configure HTTPS before signing in. Existing installations use the documented adopt command. Source-build instructions and release-package instructions are separate in README.md.\n\nCandidate release: test provider-specific behavior before using it for additional users.\n`,
 );
 console.log(
   `Prepared signed installation packages for ${version}; no deployment data was included.`,
