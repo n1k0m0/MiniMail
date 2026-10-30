@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.12
+
+- Add private per-mailbox filters with AND/OR conditions, priorities, automatic incoming-mail processing, confirmed runs on existing folders, durable checkpoints and resumable failures. Preserve automatic invitation import before moving mail and require IMAP MOVE for filtered moves.
+- Add folder/subfolder creation and confirmed folder deletion through the sidebar context menu. Move complete folder trees into the mailbox's Trash; list and remove dependent filters only after the server confirms the move. Reconcile interrupted folder operations without issuing permanent folder deletes.
+- Add two nullable encrypted columns through an idempotent, journaled schema migration. Preserve the baseline schema checksum and support old application backups. Include filter configuration and progress in password-encrypted backups, including restores under a different encryption key.
+- Require compatibility release rc.11 before this upgrade and host updater 0.1.5; enforce the minimum application version in signed manifests before touching services. Extend upgrade tests to compare every original account field through the additive migration and preserve rollback data.
+
 ## 0.1.0-rc.11
 
 - Teach the compatibility reader the exact next additive migration. It leaves schema 1 unchanged on normal startup and can safely finish an interrupted column addition when recovering an upgrade.

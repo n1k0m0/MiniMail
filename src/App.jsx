@@ -16,6 +16,8 @@ import {
   Download,
   FileText,
   FileCode2,
+  FolderPlus,
+  ListFilter,
   Inbox,
   LoaderCircle,
   LockKeyhole,
@@ -58,6 +60,7 @@ import ComposeModal from "./ComposeModal.jsx";
 import CryptoSettingsModal from "./CryptoSettingsModal.jsx";
 import EmptyAccount from "./EmptyAccount.jsx";
 import EmptyTrashModal from "./EmptyTrashModal.jsx";
+import FolderActionModal from "./FolderActionModal.jsx";
 import PaginationControls from "./PaginationControls.jsx";
 import ResizeHandle from "./ResizeHandle.jsx";
 import SettingsModal from "./SettingsModal.jsx";
@@ -1057,6 +1060,15 @@ export default function App() {
                       {t("\n                  ORDNER ")}
                       <small>{folders.length}</small>
                     </span>
+                    <button
+                      onClick={() =>
+                        setModal({ type: "create-folder", path: "", accountId })
+                      }
+                      title={t("Neuer Ordner")}
+                      aria-label={t("Neuer Ordner")}
+                    >
+                      <FolderPlus size={14} />
+                    </button>
                     <button onClick={refresh} title={t("Ordner aktualisieren")}>
                       <RefreshCw size={14} />
                     </button>
@@ -1082,7 +1094,13 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  <nav className="folder-list">
+                  <nav
+                    className="folder-list"
+                    onContextMenu={(event) => {
+                      if (event.target === event.currentTarget)
+                        openFolderContextMenu(event, "");
+                    }}
+                  >
                     {visibleFolders.map(({ node, depth }) => {
                       const item = node.folder;
                       const meta = folderMeta(item || node),
@@ -1095,7 +1113,8 @@ export default function App() {
                             paddingLeft: `${8 + Math.min(depth, 6) * 14}px`,
                           }}
                           onContextMenu={(event) => {
-                            if (item) openFolderContextMenu(event, node.path);
+                            event.stopPropagation();
+                            openFolderContextMenu(event, node.path);
                           }}
                           onDragOver={(event) => {
                             const dragged = draggedMessageRef.current;
@@ -2018,58 +2037,101 @@ export default function App() {
         }}
         setError={setError}
       />
-      {contextMenu?.type === "folder" &&
-        folders.some((item) => item.path === contextMenu.path) && (
-          <div
-            ref={contextMenuRef}
-            className="message-context-menu folder-context-menu"
-            role="menu"
-            aria-label={t("Aktionen für Ordner")}
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget))
-                setContextMenu(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setContextMenu(null);
-                contextTriggerRef.current?.focus();
-              }
+      {contextMenu?.type === "folder" && accountId && (
+        <div
+          ref={contextMenuRef}
+          className="message-context-menu folder-context-menu"
+          role="menu"
+          aria-label={t("Aktionen für Ordner")}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setContextMenu(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setContextMenu(null);
+              contextTriggerRef.current?.focus();
+            }
+          }}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              const path = contextMenu.path;
+              setContextMenu(null);
+              setModal({ type: "create-folder", path, accountId });
             }}
           >
-            <button
-              role="menuitem"
-              onClick={() => {
-                const path = contextMenu.path;
-                setContextMenu(null);
-                markFolderAsRead(path);
-              }}
-            >
-              <MailOpen size={16} />
-              {t(" Alle Nachrichten als gelesen markieren\n            ")}
-            </button>
-            {isTrashFolder(
-              folders.find((item) => item.path === contextMenu.path),
-            ) && (
-              <>
-                <div className="context-menu-separator" role="separator" />
-                <button
-                  role="menuitem"
-                  className="context-menu-danger"
-                  onClick={() => {
-                    const path = contextMenu.path;
-                    setContextMenu(null);
-                    setModal({ type: "empty-trash", path });
-                  }}
-                >
-                  <Trash2 size={16} />
-                  {t(" Papierkorb leeren\n                ")}
-                </button>
-              </>
-            )}
-          </div>
-        )}
+            <FolderPlus size={16} />
+            {t("Neuer Unterordner")}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setContextMenu(null);
+              setSettingsSection("filters");
+              setModal("settings");
+            }}
+          >
+            <ListFilter size={16} />
+            {t("Mailfilter verwalten")}
+          </button>
+          {folders.some((item) => item.path === contextMenu.path) && (
+            <>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  const path = contextMenu.path;
+                  setContextMenu(null);
+                  markFolderAsRead(path);
+                }}
+              >
+                <MailOpen size={16} />
+                {t(" Alle Nachrichten als gelesen markieren\n            ")}
+              </button>
+              {folderMeta(
+                folders.find((item) => item.path === contextMenu.path),
+              ).icon === Mail &&
+                !folders.find((item) => item.path === contextMenu.path)
+                  ?.specialUse && (
+                  <button
+                    role="menuitem"
+                    className="context-menu-danger"
+                    onClick={() => {
+                      const path = contextMenu.path;
+                      setContextMenu(null);
+                      setModal({ type: "delete-folder", path, accountId });
+                    }}
+                  >
+                    <Trash2 size={16} />
+                    {t("Ordner löschen …")}
+                  </button>
+                )}
+              {isTrashFolder(
+                folders.find((item) => item.path === contextMenu.path),
+              ) && (
+                <>
+                  <div className="context-menu-separator" role="separator" />
+                  <button
+                    role="menuitem"
+                    className="context-menu-danger"
+                    onClick={() => {
+                      const path = contextMenu.path;
+                      setContextMenu(null);
+                      setModal({ type: "empty-trash", path });
+                    }}
+                  >
+                    <Trash2 size={16} />
+                    {t(" Papierkorb leeren\n                ")}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {contextMenu && contextMessage && (
         <div
           ref={contextMenuRef}
@@ -2217,6 +2279,7 @@ export default function App() {
           page={settingsSection}
           onPageChange={setSettingsSection}
           accounts={accounts}
+          accountId={accountId}
           auth={auth}
           onClose={() => setModal(null)}
           onEdit={(account) => setModal({ type: "edit", account })}
@@ -2277,6 +2340,26 @@ export default function App() {
           onClose={() => setModal("settings")}
           onChanged={async () => setAccounts(await api("/accounts"))}
           setError={setError}
+        />
+      )}
+      {["create-folder", "delete-folder"].includes(modal?.type) && (
+        <FolderActionModal
+          key={`${modal.accountId}:${modal.path}:${modal.type}`}
+          accountId={modal.accountId}
+          path={modal.path}
+          deleting={modal.type === "delete-folder"}
+          onClose={() => setModal(null)}
+          onDone={() => {
+            setModal(null);
+            if (accountId === modal.accountId) {
+              if (modal.type === "delete-folder") {
+                setSelected(null);
+                setDetail(null);
+                setFolder("INBOX");
+              }
+              refresh();
+            }
+          }}
         />
       )}
       {modal?.type === "empty-trash" && (

@@ -233,6 +233,11 @@ func (e *Engine) Apply(ctx context.Context, m Manifest, automatic bool) (result 
 	if !compatible(before.Current, m) {
 		return errors.New("schema compatibility does not permit safe rollback; a documented manual migration is required, no services changed")
 	}
+	if m.MinAppVersion != "" {
+		if _, err := parseVersion(before.Current.Version); err != nil || compareVersion(before.Current.Version, m.MinAppVersion) < 0 {
+			return fmt.Errorf("install compatibility release %s first; no services changed", m.MinAppVersion)
+		}
+	}
 	protected, err := protectedFiles(e.Config)
 	if err != nil {
 		return err

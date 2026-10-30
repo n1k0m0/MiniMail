@@ -34,6 +34,8 @@ const encrypted = {
     "pgp_private_enc",
     "pgp_passphrase_enc",
     "smime_key_enc",
+    "mail_rules_enc",
+    "mail_rule_state_enc",
   ],
   ai_settings: ["api_key_enc"],
   mail_index_messages: ["data_enc"],
@@ -314,6 +316,7 @@ export async function prepareImport(db, source, password, folder) {
     failure = error;
   });
   let header,
+    sourceColumns,
     ended = false,
     usableAdmins = 0,
     previousTable = -1;
@@ -321,16 +324,27 @@ export async function prepareImport(db, source, password, folder) {
   try {
     for await (const record of records(decrypted)) {
       if (!header) {
+        const supportedOld = record.schema === 1 && schemaSupport.schema === 2;
+        const expectedColumns = supportedOld
+          ? {
+              ...columns,
+              accounts: columns.accounts.filter(
+                (name) =>
+                  !["mail_rules_enc", "mail_rule_state_enc"].includes(name),
+              ),
+            }
+          : columns;
         if (
           record.format !== "minimail-data" ||
           record.version !== 1 ||
-          record.schema !== schemaSupport.schema ||
-          JSON.stringify(record.columns) !== JSON.stringify(columns)
+          (record.schema !== schemaSupport.schema && !supportedOld) ||
+          JSON.stringify(record.columns) !== JSON.stringify(expectedColumns)
         )
           throw new BackupError(
             "Dieses Backup passt nicht zum Datenbankschema dieser MiniMail-Version.",
           );
         header = record;
+        sourceColumns = expectedColumns;
       } else if (ended)
         throw new BackupError("Unerwartete Daten nach Backup-Ende.");
       else if (record.end === true) {
@@ -347,7 +361,8 @@ export async function prepareImport(db, source, password, folder) {
           index < 0 ||
           !row ||
           Array.isArray(row) ||
-          JSON.stringify(Object.keys(row)) !== JSON.stringify(columns[table]) ||
+          JSON.stringify(Object.keys(row)) !==
+            JSON.stringify(sourceColumns[table]) ||
           Object.values(row).some(
             (value) => value !== null && typeof value !== "string",
           )
@@ -356,6 +371,14 @@ export async function prepareImport(db, source, password, folder) {
             "Ungültige Tabelle oder Spalten in der Sicherung.",
           );
         previousTable = index;
+        if (
+          table === "accounts" &&
+          header.schema === 1 &&
+          schemaSupport.schema === 2
+        ) {
+          row.mail_rules_enc = null;
+          row.mail_rule_state_enc = null;
+        }
         const secretColumns = encrypted[table] || [];
         if (
           !Array.isArray(sealed) ||

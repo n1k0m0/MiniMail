@@ -8,6 +8,14 @@ const pages = [
     group: "personal",
   },
   {
+    id: "filters",
+    title: "Mailfilter",
+    description:
+      "Nachrichten pro Postfach automatisch sortieren und markieren.",
+    scope: "Nur für dich",
+    group: "personal",
+  },
+  {
     id: "contacts",
     title: "Adressbuch",
     description: "Deine Kontakte und das automatische Merken von Empfängern.",

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Info,
+  ListFilter,
   DatabaseBackup,
   RefreshCw,
   ChevronRight,
@@ -25,9 +26,11 @@ import AppearanceSettings from "./settings/AppearanceSettings.jsx";
 import SecuritySettings from "./settings/SecuritySettings.jsx";
 import UpdateSettings from "./settings/UpdateSettings.jsx";
 import BackupSettings from "./settings/BackupSettings.jsx";
+import MailFilterSettings from "./settings/MailFilterSettings.jsx";
 
 const icons = {
   mailboxes: Inbox,
+  filters: ListFilter,
   contacts: Contact,
   appearance: Monitor,
   security: ShieldCheck,
@@ -39,6 +42,7 @@ const icons = {
 
 export default function SettingsModal({
   accounts,
+  accountId,
   auth,
   page = "mailboxes",
   onPageChange = () => {},
@@ -247,6 +251,13 @@ export default function SettingsModal({
                       onPrimary={onPrimary}
                       onDeleted={onDeleted}
                       setError={setError}
+                    />
+                  )}
+                  {entry.id === "filters" && (
+                    <MailFilterSettings
+                      accounts={accounts}
+                      accountId={accountId}
+                      visible={current.id === "filters"}
                     />
                   )}
                   {entry.id === "contacts" && (

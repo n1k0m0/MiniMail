@@ -6,6 +6,7 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 
 - Multiple isolated web users, administrator-managed accounts and mandatory TOTP two-factor authentication.
 - Multiple mailboxes per user, a primary inbox, nested folders, search, conversation view, drag-and-drop, spam/archive/trash actions and automatic inbox checks.
+- Per-mailbox message filters with AND/OR conditions, ordering, read/star actions and moving to folders; optional confirmed runs on existing messages. Create folders from the sidebar/context menu and move deleted folder trees to Trash after confirming dependent filter deletion.
 - Plain-text composition, reply/reply-all, forwarding, Cc/Bcc, signatures, contacts and attachments.
 - Encrypted saved drafts, including attachments; protection against accidentally closing an unsaved message.
 - OpenPGP and S/MIME signing/decryption/encryption, manually confirmed recipient keys, and collection of public keys from incoming mail.
@@ -16,6 +17,28 @@ A self-hosted, multi-user webmail client for IMAP and SMTP, built with React, Ex
 - Personal calendars with local storage, iCalendar/Webcal subscriptions and CalDAV synchronization, including Nextcloud; day/week/month/multiweek/agenda views, tasks, recurring events, reminders, per-calendar colors, import/export and email invitations.
 - Optional server-side OpenVPN routing for selected mailboxes. Other mailboxes connect directly.
 - Password-encrypted administrator backups and transactional restore of all stored application data; a separate host command also backs up installation files, persistent app-data and Docker images for disaster recovery.
+
+## Mail filters and folder management
+
+Open **Settings → Mail filters**, or right-click a folder and choose **Manage mail filters**. Rules belong to one of your own mailboxes. Combine sender, To/Cc, subject, message body, read/star status and attachment conditions with AND/OR. Rules run in order; actions can change read/star status and move messages. Moving always ends processing for that message. Limits per mailbox: 100 rules, 12 conditions per rule and 20 distinct body searches. Body matching uses the mail server's IMAP search semantics; encrypted message bodies are not decrypted for filtering. Moving through filters requires the server's **IMAP MOVE** capability; unsafe COPY/DELETE emulation is refused.
+
+Automatic filtering starts with messages arriving **after the first rule is configured**. Existing messages are left alone. To apply enabled rules to existing messages, select a source folder, prepare a run and confirm it. Runs use a fixed UID snapshot and batches of at most 60 messages; progress and unfinished message actions survive restarts. Failed runs can be resumed or cancelled. Filters execute on the MiniMail server while the browser is closed; they are not installed as Sieve rules on the mail provider. Use one application container per installation.
+
+Use the folder heading's **+** button to create a top-level folder, or **New subfolder** in a folder's context menu. **Delete folder** always opens a confirmation showing message/subfolder counts and the names of all filters targeting that folder or its descendants, including disabled filters. The entire folder hierarchy is renamed into that mailbox's Trash with a unique name. Dependent filters are removed only after the resulting hierarchy is confirmed by the mail server. System folders and folders already inside Trash are protected. No permanent IMAP folder DELETE operation is issued. A lost connection leaves a journal which is reconciled on refresh/restart before further folder/rule changes.
+
+### Upgrade from schema 1
+
+Existing installations must first install **0.1.0-rc.11**, the compatibility reader. Then install the standalone updater from the new verified release package (updater **0.1.5** or newer) and apply the new application release. The signed manifest enforces this intermediate version before changing services. Fresh installations do not require the intermediate release.
+
+```sh
+# With the existing updater, before installing the new updater binary:
+./minimail apply --root /opt/minimail --version 0.1.0-rc.11
+# From the extracted, verified NEW release package (updates only the host tool):
+./minimail install --bundle . --root /opt/minimail
+./minimail apply --root /opt/minimail --version 0.1.0-rc.12
+```
+
+Schema 2 adds only two nullable, encrypted account columns. Existing credentials, configuration files and application rows remain in place. The rc.11 reader can finish an interrupted additive migration during rollback and preserves filter data it does not edit. Its older application-backup UI refuses schema 2 backups; upgrade again to export these data. The new version includes filters and progress in encrypted application backups and accepts schema 1 application backups by initializing the new columns as empty. Remote mail and folder contents remain on the IMAP provider and are outside an application-data backup.
 
 ## Requirements
 

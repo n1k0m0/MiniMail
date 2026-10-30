@@ -8,7 +8,7 @@ import { settingsPage, settingsPages } from "../src/settingsPages.js";
 test("settings navigation limits administration to admins and rejects unknown pages", () => {
   assert.deepEqual(
     settingsPages("user").map((page) => page.id),
-    ["mailboxes", "contacts", "appearance", "security", "ai"],
+    ["mailboxes", "filters", "contacts", "appearance", "security", "ai"],
   );
   assert.equal(settingsPages("admin").at(-1).id, "users");
   assert.equal(settingsPage("user", "users").id, "mailboxes");

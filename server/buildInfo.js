@@ -1,7 +1,7 @@
 import fs from "node:fs";
 // Schema 2 only adds nullable mailbox-local filter state. This reader can
 // preserve it unchanged, allowing a compatible image rollback after upgrade.
-export const schemaSupport = { schema: 1, readSchemaMin: 1, readSchemaMax: 2 };
+export const schemaSupport = { schema: 2, readSchemaMin: 1, readSchemaMax: 2 };
 let info;
 try {
   info = JSON.parse(

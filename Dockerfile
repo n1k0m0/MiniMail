@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.source="https://github.com/n1k0m0/minimail" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$REVISION" \
-      io.minimail.schema="1" io.minimail.read-schema-min="1" io.minimail.read-schema-max="2"
+      io.minimail.schema="2" io.minimail.read-schema-min="1" io.minimail.read-schema-max="2"
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0
 RUN apk add --no-cache openssl ca-certificates
 WORKDIR /app

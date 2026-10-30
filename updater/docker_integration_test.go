@@ -81,6 +81,10 @@ func runDockerLifecycle(t *testing.T, previousRelease bool) {
 	defer func() { trustedKeyPEM = previousKey }()
 	bundle := t.TempDir()
 	m := testManifest()
+	m.ReadSchemaMax = 2
+	if !previousRelease {
+		m.Schema = 2
+	}
 	m.Version = "0.0.0"
 	oldCanonical := "ghcr.io/n1k0m0/minimail@sha256:" + strings.Repeat("e", 64)
 	m.Image = oldCanonical
@@ -199,7 +203,25 @@ volumes:
 	if err != nil {
 		t.Fatal(err)
 	}
+	// An additive schema update must preserve every pre-existing account field.
+	// CHECKSUM TABLE includes the newly added NULL columns, so separately hash
+	// the exact old column projection before and after migration.
+	columnsRaw, err := sql(ctx, databaseID, "SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='accounts' ORDER BY ORDINAL_POSITION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accountColumns []string
+	for _, name := range strings.Fields(string(columnsRaw)) {
+		accountColumns = append(accountColumns, "`"+strings.ReplaceAll(name, "`", "``")+"`")
+	}
+	accountProjection := "SELECT SHA2(CAST(JSON_ARRAY(" + strings.Join(accountColumns, ",") + ") AS CHAR CHARACTER SET utf8mb4),256) FROM accounts ORDER BY id"
+	accountsBefore, err := sql(ctx, databaseID, accountProjection)
+	if err != nil {
+		t.Fatal(err)
+	}
 	next := testManifest()
+	next.Schema = 2
+	next.ReadSchemaMax = 2
 	next.Version = "999.0.0-rc.1"
 	e.afterPhase = func(phase string) error {
 		if phase == "migrating" {
@@ -230,6 +252,12 @@ volumes:
 	if previousRelease {
 		delete(before, "schema_migrations")
 		delete(after, "schema_migrations")
+		accountsAfter, err := sql(ctx, databaseID, accountProjection)
+		if err != nil || string(accountsBefore) != string(accountsAfter) {
+			t.Fatal("additive schema migration changed existing account fields:", err)
+		}
+		delete(before, "accounts")
+		delete(after, "accounts")
 	}
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(after)

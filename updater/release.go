@@ -22,7 +22,7 @@ import (
 
 const repository = "n1k0m0/minimail"
 
-var updaterVersion = "0.1.4"
+var updaterVersion = "0.1.5"
 
 //go:embed public-key.pem
 var trustedKeyPEM []byte
@@ -38,6 +38,7 @@ type Manifest struct {
 	ReadSchemaMin      int               `json:"readSchemaMin"`
 	ReadSchemaMax      int               `json:"readSchemaMax"`
 	MinUpdater         string            `json:"minUpdater"`
+	MinAppVersion      string            `json:"minAppVersion,omitempty"`
 	AutomaticPatchSafe bool              `json:"automaticPatchSafe"`
 	Assets             map[string]string `json:"assets"`
 }
@@ -125,6 +126,14 @@ func (m Manifest) validate() error {
 	}
 	if _, e := parseVersion(m.MinUpdater); e != nil {
 		return e
+	}
+	if m.MinAppVersion != "" {
+		if _, e := parseVersion(m.MinAppVersion); e != nil {
+			return e
+		}
+		if compareVersion(m.MinAppVersion, m.Version) >= 0 {
+			return errors.New("minimum application version must precede this release")
+		}
 	}
 	if compareVersion(updaterVersion, m.MinUpdater) < 0 {
 		return errors.New("this release needs a newer updater; no services were changed")

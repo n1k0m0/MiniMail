@@ -13,6 +13,9 @@ import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
 import { collectMessageKeys } from "./keyDiscovery.js";
 import { db } from "./db.js";
 import { calendarPreferences, importMailInvitations } from "./calendars.js";
+import { processMailFilters } from "./mailFilterEngine.js";
+import { loadMailRules, mailboxOperation } from "./mailRuleStore.js";
+import { reconcileFolderDelete } from "./folderActions.js";
 import {
   clearFolderIndex,
   indexedMessages,
@@ -53,12 +56,15 @@ async function imapClient(account) {
     socketTimeout: 30000,
   });
 }
-async function withImap(account, callback) {
+export async function withImap(account, callback, { timeout = 0 } = {}) {
   const client = await imapClient(account);
+  const timer = timeout ? setTimeout(() => client.close(), timeout) : null;
+  timer?.unref();
   try {
     await client.connect();
     return await callback(client);
   } finally {
+    if (timer) clearTimeout(timer);
     if (client.usable) await client.logout().catch(() => {});
   }
 }
@@ -124,6 +130,13 @@ export async function testAccount(account) {
 }
 export async function listFolders(account) {
   return withImap(account, async (client) => {
+    const config = await loadMailRules(db, account.id);
+    if (config.pendingFolder)
+      await mailboxOperation(
+        account.id,
+        () => reconcileFolderDelete(db, account, client),
+        { skipBusy: true },
+      );
     const folders = await client.list({
       statusQuery: {
         messages: true,
@@ -159,11 +172,49 @@ export async function checkInbox(account) {
         accountId: account.id,
       });
     }
+    // Invitation extraction happens before filters may move a new message.
+    try {
+      await processMailFilters(db, account, client, {
+        beforeMove: (connection, folder, message) =>
+          preserveFilteredInvitations(connection, account, folder, message),
+      });
+    } catch {
+      console.error("Mail filters deferred", { accountId: account.id });
+    }
+    const updated = await client.status("INBOX", {
+      unseen: true,
+      uidNext: true,
+    });
     return {
-      unseen: status.unseen || 0,
-      uidNext: status.uidNext || 0,
+      unseen: updated?.unseen ?? status.unseen ?? 0,
+      uidNext: updated?.uidNext ?? status.uidNext ?? 0,
     };
   });
+}
+export async function runAccountMailFilters(account) {
+  return withImap(
+    account,
+    async (client) => {
+      const result = await processMailFilters(db, account, client, {
+        beforeMove: (connection, folder, message) =>
+          preserveFilteredInvitations(connection, account, folder, message),
+      });
+      if (result?.processed) {
+        const status = await client.status("INBOX", {
+          unseen: true,
+          uidNext: true,
+        });
+        if (status)
+          await db
+            .prepare(
+              "UPDATE accounts SET inbox_unseen=?,inbox_uid_next=? WHERE id=?",
+            )
+            .run(status.unseen || 0, status.uidNext || 0, account.id);
+      }
+      return result;
+    },
+    { timeout: 45000 },
+  );
 }
 function mightContainKey(item) {
   const headers = item.headers?.toString("utf8") || "";
@@ -526,6 +577,24 @@ export async function getInvitationParts(account, folder, uid) {
       from: address(result?.parsed.from?.value),
     };
   });
+}
+async function preserveFilteredInvitations(client, account, folder, message) {
+  if (
+    folder.toUpperCase() !== "INBOX" ||
+    message.size > 1024 * 1024 ||
+    !/text\/calendar|\.ics\b/i.test(JSON.stringify(message.bodyStructure || {}))
+  )
+    return;
+  const preferences = await calendarPreferences(db, account.user_id);
+  if (!preferences.autoImport || !preferences.defaultCalendarId) return;
+  const result = await parsedMessage(client, message.uid, account);
+  if (result)
+    await importMailInvitations(
+      db,
+      account,
+      result.parsed.attachments,
+      address(result.parsed.from?.value),
+    );
 }
 async function scanInboxInvitations(client, account, uidNext) {
   const preferences = await calendarPreferences(db, account.user_id);

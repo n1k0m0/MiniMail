@@ -387,6 +387,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(ownerAccount.data.smtp_password_enc, undefined);
     assert.equal(ownerAccount.data.pgp_private_enc, undefined);
     assert.equal(ownerAccount.data.smime_key_enc, undefined);
+    assert.equal(ownerAccount.data.mail_rules_enc, undefined);
+    assert.equal(ownerAccount.data.mail_rule_state_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
     assert.equal(
       (await admin(`/accounts/${ownerAccount.data.id}/crypto`)).data.mode,
@@ -976,6 +978,24 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       (await member(`/accounts/${ownerAccount.data.id}/crypto`)).status,
       404,
     );
+    for (const [suffix, method, body] of [
+      ["/filters", "GET"],
+      ["/filters", "POST", { name: "foreign" }],
+      ["/filters/settings", "PATCH", { automatic: false }],
+      ["/folders", "POST", { name: "foreign" }],
+      ["/folders/delete-preview?path=INBOX", "GET"],
+      ["/folders/trash", "POST", { path: "INBOX", ticket: "fake" }],
+    ])
+      assert.equal(
+        (
+          await member(
+            `/accounts/${ownerAccount.data.id}${suffix}`,
+            method,
+            body,
+          )
+        ).status,
+        404,
+      );
     assert.equal((await admin("/contacts")).data[0].name, "Alice B");
     assert.deepEqual((await member("/vpn-profiles")).data, []);
     assert.equal((await member("/admin/system")).status, 403);

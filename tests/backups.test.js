@@ -87,6 +87,21 @@ test("a complete database backup restores identities, encrypted data and calenda
       "UPDATE accounts SET smtp_password_enc=?,pgp_passphrase_enc=? WHERE id=1",
     )
     .run(encrypt(""), encrypt(""));
+  const filterSettings = JSON.stringify({
+    version: 1,
+    revision: 1,
+    automatic: true,
+    rules: [{ name: "Private rule" }],
+  });
+  const filterState = JSON.stringify({
+    version: 1,
+    cursor: { validity: "42", lastUid: 7 },
+  });
+  await db
+    .prepare(
+      "UPDATE accounts SET mail_rules_enc=?,mail_rule_state_enc=? WHERE id=1",
+    )
+    .run(encrypt(filterSettings), encrypt(filterState));
   await db
     .prepare(
       "INSERT INTO key_scan_folders(account_id,folder,uid_validity,inline_uids,updated_at) VALUES(1,'INBOX','42','[17,23]',1)",
@@ -134,6 +149,8 @@ test("a complete database backup restores identities, encrypted data and calenda
   assert.equal(decrypt(mailbox.password_enc), "private-mailbox-password");
   assert.equal(decrypt(mailbox.smtp_password_enc), "");
   assert.equal(decrypt(mailbox.pgp_passphrase_enc), "");
+  assert.equal(decrypt(mailbox.mail_rules_enc), filterSettings);
+  assert.equal(decrypt(mailbox.mail_rule_state_enc), filterState);
   assert.equal(
     (
       await db
@@ -152,7 +169,10 @@ test("a complete database backup restores identities, encrypted data and calenda
   const backupModule = pathToFileURL(path.resolve("server/backups.js")).href;
   const databaseModule = pathToFileURL(path.resolve("server/database.js")).href;
   const securityModule = pathToFileURL(path.resolve("server/security.js")).href;
-  const script = `import {createDatabase} from ${JSON.stringify(databaseModule)};import {prepareImport,replaceDatabase} from ${JSON.stringify(backupModule)};import {decrypt} from ${JSON.stringify(securityModule)};const db=createDatabase();try{const prepared=await prepareImport(db,process.argv[1],process.env.TEST_BACKUP_PASSWORD,process.argv[2]);await db.maintenance(()=>replaceDatabase(db,prepared.prepared));if(decrypt((await db.prepare('SELECT totp_secret FROM users WHERE id=1').get()).totp_secret)!=='JBSWY3DPEHPK3PXP')throw new Error('different-key restore failed');}finally{await db.close();}`;
+  const migrationModule = pathToFileURL(
+    path.resolve("server/migrations.js"),
+  ).href;
+  const script = `import {createDatabase} from ${JSON.stringify(databaseModule)};import {runMigrations} from ${JSON.stringify(migrationModule)};import {prepareImport,replaceDatabase} from ${JSON.stringify(backupModule)};import {decrypt} from ${JSON.stringify(securityModule)};const db=createDatabase();try{await runMigrations(db);const prepared=await prepareImport(db,process.argv[1],process.env.TEST_BACKUP_PASSWORD,process.argv[2]);await db.maintenance(()=>replaceDatabase(db,prepared.prepared));if(decrypt((await db.prepare('SELECT totp_secret FROM users WHERE id=1').get()).totp_secret)!=='JBSWY3DPEHPK3PXP')throw new Error('different-key restore failed');const a=await db.prepare('SELECT * FROM accounts WHERE id=1').get();if(decrypt(a.mail_rules_enc)!==${JSON.stringify(filterSettings)}||decrypt(a.mail_rule_state_enc)!==${JSON.stringify(filterState)})throw new Error('filter credentials were not re-encrypted');}finally{await db.close();}`;
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -196,6 +216,47 @@ test("a complete database backup restores identities, encrypted data and calenda
     "YWJj",
   );
   // Failure after the DELETE statements must still restore the original DB.
+  const legacyFolder = await backupTemp();
+  t.after(() => fs.rm(legacyFolder, { recursive: true, force: true }));
+  const legacyPlain = path.join(legacyFolder, "legacy-source.jsonl"),
+    legacyEncrypted = path.join(legacyFolder, "legacy.pgp");
+  await backupCrypto("decrypt", destination, legacyPlain, password);
+  const legacyRecords = (await fs.readFile(legacyPlain, "utf8"))
+    .trimEnd()
+    .split("\n")
+    .map(JSON.parse);
+  const added = ["mail_rules_enc", "mail_rule_state_enc"];
+  legacyRecords[0].schema = 1;
+  legacyRecords[0].columns.accounts = legacyRecords[0].columns.accounts.filter(
+    (name) => !added.includes(name),
+  );
+  for (const record of legacyRecords)
+    if (record.table === "accounts") {
+      for (const name of added) delete record.row[name];
+      record.sealed = record.sealed.filter((name) => !added.includes(name));
+    }
+  await fs.writeFile(
+    legacyPlain,
+    legacyRecords.map((record) => JSON.stringify(record)).join("\n") + "\n",
+  );
+  await backupCrypto("encrypt", legacyPlain, legacyEncrypted, password);
+  const legacy = await prepareImport(
+    db,
+    legacyEncrypted,
+    password,
+    legacyFolder,
+  );
+  const legacyAccount = (await fs.readFile(legacy.prepared, "utf8"))
+    .trimEnd()
+    .split("\n")
+    .map(JSON.parse)
+    .find((record) => record.table === "accounts");
+  assert.equal(legacyAccount.row.mail_rules_enc, null);
+  assert.equal(legacyAccount.row.mail_rule_state_enc, null);
+  assert.equal(
+    decrypt(legacyAccount.row.password_enc),
+    "private-mailbox-password",
+  );
   const invalid = path.join(folder, "invalid.jsonl");
   await fs.writeFile(invalid, '{"table":"users","row":{"id":"1"}}\n');
   await assert.rejects(db.maintenance(() => replaceDatabase(db, invalid)));

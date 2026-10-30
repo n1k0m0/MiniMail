@@ -56,6 +56,7 @@ const common = {
   ...images,
   ...schemaSupport,
   minUpdater: updaterVersion,
+  minAppVersion: "0.1.0-rc.11",
   automaticPatchSafe: true,
 };
 const hash = (data) => crypto.createHash("sha256").update(data).digest("hex");

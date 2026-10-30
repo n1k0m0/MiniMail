@@ -128,6 +128,31 @@ func fixtureEngine(t *testing.T) (*Engine, *fakeRuntime) {
 	}
 	return engine, runtime
 }
+func TestCompatibilityReleaseCannotBeSkipped(t *testing.T) {
+	e, r := fixtureEngine(t)
+	state, _ := e.loadState()
+	state.Current.Version = "0.1.0-rc.10"
+	state.Current.ReadMax = 2
+	if err := writeJSON(e.path("state.json"), state, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m := testManifest()
+	m.Version = "0.1.0-rc.12"
+	m.Schema, m.ReadSchemaMax, m.MinAppVersion = 2, 2, "0.1.0-rc.11"
+	if err := e.Apply(context.Background(), m, false); err == nil || !strings.Contains(err.Error(), "compatibility release") {
+		t.Fatal("missing compatibility reader was accepted:", err)
+	}
+	if len(r.calls) != 0 {
+		t.Fatal("rejected update touched the runtime:", r.calls)
+	}
+	state.Current.Version = "0.1.0-rc.11"
+	if err := writeJSON(e.path("state.json"), state, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Apply(context.Background(), m, false); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestSuccessfulUpdateAndRollbackPreserveDataAndConfiguration(t *testing.T) {
 	e, r := fixtureEngine(t)
 	before, _ := protectedFiles(e.Config)

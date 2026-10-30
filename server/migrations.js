@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { initializeSchema, schemaStatements, allTableNames } from "./schema.js";
 import { schemaSupport } from "./buildInfo.js";
-import {mailRuleMigrationSQL,addMailRuleColumns} from "./mailRuleMigration.js";
+import {
+  mailRuleMigrationSQL,
+  addMailRuleColumns,
+} from "./mailRuleMigration.js";
 
 const baselineChecksum = crypto
   .createHash("sha256")
@@ -15,7 +18,15 @@ const migrations = [
     idempotent: true,
     up: initializeSchema,
   },
-  {version:2,checksum:crypto.createHash("sha256").update(mailRuleMigrationSQL.join("\0")).digest("hex"),idempotent:true,up:addMailRuleColumns},
+  {
+    version: 2,
+    checksum: crypto
+      .createHash("sha256")
+      .update(mailRuleMigrationSQL.join("\0"))
+      .digest("hex"),
+    idempotent: true,
+    up: addMailRuleColumns,
+  },
 ];
 
 export async function migrationStatus(db) {
@@ -111,6 +122,8 @@ export async function runMigrations(db) {
         const row = await db
           .prepare("SELECT * FROM schema_migrations WHERE version=?")
           .get(migration.version);
+        // A compatibility build knows the next additive migration so it can
+        // finish an interrupted upgrade on rollback, but does not start it.
         if (migration.version > schemaSupport.schema && !row) continue;
         if (row?.checksum && row.checksum !== migration.checksum)
           throw new Error("Migration checksum changed; refused to continue.");

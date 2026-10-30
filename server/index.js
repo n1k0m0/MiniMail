@@ -1,6 +1,14 @@
 import { MailOperationError } from "./mailActions.js";
 import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
+import { registerMailRuleRoutes } from "./mailRuleRoutes.js";
+import { startMailRuleChecks, kickMailFilters } from "./mailRuleWorker.js";
+import {
+  MailRuleError,
+  mailboxOperation,
+  loadMailRules,
+  changeMailRuleState,
+} from "./mailRuleStore.js";
 import { registerBackupRoutes } from "./backupRoutes.js";
 import { cleanupBackupWork } from "./backups.js";
 import { MaintenanceError } from "./database.js";
@@ -49,6 +57,7 @@ import {
 } from "./security.js";
 import {
   testAccount,
+  withImap,
   listFolders,
   listMessages,
   getMessage,
@@ -577,7 +586,6 @@ function publicContact(contact) {
   const {
     pgp_public,
     smime_cert,
-    mail_rules_enc,
     pgp_verified,
     smime_verified,
     pgp_source,
@@ -919,6 +927,8 @@ app.post("/api/admin/users/:id/reset-2fa", adminOnly, async (req, res) => {
 });
 function publicAccount(account) {
   const {
+    mail_rules_enc,
+    mail_rule_state_enc,
     password_enc,
     smtp_password_enc,
     pgp_private_enc,
@@ -946,6 +956,11 @@ function publicAccount(account) {
     needsCredentials: !decrypt(password_enc),
   };
 }
+registerMailRuleRoutes(app, db, {
+  accountFor,
+  withImap,
+  kickFilters: kickMailFilters,
+});
 async function accountFor(req, res) {
   const account = await db
     .prepare("SELECT * FROM accounts WHERE id=? AND user_id=?")
@@ -1298,47 +1313,79 @@ app.put(
     const existing = await accountFor(req, res);
     if (!existing) return;
     validateAccount(req.body || {}, req.user.role);
-    const b = req.body;
-    const credentials = accountCredentials(b, existing);
-    await db
-      .prepare(
-        "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,sender_name=?,signature=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
-      )
-      .run(
-        b.name.trim(),
-        b.email.trim(),
-        b.imap_host.trim(),
-        Number(b.imap_port),
-        b.imap_secure ? 1 : 0,
-        b.smtp_host.trim(),
-        Number(b.smtp_port),
-        b.smtp_secure ? 1 : 0,
-        b.username.trim(),
-        encrypt(credentials.password),
-        b.smtp_username?.trim() || null,
-        credentials.smtp_password ? encrypt(credentials.smtp_password) : null,
-        b.check_interval_minutes === undefined
-          ? existing.check_interval_minutes
-          : Number(b.check_interval_minutes),
-        b.vpn_profile || "",
-        b.sender_name === undefined
-          ? existing.sender_name
-          : b.sender_name.trim(),
-        b.signature === undefined ? existing.signature : b.signature,
-        existing.id,
-      );
-    await clearAccountIndex(db, existing.id);
-    if (existing.email.toLowerCase() !== b.email.trim().toLowerCase())
-      await db
-        .prepare(
-          "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,smime_cert=NULL,smime_key_enc=NULL,crypto_mode='none',crypto_sign_default=0,crypto_encrypt_default=0 WHERE id=? AND user_id=?",
+    await mailboxOperation(existing.id, async () => {
+      const b = req.body;
+      const connectionChanged =
+        existing.imap_host !== b.imap_host.trim() ||
+        Number(existing.imap_port) !== Number(b.imap_port) ||
+        !!existing.imap_secure !== !!b.imap_secure ||
+        existing.username !== b.username.trim();
+      if (connectionChanged) {
+        const config = await loadMailRules(db, existing.id);
+        if (
+          config.pendingFolder ||
+          config.pendingMessage ||
+          config.job?.state === "running"
         )
-        .run(existing.id, req.user.id);
-    res.json(
-      publicAccount(
-        await db.prepare("SELECT * FROM accounts WHERE id=?").get(existing.id),
-      ),
-    );
+          throw new MailRuleError(
+            "Bitte laufende Ordner- und Filteraktionen zuerst abschließen oder abbrechen.",
+            409,
+          );
+      }
+      const credentials = accountCredentials(b, existing);
+      await db.transaction(async () => {
+        await db
+          .prepare(
+            "UPDATE accounts SET name=?,email=?,imap_host=?,imap_port=?,imap_secure=?,smtp_host=?,smtp_port=?,smtp_secure=?,username=?,password_enc=?,smtp_username=?,smtp_password_enc=?,check_interval_minutes=?,vpn_profile=?,sender_name=?,signature=?,last_checked_at=NULL,inbox_unseen=NULL,inbox_uid_next=NULL,check_failed=0 WHERE id=?",
+          )
+          .run(
+            b.name.trim(),
+            b.email.trim(),
+            b.imap_host.trim(),
+            Number(b.imap_port),
+            b.imap_secure ? 1 : 0,
+            b.smtp_host.trim(),
+            Number(b.smtp_port),
+            b.smtp_secure ? 1 : 0,
+            b.username.trim(),
+            encrypt(credentials.password),
+            b.smtp_username?.trim() || null,
+            credentials.smtp_password
+              ? encrypt(credentials.smtp_password)
+              : null,
+            b.check_interval_minutes === undefined
+              ? existing.check_interval_minutes
+              : Number(b.check_interval_minutes),
+            b.vpn_profile || "",
+            b.sender_name === undefined
+              ? existing.sender_name
+              : b.sender_name.trim(),
+            b.signature === undefined ? existing.signature : b.signature,
+            existing.id,
+          );
+        await clearAccountIndex(db, existing.id);
+        if (connectionChanged)
+          await changeMailRuleState(db, existing.id, (current) => {
+            current.cursor = null;
+            current.job = null;
+            current.pendingMessage = null;
+            current.lastError = "";
+          });
+        if (existing.email.toLowerCase() !== b.email.trim().toLowerCase())
+          await db
+            .prepare(
+              "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,smime_cert=NULL,smime_key_enc=NULL,crypto_mode='none',crypto_sign_default=0,crypto_encrypt_default=0 WHERE id=? AND user_id=?",
+            )
+            .run(existing.id, req.user.id);
+      });
+      res.json(
+        publicAccount(
+          await db
+            .prepare("SELECT * FROM accounts WHERE id=?")
+            .get(existing.id),
+        ),
+      );
+    });
   }),
 );
 app.patch("/api/accounts/:id/primary", async (req, res) => {
@@ -1362,19 +1409,21 @@ app.patch("/api/accounts/:id/primary", async (req, res) => {
 app.delete("/api/accounts/:id", async (req, res) => {
   const account = await accountFor(req, res);
   if (!account) return;
-  await db.transaction(async () => {
-    await db
-      .prepare("SELECT id FROM users WHERE id=? FOR UPDATE")
-      .get(req.user.id);
-    await clearAccountIndex(db, account.id);
-    await db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
-    if (account.is_primary)
+  await mailboxOperation(account.id, () =>
+    db.transaction(async () => {
       await db
-        .prepare(
-          "UPDATE accounts SET is_primary=1 WHERE user_id=? ORDER BY id LIMIT 1",
-        )
-        .run(req.user.id);
-  });
+        .prepare("SELECT id FROM users WHERE id=? FOR UPDATE")
+        .get(req.user.id);
+      await clearAccountIndex(db, account.id);
+      await db.prepare("DELETE FROM accounts WHERE id=?").run(account.id);
+      if (account.is_primary)
+        await db
+          .prepare(
+            "UPDATE accounts SET is_primary=1 WHERE user_id=? ORDER BY id LIMIT 1",
+          )
+          .run(req.user.id);
+    }),
+  );
   res.json({
     ok: true,
   });
@@ -1689,6 +1738,8 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error instanceof MailRuleError)
+    return res.status(error.status).json({ error: error.message });
   if (res.headersSent) return next(error);
   if (error instanceof MaintenanceError)
     return res
@@ -1753,3 +1804,4 @@ app.listen(port, host, () =>
 );
 if (process.env.DISABLE_MAIL_CHECKS !== "1") startMailChecks();
 if (process.env.DISABLE_MAIL_CHECKS !== "1") startCalendarSync(db);
+if (process.env.DISABLE_MAIL_CHECKS !== "1") startMailRuleChecks();
