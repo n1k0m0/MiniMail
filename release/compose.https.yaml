@@ -1,0 +1,17 @@
+services:
+  minimail:
+    expose:
+      - "3000"
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    command: ["caddy", "reverse-proxy", "--from", "${MINIMAIL_DOMAIN:?Set MINIMAIL_DOMAIN in .env}", "--to", "minimail:3000"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - https-data:/data
+      - https-config:/config
+volumes:
+  https-data:
+  https-config:

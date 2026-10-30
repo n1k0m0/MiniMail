@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import { createDatabase } from "./database.js";
-import { initializeSchema } from "./schema.js";
+import { runMigrations } from "./migrations.js";
 
 export const db = createDatabase();
 try {
-  await initializeSchema(db);
+  await runMigrations(db);
   if (
     fs.existsSync("data/minimail.sqlite") &&
     !(await db.prepare("SELECT id FROM users LIMIT 1").get())

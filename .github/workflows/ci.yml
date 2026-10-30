@@ -1,8 +1,31 @@
 name: Checks
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
+  updater:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version-file: updater/go.mod, cache: false }
+      - working-directory: updater
+        run: go test ./...
+  update-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version-file: updater/go.mod, cache: false }
+      - run: sh scripts/test-update.sh
   test:
     runs-on: ubuntu-latest
     services:
@@ -20,8 +43,8 @@ jobs:
       MYSQL_TEST_HOST: 127.0.0.1
       MYSQL_TEST_PASSWORD: minimail-test-only
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: npm
@@ -30,7 +53,7 @@ jobs:
       - run: docker exec $(docker ps --filter ancestor=mysql:8.4 -q | head -n 1) mysql -uroot -pminimail-test-only -e "SET GLOBAL max_allowed_packet=134217728"
       - run: npm test
       - run: npm run build
-      - run: for file in scripts/*.sh vpn/*.sh; do sh -n "$file"; done
+      - run: for file in scripts/*.sh vpn/*.sh release/*.sh; do sh -n "$file"; done
       - run: sh tests/installers.sh
       - shell: pwsh
         run: ./tests/installers.ps1

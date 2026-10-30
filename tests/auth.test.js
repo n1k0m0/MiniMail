@@ -277,6 +277,9 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal((await admin("/auth/me")).data.user.role, "admin");
     assert.equal((await admin("/auth/me")).data.user.collectRecipients, true);
     assert.equal((await admin("/settings/ai")).status, 200);
+    const system = await admin("/admin/system");
+    assert.equal(system.status, 200);
+    assert.equal(system.data.license, "Apache-2.0");
     assert.equal(
       (
         await admin("/settings/ai", "PUT", {
@@ -947,6 +950,11 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     );
     assert.equal((await admin("/contacts")).data[0].name, "Alice B");
     assert.deepEqual((await member("/vpn-profiles")).data, []);
+    assert.equal((await member("/admin/system")).status, 403);
+    assert.equal(
+      (await member("/admin/system/check-updates", "POST", {})).status,
+      403,
+    );
     assert.equal(
       (
         await member("/admin/users", "POST", {

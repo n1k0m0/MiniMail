@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Info,
+  RefreshCw,
   ChevronRight,
   Contact,
   Globe,
@@ -21,6 +22,7 @@ import MailboxSettings from "./settings/MailboxSettings.jsx";
 import ContactSettings from "./settings/ContactSettings.jsx";
 import AppearanceSettings from "./settings/AppearanceSettings.jsx";
 import SecuritySettings from "./settings/SecuritySettings.jsx";
+import UpdateSettings from "./settings/UpdateSettings.jsx";
 
 const icons = {
   mailboxes: Inbox,
@@ -29,6 +31,7 @@ const icons = {
   security: ShieldCheck,
   ai: Sparkles,
   users: Users,
+  updates: RefreshCw,
 };
 
 export default function SettingsModal({
@@ -265,6 +268,9 @@ export default function SettingsModal({
                   )}
                   {entry.id === "security" && (
                     <SecuritySettings auth={auth} onLogout={onLogout} />
+                  )}
+                  {entry.id === "updates" && (
+                    <UpdateSettings setError={setError} />
                   )}
                   {entry.id === "ai" && (
                     <>

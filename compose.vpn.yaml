@@ -10,7 +10,9 @@ services:
       vpn-gateway:
         condition: service_healthy
   vpn-gateway:
-    build: ./vpn
+    build:
+      context: .
+      dockerfile: vpn/Dockerfile
     restart: unless-stopped
     cap_add:
       - NET_ADMIN

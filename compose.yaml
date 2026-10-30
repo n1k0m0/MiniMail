@@ -33,7 +33,9 @@ services:
       - minimail-data:/app/data
 
   database:
-    build: ./database
+    build:
+      context: .
+      dockerfile: database/Dockerfile
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: minimail

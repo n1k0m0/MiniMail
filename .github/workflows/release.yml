@@ -1,0 +1,73 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: minimail-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+  app:
+    needs: checks
+    permissions: { contents: read, packages: write }
+    uses: ./.github/workflows/image.yml
+    with: { context: '.', file: Dockerfile, image: minimail }
+  database:
+    needs: checks
+    permissions: { contents: read, packages: write }
+    uses: ./.github/workflows/image.yml
+    with: { context: '.', file: database/Dockerfile, image: minimail-database }
+  vpn:
+    needs: checks
+    permissions: { contents: read, packages: write }
+    uses: ./.github/workflows/image.yml
+    with: { context: '.', file: vpn/Dockerfile, image: minimail-vpn }
+  publish:
+    needs: [app, database, vpn]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24 }
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version-file: updater/go.mod, cache: false }
+      - name: Check release identity
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          node -e 'if(process.env.GITHUB_REF_NAME!=="v"+require("./package.json").version)process.exit(1)'
+      - name: Verify anonymous image downloads
+        env:
+          APP_IMAGE: ghcr.io/n1k0m0/minimail@${{ needs.app.outputs.digest }}
+          DATABASE_IMAGE: ghcr.io/n1k0m0/minimail-database@${{ needs.database.outputs.digest }}
+          VPN_IMAGE: ghcr.io/n1k0m0/minimail-vpn@${{ needs.vpn.outputs.digest }}
+        run: |
+          temporary=$(mktemp -d)
+          docker --config "$temporary" pull "$APP_IMAGE"
+          docker --config "$temporary" pull "$DATABASE_IMAGE"
+          docker --config "$temporary" pull "$VPN_IMAGE"
+      - name: Build and sign installation packages
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_REVISION: ${{ github.sha }}
+          APP_IMAGE: ghcr.io/n1k0m0/minimail@${{ needs.app.outputs.digest }}
+          DATABASE_IMAGE: ghcr.io/n1k0m0/minimail-database@${{ needs.database.outputs.digest }}
+          VPN_IMAGE: ghcr.io/n1k0m0/minimail-vpn@${{ needs.vpn.outputs.digest }}
+          MINIMAIL_RELEASE_SIGNING_KEY: ${{ secrets.MINIMAIL_RELEASE_SIGNING_KEY }}
+        run: |
+          export RELEASE_VERSION="${RELEASE_VERSION#v}"
+          node release/build.mjs
+      - name: Publish the complete release
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          args=""
+          case "$GITHUB_REF_NAME" in *-*) args="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft $args --title "MiniMail $GITHUB_REF_NAME" --notes-file release-dist/RELEASE_NOTES.md
+          gh release upload "$GITHUB_REF_NAME" release-dist/*.tar.gz release-dist/*.zip release-dist/release.json release-dist/release.json.sig release-dist/SHA256SUMS.txt
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq .immutable)" = true

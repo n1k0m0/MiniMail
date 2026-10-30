@@ -37,6 +37,14 @@ const pages = [
     group: "shared",
   },
   {
+    id: "updates",
+    title: "System und Updates",
+    description: "Version und geprüfte GitHub-Releases.",
+    scope: "Nur Administratoren",
+    group: "shared",
+    adminOnly: true,
+  },
+  {
     id: "users",
     title: "Benutzerverwaltung",
     description: "Benutzer anlegen und den Zugang bei Bedarf zurücksetzen.",

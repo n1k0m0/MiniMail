@@ -1,5 +1,26 @@
 import { calendarTranslations } from "./calendar/calendarTranslations.js";
 const translations = {
+  "System und Updates": "System and updates",
+  "Version und geprüfte GitHub-Releases.":
+    "Version and verified GitHub releases.",
+  "Installierte Version": "Installed version",
+  Datenbankschema: "Database schema",
+  "Update-Modus": "Update mode",
+  "Release-Kanal": "Release channel",
+  Lizenz: "License",
+  Benachrichtigen: "Notify",
+  Manuell: "Manual",
+  "Automatische Patch-Updates": "Automatic patch updates",
+  "Auf Updates prüfen": "Check for updates",
+  "Release ansehen": "View release",
+  "Für diesen Kanal ist noch kein Release veröffentlicht.":
+    "No release has been published for this channel yet.",
+  "Die installierte Version ist aktuell.":
+    "The installed version is up to date.",
+  "Installation und Update-Modus werden mit dem MiniMail-Updater auf dem Server verwaltet.":
+    "Installation and update policy are managed with the MiniMail updater on the server.",
+  "Die Update-Prüfung ist fehlgeschlagen. Es wurden keine Änderungen installiert.":
+    "The update check failed. No changes were installed.",
   ...calendarTranslations,
   "Änderungen werden sofort übernommen.": "Changes take effect immediately.",
   "KI-Änderungen mit Speichern übernehmen.": "Apply AI changes with Save.",

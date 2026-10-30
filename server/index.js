@@ -3,6 +3,7 @@ import { outgoingMailError } from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
 import { consumeTotp } from "./totp.js";
 import { accountCredentials, AccountInputError } from "./accountCredentials.js";
+import { systemInfo, checkUpdates } from "./updates.js";
 import { registerCalendarRoutes, startCalendarSync } from "./calendars.js";
 import express from "express";
 import crypto from "node:crypto";
@@ -361,12 +362,9 @@ app.post(
       return true;
     });
     if (!changed)
-      return res
-        .status(409)
-        .json({
-          error:
-            "Das Passwort wurde inzwischen geändert. Bitte erneut anmelden.",
-        });
+      return res.status(409).json({
+        error: "Das Passwort wurde inzwischen geändert. Bitte erneut anmelden.",
+      });
     res.json({
       ok: true,
     });
@@ -788,6 +786,19 @@ app.get("/api/admin/users", adminOnly, async (req, res) => {
   res.json(
     (await db.prepare("SELECT * FROM users ORDER BY id").all()).map(publicUser),
   );
+});
+app.get("/api/admin/system", adminOnly, (_req, res) => res.json(systemInfo()));
+app.post("/api/admin/system/check-updates", adminOnly, async (_req, res) => {
+  try {
+    res.json(await checkUpdates());
+  } catch {
+    res
+      .status(502)
+      .json({
+        error:
+          "Die Update-Prüfung ist fehlgeschlagen. Es wurden keine Änderungen installiert.",
+      });
+  }
 });
 app.post("/api/admin/users", adminOnly, async (req, res) => {
   const username = String(req.body?.username || "").trim();

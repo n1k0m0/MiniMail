@@ -60,6 +60,15 @@ export function createDatabase(options = databaseOptions()) {
       };
     },
     exec: (sql) => query(sql),
+    async withConnection(callback) {
+      if (scope.getStore()) return callback();
+      const connection = await pool.getConnection();
+      try {
+        return await scope.run(connection, callback);
+      } finally {
+        connection.release();
+      }
+    },
     async transaction(callback) {
       if (scope.getStore()) return callback();
       const connection = await pool.getConnection();

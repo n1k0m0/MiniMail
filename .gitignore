@@ -1,4 +1,8 @@
 node_modules/
+.minimail/
+release-dist/
+updater/minimail*
+build-info.json
 dist/
 data/
 .cli-test/
@@ -13,6 +17,7 @@ backups/
 *.ovpn
 *.key
 *.pem
+!updater/public-key.pem
 *.p12
 *.pfx
 *.sqlite*

@@ -95,8 +95,9 @@ const definitions = [
   )`,
 ];
 
+export const schemaStatements = [...definitions, ...calendarDefinitions];
 export async function initializeSchema(database) {
-  for (const sql of [...definitions, ...calendarDefinitions])
+  for (const sql of schemaStatements)
     await database.exec(
       `${sql} ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`,
     );

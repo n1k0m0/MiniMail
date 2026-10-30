@@ -24,7 +24,31 @@ For development without Docker, use **Node.js 24 or newer**, npm and **MySQL 8.4
 
 The optional VPN container requires a Linux Docker host with `/dev/net/tun`, `NET_ADMIN` and iptables support. It is separate from the unprivileged MiniMail application.
 
-## Quick installation with Docker
+## Install a published release
+
+Download the package matching your **Docker host** from [GitHub Releases](https://github.com/n1k0m0/minimail/releases). Packages contain a standalone updater, signed configuration templates and prebuilt app/MySQL images. No Node.js, Python, Go or Git installation is required on the target host. Docker must run Linux containers. Linux and Windows are covered by updater tests; ARM64/macOS binaries are cross-built and should be validated on the intended host before enabling unattended operation.
+
+Extract the package into its final directory. On Linux/macOS run:
+
+```sh
+sh install.sh
+```
+
+On Windows run:
+
+```powershell
+.\install.ps1
+```
+
+The installer verifies the package signature and file hashes, generates three independent secrets on a new installation, starts MySQL and asks for the initial administrator password in an interactive terminal. Configure HTTPS before signing in; `Caddyfile.example` supports an existing host proxy. For a new proxy, add `MINIMAIL_DOMAIN=mail.example.com` to the private `.env` and include the supplied `compose.https.yaml` when deploying. DNS and ports 80/443 must reach that host. Optional VPN and geolocation templates are included too.
+
+Register optional files with the installed updater before starting the corresponding services, for example `.minimail/bin/minimail configure --compose compose.yaml --compose compose.https.yaml`, followed by `.minimail/bin/minimail compose -- up -d`. Windows uses `.\.minimail\bin\minimail.exe`. Include existing private overrides in the same ordered list. This changes only updater-owned metadata; it does not rewrite the files. The next application update requires the registered configuration to match the running services.
+
+An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
+
+The first candidate release is `v0.1.0-rc.1`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+
+## Build and install from source
 
 Clone the repository:
 
@@ -105,7 +129,7 @@ The filter is applied before pagination and combines with search. In conversatio
 
 ## Settings and permissions
 
-The settings window has separate pages for **Mailboxes**, **Address book**, **Appearance**, **Security**, **AI features** and, for administrators, **User management**. Each page states whether its settings are personal, stored in this browser, or shared by the installation. Switching pages keeps unfinished forms in memory while the window stays open.
+The settings window has separate pages for **Mailboxes**, **Address book**, **Appearance**, **Security**, **AI features** and, for administrators, **Updates** and **User management**. Each page states whether its settings are personal, stored in this browser, or shared by the installation. Switching pages keeps unfinished forms in memory while the window stays open.
 
 | Area                                                      | Access                                                                                                                                                          |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -114,6 +138,7 @@ The settings window has separate pages for **Mailboxes**, **Address book**, **Ap
 | Theme, language and conversation view                     | Stored in the current browser. The read-email filter is additionally separated by user.                                                                         |
 | Shared AI connection, model, key status and output limits | Administrators can view and change these. Other users see availability only and can use the configured AI features. The saved API key itself is never returned. |
 | Users, password resets and 2FA resets                     | Administrators only. These controls do not directly open another user's mailbox.                                                                                |
+| Version and update status                                | Administrators only. The web interface checks releases; the separate host updater installs them.                                                               |
 | VPN profile selection                                     | Administrators only; server profiles and credentials are provisioned outside the web interface.                                                                 |
 
 The mail APIs enforce ownership on the server; hiding controls is not the access boundary. Administrators can reset another user's credentials and 2FA, and operators with database access and the application encryption key can technically recover encrypted stored credentials, keys and drafts. MiniMail does not protect these stored values from its own server operator.
@@ -268,7 +293,7 @@ Under **Mailbox → Keys**, import an OpenPGP private key or S/MIME PKCS#12/PEM 
 
 Select **Enforce** if a message must be encrypted. **Automatic** encrypts only when all required recipient material is available and can otherwise send without encryption; the composer displays that state. Encrypted Sent copies also include the sender as a recipient. Expired personal S/MIME certificates can be used to read old messages but cannot be selected for new protected mail.
 
-OpenPGP signature trust uses the confirmed contact key. S/MIME verifies the signature, sender identity and certificate dates, using a trusted chain or a manually confirmed contact certificate. Certificate revocation is not checked. Hardware tokens, provider OAuth, Maildir/mbox import and calendar features are not implemented.
+OpenPGP signature trust uses the confirmed contact key. S/MIME verifies the signature, sender identity and certificate dates, using a trusted chain or a manually confirmed contact certificate. Certificate revocation is not checked. Hardware tokens, provider OAuth and Maildir/mbox import are not implemented.
 
 ## Optional self-hosted AI
 
@@ -304,7 +329,7 @@ docker compose up -d minimail
 
 The MySQL initialization passwords apply only to a new volume. Changing `.env` later does **not** change an existing database user's password; perform a deliberate MySQL password change and update the matching application configuration together.
 
-For normal updates after the MySQL migration:
+For source installations that have not adopted the standalone updater, update after taking the backups above:
 
 ```sh
 git pull --ff-only
@@ -312,7 +337,7 @@ docker compose build
 docker compose up -d
 ```
 
-Include your VPN/geolocation/local overrides in all deployment commands. Back up before database changes. Use the one-time migration below when updating from a SQLite release.
+Include your VPN/geolocation/local overrides in all deployment commands. Managed installations use `minimail apply` and `minimail compose` instead; plain source Compose commands can select a different image. Back up before database changes. Use the one-time migration below when updating from a SQLite release.
 
 ### One-time SQLite → MySQL migration
 
@@ -357,3 +382,74 @@ Give web accounts only to people you trust and restrict container egress at the 
 See [AUDIT.md](AUDIT.md) for the source review, regression coverage, resource limits and performance changes.
 
 The test suite is not a guarantee that the software has no vulnerabilities. Keep dependencies, the reverse proxy and the host updated.
+
+## Managed updates and safe recovery
+
+The standalone `minimail` executable runs on the host. The web application receives only a read-only update-status directory; it has no Docker socket or host-control API. Administrators see **Settings → System and updates**. Ordinary web users cannot access this page or its API.
+
+For an existing Docker installation, run the executable from the downloaded release package:
+
+```sh
+./minimail adopt --root /path/to/your/minimail
+```
+
+Adoption verifies the running Compose project, private configuration, encryption/database environment, persistent mounts and supported schema. It records the existing files and volumes without moving or recreating them. Automatic legacy adoption supports the audited schema baseline from commit `1678969`; other historical layouts require an explicit migration first. Existing private Compose overrides remain part of every managed operation. Prefer the updater's `compose` subcommand for subsequent container commands so its image override stays active.
+
+On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows uses `.minimail/bin/minimail.exe`. Run commands from the installation directory, or append `--root /absolute/path`:
+
+```sh
+.minimail/bin/minimail check
+.minimail/bin/minimail apply --version 0.1.0-rc.1
+.minimail/bin/minimail status
+.minimail/bin/minimail rollback
+.minimail/bin/minimail recover
+.minimail/bin/minimail compose -- ps
+```
+
+`check` verifies signed release metadata. `apply` accepts a newer published version and updates only the app service. Its compatibility gate rejects schema changes that the previous application could not read. It never changes the database/VPN image, recreates a data volume, resets an administrator, or regenerates an existing encryption key/password. Those components need their own tested maintenance procedure. Updater binaries also remain separately managed; a release requiring a newer updater stops before changing services.
+
+The update sequence is:
+
+1. Lock the installation, verify the signed manifest and pinned image digest/version, compare the saved state with the running containers, and reject unapplied private Compose changes.
+2. Prepare frozen runtime specifications and private configuration copies. Downloading/preparation leaves the old app serving requests.
+3. Persist a recovery journal, stop the app writer, dump MySQL and snapshot the existing app-data volume.
+4. Restore the SQL dump into an isolated temporary MySQL container using the same database image. Compare every table's row count and extended checksum. A failed dump or restore prevents migration/cutover.
+5. Run versioned migrations, start the candidate app with the original environment/mounts, validate its health, version, schema and persistent storage identities, then atomically commit updater state.
+
+Every stage preserves the original `.env`, private Compose files and `local/` configuration. Frozen Compose files escape literal `$` characters so existing passwords cannot be accidentally re-interpolated. MySQL DDL uses a durable migration ledger and advisory lock; only known idempotent interrupted migrations resume. Migration history checksums and unsupported future schemas fail closed.
+
+Backups live under `.minimail/backups/` with private permissions. They include SQL, app-data, configuration, checksums and frozen runtime specifications; they contain confidential information and must stay out of Git. They are not automatically pruned. Low disk space blocks an update. The restore-check container temporarily needs up to 1.5 GiB RAM; allow additional disk space for its disposable data volume. Application downtime includes backup verification and health checks.
+
+On a failed/interrupted compatible update, `recover` restarts the previous program image and preserves **current SQL data**. `rollback` also makes and verifies a fresh backup before changing the image. Neither command imports an old SQL dump: mail, settings or calendar changes made after an update are retained. Incompatible schemas require documented manual maintenance; automatic SQL restoration is deliberately excluded. Keep an independent off-host backup as protection against host/disk loss.
+
+### Update policies
+
+Default mode is **notify**. Available modes are `off`, `notify`, `manual` and `auto`. Explicit manual `apply` remains available; the scheduled `cycle` only installs when `auto` is selected. Automatic installation accepts stable patch updates within the same major/minor version, marked safe by the signed release manifest, during the chosen maintenance window. Previews, minor/major jumps, incompatible schemas and updater-version changes are not installed unattended.
+
+```sh
+# Choose policy explicitly. This is optional; notify is the default.
+.minimail/bin/minimail configure --mode auto --channel stable --timezone Europe/Berlin --window 03:00-04:00
+
+# Or return to notifications only.
+.minimail/bin/minimail configure --mode notify
+```
+
+For hourly checks and interrupted-update recovery on Linux/systemd:
+
+```sh
+sudo .minimail/bin/minimail service-install
+```
+
+On Windows, run `install-update-task.ps1 -Root C:\path\to\minimail` from the release package. The task runs as the interactive Docker Desktop user; Docker must be available. Other schedulers can invoke `minimail cycle --root /path/to/minimail`. Scheduling a check does not enable automatic installation. Update checks contact GitHub/GHCR using public metadata; they do not upload messages, credentials, private configuration or backups.
+
+### Release process and testing
+
+Release tags must match `package.json`. The tag workflow runs the Node/MySQL tests, Windows/Linux updater tests and the real Docker lifecycle test, then publishes AMD64/ARM64 images and signed platform archives. The signing key is stored as a GitHub Actions secret and never in Git or a container build. Public installers/updates verify the embedded Ed25519 trust root. OCI digests, signed manifests and immutable GitHub releases bind exact artifacts to the selected version. A candidate release remains a preview until explicitly promoted by publishing a stable version.
+
+The Docker lifecycle test uses synthetic encrypted credentials, 2FA state, drafts, binary app-data and a password containing `$`/spaces. It verifies fresh/interrupted installation, upgrade, actual dump restoration, rollback, post-update writes and byte-identical private configuration. Fault-injection tests cover every durable update stage and concurrent updater exclusion. This tests the supported upgrade path; it is not a guarantee against arbitrary future application bugs or hardware failures.
+
+To run the updater checks from source, install Go 1.27 or newer and run `go test ./...` inside `updater/`. On a disposable Linux Docker host, `sh scripts/test-update.sh` runs the container lifecycle test. It creates uniquely named test projects and removes only their test containers/volumes/networks.
+
+## License
+
+MiniMail is licensed under [Apache License 2.0](LICENSE). See [NOTICE](NOTICE). Third-party components retain their own licenses; application dependencies keep their license files inside the container, and updater packages include the Go license.

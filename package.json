@@ -1,6 +1,6 @@
 {
   "name": "minimail",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -48,5 +48,6 @@
     "concurrently": "^9.2.1",
     "prettier": "^3.9.10",
     "vite": "^7.0.0"
-  }
+  },
+  "license": "Apache-2.0"
 }
