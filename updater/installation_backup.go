@@ -672,7 +672,7 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 		return err
 	}
 	if _, err = docker(ctx, append(frozenArgs(c, restoreCompose), "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180", "database")...); err != nil {
-		return err
+		return fmt.Errorf("starting the recovery database: %w", err)
 	}
 	dbID, err := containerID(ctx, c, "database")
 	if err != nil {
@@ -713,8 +713,8 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 	if _, err = sql(ctx, dbID, "DELETE FROM sessions"); err != nil {
 		return err
 	}
-	if _, err = docker(ctx, append(frozenArgs(c, restoreCompose), "create", "--no-deps", "--no-build", "--pull", "never", "minimail")...); err != nil {
-		return err
+	if _, err = docker(ctx, append(frozenArgs(c, restoreCompose), "create", "--no-build", "--pull", "never", "minimail")...); err != nil {
+		return fmt.Errorf("creating the stopped recovery application: %w", err)
 	}
 	appID, err := containerID(ctx, c, "minimail")
 	if err != nil {
@@ -775,7 +775,7 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 		return err
 	}
 	if _, err = docker(ctx, append(composeArgs(c, configuredFiles(c)), "up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180")...); err != nil {
-		return err
+		return fmt.Errorf("starting recovered services: %w", err)
 	}
 	if _, err = (DockerRuntime{}).Snapshot(ctx, c); err != nil {
 		return err
