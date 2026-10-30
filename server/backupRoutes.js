@@ -26,6 +26,13 @@ export function registerBackupRoutes(app, db, adminOnly, reauthenticate) {
   clear.unref();
   const route = (fn) => (req, res, next) =>
     Promise.resolve(fn(req, res)).catch((error) => {
+      if (["ENOSPC", "EDQUOT", "ER_DISK_FULL"].includes(error.code))
+        return res
+          .status(503)
+          .json({
+            error:
+              "Nicht genügend freier Speicherplatz für die Sicherung. Bitte Speicher freigeben und den Vorgang erneut starten.",
+          });
       if (error instanceof BackupError)
         return res.status(400).json({ error: error.message });
       next(error);

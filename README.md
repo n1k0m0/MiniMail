@@ -47,7 +47,7 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.7`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+The current candidate release is `v0.1.0-rc.8`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
 
 ## Encrypted backups and restore
 
@@ -447,7 +447,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.7
+.minimail/bin/minimail apply --version 0.1.0-rc.8
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-rc.8
+
+- Flush and exclusively publish encrypted safety backups before a restore can replace database rows. Never overwrite an older archive, including on filesystem errors.
+- Handle late stream failures without leaving an export or maintenance gate waiting indefinitely. Test a disk-full safety-copy failure and a writer error after the SQL snapshot closes; existing database data remain intact.
+- Report insufficient backup storage explicitly to administrators.
+
 ## 0.1.0-rc.7
 
 - Add password-encrypted administrator export/import of all stored application data, with password/2FA reauthentication, authenticated streaming encryption, bounded parsing, cross-key portability and an automatic encrypted safety backup before transactional restore.

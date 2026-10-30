@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import filesystem from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
@@ -12,6 +13,7 @@ import {
   exportDatabase,
   prepareImport,
   replaceDatabase,
+  restoreDatabase,
 } from "../server/backups.js";
 import { encrypt, decrypt, hashPassword } from "../server/security.js";
 import { runMigrations } from "../server/migrations.js";
@@ -201,7 +203,73 @@ test("a complete database backup restores identities, encrypted data and calenda
     (await db.prepare("SELECT * FROM users WHERE id=1").get()).username,
     user.username,
   );
+  await t.test(
+    "a failed durable safety copy prevents any replacement and releases maintenance",
+    async (t) => {
+      await db
+        .prepare("UPDATE users SET username='keep-current' WHERE id=1")
+        .run();
+      const importFolder = await backupTemp();
+      t.after(() => fs.rm(importFolder, { recursive: true, force: true }));
+      const originalOpen = fs.open;
+      t.mock.method(fs, "open", async (name, ...args) => {
+        if (String(name).startsWith(path.resolve("data", "backups") + path.sep))
+          throw Object.assign(new Error("synthetic full disk"), {
+            code: "ENOSPC",
+          });
+        return originalOpen(name, ...args);
+      });
+      await assert.rejects(
+        restoreDatabase(db, destination, password, importFolder),
+        { code: "ENOSPC" },
+      );
+      assert.equal(
+        (await db.prepare("SELECT username FROM users WHERE id=1").get())
+          .username,
+        "keep-current",
+      );
+      await db.activity(
+        () => db.prepare("SELECT id FROM users LIMIT 1").get(),
+        true,
+      );
+    },
+  );
 });
+
+test(
+  "a file error after the snapshot closes fails promptly instead of hanging the export",
+  { timeout: 10000 },
+  async (t) => {
+    const db = await testDatabase(t);
+    await runMigrations(db);
+    const folder = await backupTemp();
+    t.after(() => fs.rm(folder, { recursive: true, force: true }));
+    const createStream = filesystem.createWriteStream;
+    let output;
+    t.mock.method(filesystem, "createWriteStream", (name, ...args) => {
+      const stream = createStream(name, ...args);
+      if (String(name).endsWith("database.jsonl")) output = stream;
+      return stream;
+    });
+    const transaction = db.transaction;
+    t.mock.method(db, "transaction", async (...args) => {
+      const result = await transaction(...args);
+      output.destroy(
+        Object.assign(new Error("synthetic late ENOSPC"), { code: "ENOSPC" }),
+      );
+      await new Promise((resolve) => output.once("close", resolve));
+      return result;
+    });
+    await assert.rejects(
+      exportDatabase(db, path.join(folder, "failed.pgp"), password),
+      { code: "ENOSPC" },
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) AS n FROM users").get()).n,
+      0,
+    );
+  },
+);
 
 test("restore fences late writes from an earlier request and rolls back its open transactions", async (t) => {
   const db = await testDatabase(t);

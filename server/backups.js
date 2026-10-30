@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
+import { finished } from "node:stream/promises";
 import { allTableNames } from "./schema.js";
 import { schemaSupport, buildInfo } from "./buildInfo.js";
 import { migrationStatus } from "./migrations.js";
@@ -205,15 +206,65 @@ export async function exportDatabase(db, destination, password) {
         { snapshot: true },
       );
       stream.end();
-      await once(stream, "close");
+      await finished(stream, { cleanup: true });
       if (writeError) throw writeError;
     } finally {
       stream.destroy();
     }
     const ciphertext = path.join(temp, "encrypted.pgp");
     await backupCrypto("encrypt", plaintext, ciphertext, password);
-    await fsp.copyFile(ciphertext, destination, fs.constants.COPYFILE_EXCL);
-    await fsp.chmod(destination, 0o600);
+    // Publish with exclusive creation and make the safety copy durable before
+    // any restore transaction may replace the current database. Existing
+    // archives are never replaced, including after a failed write.
+    const temporary = path.join(
+      path.dirname(destination),
+      `.minimail-backup-write-${crypto.randomBytes(16).toString("hex")}`,
+    );
+    const output = await fsp.open(temporary, "wx", 0o600);
+    let published = false;
+    try {
+      let position = 0;
+      for await (const chunk of fs.createReadStream(ciphertext)) {
+        let offset = 0;
+        while (offset < chunk.length) {
+          const { bytesWritten } = await output.write(
+            chunk,
+            offset,
+            chunk.length - offset,
+            position,
+          );
+          if (!bytesWritten)
+            throw new BackupError(
+              "Die Sicherungsdatei konnte nicht vollständig geschrieben werden.",
+            );
+          offset += bytesWritten;
+          position += bytesWritten;
+        }
+      }
+      await output.sync();
+      await output.close();
+      await fsp.link(temporary, destination);
+      published = true;
+      if (process.platform !== "win32") {
+        for (const directory of new Set([
+          path.dirname(destination),
+          path.dirname(path.dirname(destination)),
+        ])) {
+          const handle = await fsp.open(directory, "r");
+          try {
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+        }
+      }
+    } catch (error) {
+      if (published) await fsp.rm(destination, { force: true });
+      throw error;
+    } finally {
+      await output.close();
+      await fsp.rm(temporary, { force: true });
+    }
     return counts;
   } finally {
     await fsp.rm(temp, { recursive: true, force: true });
@@ -352,7 +403,7 @@ export async function prepareImport(db, source, password, folder) {
         "Unvollständiges Backup oder kein eingerichtetes Administratorkonto enthalten.",
       );
     output.end();
-    await once(output, "close");
+    await finished(output, { cleanup: true });
     if (failure) throw failure;
     return { prepared, counts, createdAt: header.createdAt };
   } finally {
