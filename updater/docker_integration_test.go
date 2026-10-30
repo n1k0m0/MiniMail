@@ -332,6 +332,19 @@ volumes:
 		if err != nil {
 			t.Fatal(err)
 		}
+		info, err := inspect(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		statusMounted := false
+		for _, mount := range info.Mounts {
+			if mount.Destination == "/app/update-status" && !mount.RW {
+				statusMounted = true
+			}
+		}
+		if !statusMounted {
+			t.Fatal("installation recovery lost the read-only update status mount")
+		}
 		if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');const p='/app/data/legacy-private/snapshot.bin',s=fs.statSync(p);if(fs.readFileSync(p).toString('hex')!=='0100ff07'||s.uid!==0||(s.mode&0o777)!==0o600)process.exit(1)`); err != nil {
 			t.Fatal("installation recovery lost private binary data:", err)
 		}

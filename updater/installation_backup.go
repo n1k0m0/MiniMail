@@ -664,12 +664,27 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 	}
 	// Keep the original private Compose files byte-identical. A separate owned
 	// override pins all recovered images without changing private configuration.
-	pinned := map[string]any{}
+	ownedOverride := map[string]any{}
+	currentOverride := filepath.Join(root, ".minimail/current.compose.json")
+	if err = readJSON(currentOverride, &ownedOverride); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	pinned, _ := ownedOverride["services"].(map[string]any)
+	if pinned == nil {
+		pinned = map[string]any{}
+		ownedOverride["services"] = pinned
+	}
 	for name, value := range backup.Snapshot.Compose["services"].(map[string]any) {
 		s := value.(map[string]any)
-		pinned[name] = map[string]any{"image": s["image"], "pull_policy": "never"}
+		settings, _ := pinned[name].(map[string]any)
+		if settings == nil {
+			settings = map[string]any{}
+			pinned[name] = settings
+		}
+		settings["image"] = s["image"]
+		settings["pull_policy"] = "never"
 	}
-	if err = writeJSON(filepath.Join(root, ".minimail/current.compose.json"), map[string]any{"services": pinned}, 0600); err != nil {
+	if err = writeJSON(currentOverride, ownedOverride, 0600); err != nil {
 		return err
 	}
 	if _, err = docker(ctx, append(composeArgs(c, configuredFiles(c)), "up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180")...); err != nil {

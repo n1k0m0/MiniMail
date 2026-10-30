@@ -18,6 +18,8 @@ jobs:
         with: { go-version-file: updater/go.mod, cache: false }
       - working-directory: updater
         run: go test ./...
+      - working-directory: updater
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
   update-lifecycle:
     runs-on: ubuntu-latest
     steps:
