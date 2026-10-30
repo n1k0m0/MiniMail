@@ -321,9 +321,16 @@ volumes:
 		if err = restoreInstallation(ctx, root, archive, password, true); err != nil {
 			t.Fatal("installation restore:", err)
 		}
-		if err = assertProtected(config, protected); err != nil {
-			t.Fatal("configuration changed in installation restore:", err)
+		restoredProtected, err := protectedFiles(config)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for name, expected := range protected {
+			if restoredProtected[name] != expected {
+				t.Fatal("configuration changed in installation restore")
+			}
+		}
+		protected = restoredProtected
 		var restoredState State
 		if err = readJSON(filepath.Join(root, ".minimail/state.json"), &restoredState); err != nil {
 			t.Fatal(err)
@@ -377,5 +384,21 @@ volumes:
 			}
 		}
 		t.Log("Encrypted installation backup recovered into an empty directory and new volumes, preserving config bytes, SQL checksums, private binary contents and ownership.")
+		if err = e.Apply(ctx, next, false); err != nil {
+			t.Fatal("update after full restore:", err)
+		}
+		if _, err = d.Snapshot(ctx, config); err != nil {
+			t.Fatal("update lost recovered mount/image metadata:", err)
+		}
+		if err = e.Rollback(ctx); err != nil {
+			t.Fatal("rollback after full restore:", err)
+		}
+		if _, err = d.Snapshot(ctx, config); err != nil {
+			t.Fatal("rollback lost recovered mount/image metadata:", err)
+		}
+		if err = assertProtected(config, protected); err != nil {
+			t.Fatal("update after restore changed recovered private files:", err)
+		}
+		t.Log("Updates and rollback after disaster recovery preserve restored read-only configuration and all runtime image pins.")
 	}
 }

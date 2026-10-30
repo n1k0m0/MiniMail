@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.9
+
+- Preserve recovered read-only configuration mounts and non-application image pins during updates, rollback and failure recovery. Include relocated private configuration in protected update backups.
+- Extend the real Docker recovery test with a subsequent application update and rollback; require host updater 0.1.4.
+
+The rc.8 tag was used for validation; its release was not published.
+
 ## 0.1.0-rc.8
 
 - Flush and exclusively publish encrypted safety backups before a restore can replace database rows. Never overwrite an older archive, including on filesystem errors.

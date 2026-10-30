@@ -166,6 +166,58 @@ func TestSuccessfulUpdateAndRollbackPreserveDataAndConfiguration(t *testing.T) {
 		t.Fatal("second rollback could not return to newer image")
 	}
 }
+
+func TestUpdateRecoveryAndRollbackRetainRestoredRuntimeConfiguration(t *testing.T) {
+	e, r := fixtureEngine(t)
+	private := filepath.Join(e.Config.Root, ".minimail/restored-binds/profile")
+	if err := os.MkdirAll(private, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(private, "private.conf"), []byte("restored private configuration"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	volumes := []any{map[string]any{"type": "bind", "source": private, "target": "/vpn", "read_only": true}, map[string]any{"type": "bind", "source": e.path("status"), "target": "/app/update-status", "read_only": true}}
+	others := map[string]any{"image": "private-database-image", "pull_policy": "never"}
+	override := map[string]any{"services": map[string]any{"minimail": map[string]any{"image": r.active, "volumes": volumes}, "database": others}}
+	if err := writeJSON(e.path("current.compose.json"), override, 0600); err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		var got map[string]any
+		if err := readJSON(e.path("current.compose.json"), &got); err != nil {
+			t.Fatal(err)
+		}
+		app, _ := service(got, "minimail")
+		db, _ := service(got, "database")
+		actual, _ := json.Marshal(app["volumes"])
+		expected, _ := json.Marshal(volumes)
+		if string(actual) != string(expected) {
+			t.Fatal("recovered mount metadata changed")
+		}
+		actual, _ = json.Marshal(db)
+		expected, _ = json.Marshal(others)
+		if string(actual) != string(expected) {
+			t.Fatal("non-application image pins changed")
+		}
+	}
+	if err := e.Apply(context.Background(), testManifest(), false); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	r.fail = "migration"
+	failed := testManifest()
+	failed.Version = "0.1.2"
+	if err := e.Apply(context.Background(), failed, false); err == nil {
+		t.Fatal("synthetic failure ignored")
+	}
+	check()
+	r.fail = ""
+	if err := e.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	check()
+}
 func TestFailureStagesRecoverWithoutRestoringSQLOrSecrets(t *testing.T) {
 	for _, failure := range []string{"snapshot", "pull", "backup", "migration", "health"} {
 		t.Run(failure, func(t *testing.T) {

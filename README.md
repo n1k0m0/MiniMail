@@ -47,7 +47,7 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.8`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+The current candidate release is `v0.1.0-rc.9`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
 
 ## Encrypted backups and restore
 
@@ -67,7 +67,7 @@ An administrator with backup privileges can read every user's stored data after 
 
 ### Full installation backup, on the Docker host
 
-Updater **0.1.3** adds a standalone full installation backup. Run it as the installation owner with Docker access. The command prompts for a password without echoing it; it never accepts passwords as command arguments. For unattended jobs, `--password-stdin` accepts a password from a secret-manager pipe.
+Updater **0.1.4** provides a standalone full installation backup and preserves recovered configuration during later updates and rollback. Run it as the installation owner with Docker access. The command prompts for a password without echoing it; it never accepts passwords as command arguments. For unattended jobs, `--password-stdin` accepts a password from a secret-manager pipe.
 
 ```sh
 # Store the result OUTSIDE the installation directory; existing files are never replaced.
@@ -81,7 +81,7 @@ Supported installation layout: named Docker volumes for MySQL and `/app/data`, r
 
 ### Disaster recovery into an empty installation
 
-Use a compatible standalone MiniMail updater binary from a verified release package. Docker with Compose v2 must be installed. **Use the original absolute installation path and the same host operating system.** The archive contains its runtime images, so image registries are not required for recovery. The original Compose project must have no containers and its target volumes must not already exist. This command refuses to overwrite a live installation or existing volumes; use the administrator application-data import for an existing installation.
+Use a compatible standalone MiniMail updater binary from a verified release package. Docker with Compose v2 must be installed. **Use the original absolute installation path, operating system and CPU architecture.** The archive contains its runtime images, so image registries are not required for recovery. The original Compose project must have no containers and its target volumes must not already exist. This command refuses to overwrite a live installation or existing volumes; use the administrator application-data import for an existing installation.
 
 ```sh
 # On the replacement host, with a copy of the encrypted backup and updater binary:
@@ -447,7 +447,7 @@ On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows use
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.8
+.minimail/bin/minimail apply --version 0.1.0-rc.9
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover

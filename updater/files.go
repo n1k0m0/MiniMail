@@ -108,6 +108,10 @@ func protectedFiles(c Config) (map[string]protectedFile, error) {
 	if _, e := os.Stat(local); e == nil {
 		paths = append(paths, local)
 	}
+	restored := filepath.Join(c.Root, ".minimail/restored-binds")
+	if _, e := os.Stat(restored); e == nil {
+		paths = append(paths, restored)
+	}
 	result := map[string]protectedFile{}
 	add := func(name string, info os.FileInfo) error {
 		p := protectedFile{Mode: info.Mode()}

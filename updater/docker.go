@@ -228,6 +228,39 @@ func (d DockerRuntime) Snapshot(ctx context.Context, c Config) (Snapshot, error)
 func imageOverride(image, status string) map[string]any {
 	return map[string]any{"services": map[string]any{"minimail": map[string]any{"image": image, "pull_policy": "never", "volumes": []any{map[string]any{"type": "bind", "source": status, "target": "/app/update-status", "read_only": true, "bind": map[string]any{"create_host_path": false}}}}}}
 }
+func preserveImageOverride(previous json.RawMessage, image, status string) (map[string]any, error) {
+	result := map[string]any{}
+	if len(previous) > 0 {
+		if err := json.Unmarshal(previous, &result); err != nil {
+			return nil, errors.New("invalid saved image override")
+		}
+	}
+	if result == nil {
+		result = map[string]any{}
+	}
+	services, _ := result["services"].(map[string]any)
+	if services == nil {
+		services = map[string]any{}
+		result["services"] = services
+	}
+	app, _ := services["minimail"].(map[string]any)
+	if app == nil {
+		app = map[string]any{}
+		services["minimail"] = app
+	}
+	app["image"], app["pull_policy"] = image, "never"
+	volumes, _ := app["volumes"].([]any)
+	hasStatus := false
+	for _, value := range volumes {
+		mount, _ := value.(map[string]any)
+		hasStatus = hasStatus || mount["target"] == "/app/update-status"
+	}
+	if !hasStatus {
+		desired, _ := service(imageOverride(image, status), "minimail")
+		app["volumes"] = append(volumes, desired["volumes"].([]any)...)
+	}
+	return result, nil
+}
 func cloneSpec(spec map[string]any) map[string]any {
 	raw, _ := json.Marshal(spec)
 	var result map[string]any

@@ -272,6 +272,10 @@ func (e *Engine) Apply(ctx context.Context, m Manifest, automatic bool) (result 
 	} else if !os.IsNotExist(readErr) {
 		return readErr
 	}
+	nextOverride, err := preserveImageOverride(t.OldOverride, e.imageReference(next.Image), e.path("status"))
+	if err != nil {
+		return err
+	}
 	if err = assertProtected(e.Config, protected); err != nil {
 		return err
 	}
@@ -326,7 +330,7 @@ func (e *Engine) Apply(ctx context.Context, m Manifest, automatic bool) (result 
 	if err = e.phase(&t, "committing"); err != nil {
 		return err
 	}
-	if err = writeJSON(e.path("current.compose.json"), imageOverride(e.imageReference(next.Image), e.path("status")), 0600); err != nil {
+	if err = writeJSON(e.path("current.compose.json"), nextOverride, 0600); err != nil {
 		return err
 	}
 	after := State{Current: next, Previous: &before.Current, Backup: backup, UpdatedAt: e.now().UTC().Format(time.RFC3339)}
@@ -471,6 +475,10 @@ func (e *Engine) Rollback(ctx context.Context) (result error) {
 	}
 	t := Transaction{Format: 1, Backup: folder, Snapshot: current, Before: state, Next: *state.Previous, Protected: protected}
 	t.OldOverride, _ = os.ReadFile(e.path("current.compose.json"))
+	nextOverride, err := preserveImageOverride(t.OldOverride, e.imageReference(state.Previous.Image), e.path("status"))
+	if err != nil {
+		return err
+	}
 	if err = e.phase(&t, "prepared"); err != nil {
 		return err
 	}
@@ -513,7 +521,7 @@ func (e *Engine) Rollback(ctx context.Context) (result error) {
 	if err = e.phase(&t, "committing"); err != nil {
 		return err
 	}
-	if err = writeJSON(e.path("current.compose.json"), imageOverride(e.imageReference(state.Previous.Image), e.path("status")), 0600); err != nil {
+	if err = writeJSON(e.path("current.compose.json"), nextOverride, 0600); err != nil {
 		return err
 	}
 	next := State{Current: *state.Previous, Previous: &state.Current, Backup: folder, UpdatedAt: e.now().UTC().Format(time.RFC3339)}
