@@ -22,7 +22,7 @@ import (
 
 const repository = "n1k0m0/minimail"
 
-var updaterVersion = "0.1.7"
+var updaterVersion = "0.1.8"
 
 //go:embed public-key.pem
 var trustedKeyPEM []byte
@@ -197,6 +197,25 @@ type ReleaseSource interface {
 }
 type GitHubSource struct{ Client *http.Client }
 
+// GitHub repository names are case-insensitive and API asset URLs use the
+// current display capitalization. Only the owner/repository may vary in case;
+// retain exact origin, release-tag and asset-path checks before signature checks.
+func matchingReleaseAsset(actual, expected string) bool {
+	a, err := url.Parse(actual)
+	if err != nil {
+		return false
+	}
+	b, err := url.Parse(expected)
+	if err != nil {
+		return false
+	}
+	if a.Scheme != "https" || a.Host != "github.com" || a.User != nil || a.RawQuery != "" || a.ForceQuery || a.Fragment != "" || a.RawPath != "" {
+		return false
+	}
+	first, second := strings.SplitN(a.Path, "/", 4), strings.SplitN(b.Path, "/", 4)
+	return len(first) == 4 && len(second) == 4 && strings.EqualFold(first[1], second[1]) && strings.EqualFold(first[2], second[2]) && first[3] == second[3]
+}
+
 func downloadClient() *http.Client {
 	return &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
@@ -289,7 +308,7 @@ func (g GitHubSource) Fetch(ctx context.Context, channel, tag string) (Manifest,
 	base := "https://github.com/" + repository + "/releases/download/" + r.Tag + "/"
 	found := map[string]bool{}
 	for _, a := range r.Assets {
-		if a.URL == base+a.Name {
+		if matchingReleaseAsset(a.URL, base+a.Name) {
 			found[a.Name] = true
 		}
 	}
