@@ -52,6 +52,10 @@ func runDockerLifecycle(t *testing.T, previousRelease bool) {
 		t.Fatal(e)
 	}
 	project := "minimail-e2e-" + strings.ToLower(randomHex()[:12])
+	externalConfiguration := t.TempDir()
+	if err := os.WriteFile(filepath.Join(externalConfiguration, "private.conf"), []byte("synthetic external configuration"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -96,7 +100,12 @@ func runDockerLifecycle(t *testing.T, previousRelease bool) {
       MYSQL_USER: minimail
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
       DISABLE_MAIL_CHECKS: "1"
-    volumes: [app-data:/app/data]
+    volumes:
+      - app-data:/app/data
+      - type: bind
+        source: ` + externalConfiguration + `
+        target: /app/external-fixture
+        read_only: true
   database:
     image: ` + dbImage + `
     environment:
@@ -347,6 +356,14 @@ volumes:
 		}
 		if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');const p='/app/data/legacy-private/snapshot.bin',s=fs.statSync(p);if(fs.readFileSync(p).toString('hex')!=='0100ff07'||s.uid!==0||(s.mode&0o777)!==0o600)process.exit(1)`); err != nil {
 			t.Fatal("installation recovery lost private binary data:", err)
+		}
+		if _, err = docker(ctx, "exec", "--user", "0:0", id, "node", "-e", `const fs=require('fs');if(fs.readFileSync('/app/external-fixture/private.conf','utf8')!=='synthetic external configuration')process.exit(1)`); err != nil {
+			t.Fatal("installation recovery lost external read-only configuration:", err)
+		}
+		for _, mount := range info.Mounts {
+			if mount.Destination == "/app/external-fixture" && (!contained(root, mount.Source) || mount.RW) {
+				t.Fatal("recovered configuration was not relocated read-only inside the installation")
+			}
 		}
 		t.Log("Encrypted installation backup recovered into an empty directory and new volumes, preserving config bytes, SQL checksums, private binary contents and ownership.")
 	}

@@ -72,3 +72,32 @@ func TestInstallationArchivesRejectTraversalAndLinks(t *testing.T) {
 		})
 	}
 }
+
+func TestApplicationDataArchiveAcceptsTarRootAndRejectsUnsafeEntries(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		valid  bool
+		header *tar.Header
+	}{
+		{"normal-root", true, &tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0755}},
+		{"normal-file", true, &tar.Header{Name: "./legacy-private/snapshot.bin", Typeflag: tar.TypeReg, Mode: 0600}},
+		{"parent-traversal", false, &tar.Header{Name: "./../../escape", Typeflag: tar.TypeReg, Mode: 0600}},
+		{"link", false, &tar.Header{Name: "./link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), "data.tar.gz")
+			file, _ := os.Create(source)
+			gz := gzip.NewWriter(file)
+			archive := tar.NewWriter(gz)
+			if err := archive.WriteHeader(fixture.header); err != nil {
+				t.Fatal(err)
+			}
+			archive.Close()
+			gz.Close()
+			file.Close()
+			if err := validateDataArchive(source); (err == nil) != fixture.valid {
+				t.Fatalf("valid=%v, error=%v", fixture.valid, err)
+			}
+		})
+	}
+}

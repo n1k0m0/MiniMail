@@ -24,10 +24,11 @@ import (
 const installationBackupLimit int64 = 16 << 30
 
 type installationBackup struct {
-	Format   int      `json:"format"`
-	Config   Config   `json:"configuration"`
-	Snapshot Snapshot `json:"snapshot"`
-	State    State    `json:"state"`
+	Format   int               `json:"format"`
+	Config   Config            `json:"configuration"`
+	Snapshot Snapshot          `json:"snapshot"`
+	State    State             `json:"state"`
+	Bindings map[string]string `json:"externalReadOnlyBindings,omitempty"`
 }
 
 func backupPassword(stdin, confirm bool) (string, error) {
@@ -190,7 +191,7 @@ func createInstallationArchive(root, payload, destination string) error {
 	compressed := gzip.NewWriter(output)
 	archive := tar.NewWriter(compressed)
 	skip := func(relative string) bool {
-		return relative == ".git" || relative == "node_modules" || relative == ".minimail/backups" || relative == ".minimail/lock" || relative == ".minimail/backup-export.json"
+		return relative == ".git" || relative == "node_modules" || relative == ".minimail/backups" || relative == ".minimail/update.lock" || relative == ".minimail/backup-export.json"
 	}
 	if err = archiveTree(archive, root, "installation", skip); err != nil {
 		return err
@@ -318,8 +319,8 @@ func validateBackupMounts(c Config, spec map[string]any) error {
 			}
 			if m["type"] == "bind" {
 				source, _ := m["source"].(string)
-				if !contained(c.Root, source) {
-					return errors.New("external bind mounts are not included in installation backups; move private deployment files inside the installation directory first")
+				if readOnly, _ := m["read_only"].(bool); !contained(c.Root, source) && !readOnly {
+					return errors.New("writable external bind mounts require a separate verified backup; installation export refuses to omit them")
 				}
 			}
 		}
@@ -415,9 +416,7 @@ func exportInstallation(ctx context.Context, engine *Engine, output, password st
 	// Pin every service, including optional VPN/reverse proxy containers. Images
 	// are included so a recovery does not depend on registry availability.
 	snapshot.Compose = spec
-	if err = writeJSON(filepath.Join(payload, "manifest.json"), installationBackup{1, c, snapshot, state}, 0600); err != nil {
-		return err
-	}
+	manifest := installationBackup{Format: 1, Config: c, Snapshot: snapshot, State: state, Bindings: map[string]string{}}
 	if err = backupConfiguration(payload, protected); err != nil {
 		return err
 	}
@@ -444,6 +443,48 @@ func exportInstallation(ctx context.Context, engine *Engine, output, password st
 		return err
 	}
 	if err = recoverBackupExport(ctx, c); err != nil {
+		return err
+	}
+	for _, value := range services {
+		settings := value.(map[string]any)
+		mounts, _ := settings["volumes"].([]any)
+		for _, value := range mounts {
+			mount, _ := value.(map[string]any)
+			source, _ := mount["source"].(string)
+			if mount["type"] != "bind" || contained(c.Root, source) {
+				continue
+			}
+			if _, exists := manifest.Bindings[source]; exists {
+				continue
+			}
+			id := hashBytes([]byte(source))
+			destination := filepath.Join(payload, "binds", id, "data")
+			resolved, e := filepath.EvalSymlinks(source)
+			if e != nil {
+				return e
+			}
+			before, e := backupFingerprint(resolved)
+			if e != nil {
+				return e
+			}
+			if e = copyBackupPath(resolved, destination); e != nil {
+				return e
+			}
+			after, e := backupFingerprint(resolved)
+			if e != nil {
+				return e
+			}
+			copied, e := backupFingerprint(destination)
+			if e != nil {
+				return e
+			}
+			if before != after || before != copied {
+				return errors.New("external read-only configuration changed while being copied; backup was not published")
+			}
+			manifest.Bindings[source] = id
+		}
+	}
+	if err = writeJSON(filepath.Join(payload, "manifest.json"), manifest, 0600); err != nil {
 		return err
 	}
 	args := []string{"image", "save"}
@@ -589,6 +630,29 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 	if err = copyInstallationTree(filepath.Join(extracted, "installation"), root); err != nil {
 		return err
 	}
+	for source, id := range backup.Bindings {
+		if id != hashBytes([]byte(source)) || contained(root, source) {
+			return errors.New("invalid external configuration inventory")
+		}
+		if err = copyBackupPath(filepath.Join(payload, "binds", id, "data"), filepath.Join(root, ".minimail/restored-binds", id, "data")); err != nil {
+			return err
+		}
+	}
+	for _, value := range backup.Snapshot.Compose["services"].(map[string]any) {
+		settings := value.(map[string]any)
+		mounts, _ := settings["volumes"].([]any)
+		for _, value := range mounts {
+			mount, _ := value.(map[string]any)
+			source, _ := mount["source"].(string)
+			if mount["type"] == "bind" && !contained(root, source) {
+				id, exists := backup.Bindings[source]
+				if !exists {
+					return errors.New("external configuration is missing from the backup")
+				}
+				mount["source"] = filepath.Join(root, ".minimail/restored-binds", id, "data")
+			}
+		}
+	}
 	if err = ensureStateDir(root); err != nil {
 		return err
 	}
@@ -683,6 +747,25 @@ func restoreInstallation(ctx context.Context, root, source, password string, con
 		}
 		settings["image"] = s["image"]
 		settings["pull_policy"] = "never"
+		// Preserve the original private Compose bytes while redirecting recovered
+		// external read-only mounts to their private copies inside this root.
+		serviceMounts, _ := s["volumes"].([]any)
+		for _, value := range serviceMounts {
+			mount, _ := value.(map[string]any)
+			source, _ := mount["source"].(string)
+			if mount["type"] != "bind" || !contained(filepath.Join(root, ".minimail/restored-binds"), source) {
+				continue
+			}
+			owned, _ := settings["volumes"].([]any)
+			filtered := []any{}
+			for _, item := range owned {
+				old, _ := item.(map[string]any)
+				if old["target"] != mount["target"] {
+					filtered = append(filtered, item)
+				}
+			}
+			settings["volumes"] = append(filtered, mount)
+		}
 	}
 	if err = writeJSON(currentOverride, ownedOverride, 0600); err != nil {
 		return err
@@ -709,7 +792,7 @@ func copyInstallationTree(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		if relative == "." || filepath.ToSlash(relative) == ".minimail/update.lock" {
+		if relative == "." {
 			return nil
 		}
 		target := filepath.Join(destination, relative)
@@ -733,8 +816,81 @@ func copyInstallationTree(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		return closeErr
+		if closeErr != nil {
+			return closeErr
+		}
+		return os.Chmod(target, info.Mode().Perm())
 	})
+}
+
+func copyBackupPath(source, destination string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+		return err
+	}
+	if info.IsDir() {
+		if err = os.Mkdir(destination, info.Mode().Perm()); err != nil {
+			return err
+		}
+		if err = os.Chmod(destination, info.Mode().Perm()); err != nil {
+			return err
+		}
+		return copyInstallationTree(source, destination)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("backup refuses a link or special configuration file")
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(output, input)
+	closed := output.Close()
+	if err != nil {
+		return err
+	}
+	if closed != nil {
+		return closed
+	}
+	return os.Chmod(destination, info.Mode().Perm())
+}
+
+func backupFingerprint(root string) (string, error) {
+	hash := sha256.New()
+	err := filepath.Walk(root, func(name string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, name)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(hash, "%s\x00%d\x00", relative, info.Mode().Perm())
+		if info.IsDir() {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return errors.New("backup refuses a link or special configuration file")
+		}
+		digest, err := hashFile(name)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(hash, digest, "\x00")
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func hashFile(name string) (string, error) {
@@ -774,6 +930,9 @@ func validateDataArchive(name string) error {
 		}
 		name := strings.TrimPrefix(header.Name, "./")
 		name = strings.TrimSuffix(name, "/")
+		if name == "" && header.Name == "./" {
+			name = "."
+		}
 		if name != "." && (!filepath.IsLocal(name) || strings.ContainsAny(name, "\\:\x00") || filepath.ToSlash(filepath.Clean(name)) != name) {
 			return errors.New("unsafe application data path in backup")
 		}
