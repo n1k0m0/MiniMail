@@ -140,6 +140,7 @@ async function storeCandidate(database, account, sender, candidate) {
       "SELECT * FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(account.user_id, email);
+  if (!contact) return "alternate";
   const materialColumn = candidate.kind === "pgp" ? "pgp_public" : "smime_cert";
   const verifiedColumn =
     candidate.kind === "pgp" ? "pgp_verified" : "smime_verified";
@@ -166,9 +167,9 @@ async function storeCandidate(database, account, sender, candidate) {
       now,
     );
   if (!contact[materialColumn]) {
-    await database
+    const result = await database
       .prepare(
-        `UPDATE contacts SET ${materialColumn}=?,${verifiedColumn}=?,${sourceColumn}=?,updated_at=? WHERE id=?`,
+        `UPDATE contacts SET ${materialColumn}=?,${verifiedColumn}=?,${sourceColumn}=?,updated_at=? WHERE id=? AND user_id=? AND email=? AND ${materialColumn} <=> ?`,
       )
       .run(
         candidate.material,
@@ -176,16 +177,21 @@ async function storeCandidate(database, account, sender, candidate) {
         candidate.source,
         now,
         contact.id,
+        account.user_id,
+        email,
+        contact[materialColumn],
       );
-    return "stored";
+    // Discovery must never overwrite a key or a renamed contact saved while
+    // this candidate was being checked. Keep it as an alternate instead.
+    return result.changes ? "stored" : "alternate";
   }
   if (existingFingerprint === candidate.fingerprint) {
     if (candidate.verified && !contact[verifiedColumn])
       await database
         .prepare(
-          `UPDATE contacts SET ${verifiedColumn}=1,updated_at=? WHERE id=?`,
+          `UPDATE contacts SET ${verifiedColumn}=1,updated_at=? WHERE id=? AND user_id=? AND email=? AND ${materialColumn}=?`,
         )
-        .run(now, contact.id);
+        .run(now, contact.id, account.user_id, email, contact[materialColumn]);
     return "known";
   }
   return "alternate";

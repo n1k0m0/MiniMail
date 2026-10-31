@@ -1,5 +1,9 @@
 import { MailOperationError } from "./mailActions.js";
-import { outgoingMailError } from "./mailInput.js";
+import {
+  outgoingMailError,
+  validMessageUid,
+  validMessageFlags,
+} from "./mailInput.js";
 import { registerDraftRoutes } from "./drafts.js";
 import { registerMailRuleRoutes } from "./mailRuleRoutes.js";
 import { startMailRuleChecks, kickMailFilters } from "./mailRuleWorker.js";
@@ -73,6 +77,11 @@ import {
   sendMessage,
 } from "./mail.js";
 const app = express();
+app.param("uid", (req, res, next, uid) => {
+  if (!validMessageUid(uid))
+    return res.status(400).json({ error: "Ungültige Nachrichtenkennung." });
+  next();
+});
 cleanupBackupWork();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
@@ -618,6 +627,14 @@ async function contactFor(req, res) {
     });
   return contact;
 }
+class ContactChangedError extends Error {
+  constructor() {
+    super("Der Kontakt wurde inzwischen geändert. Bitte erneut öffnen.");
+  }
+}
+function requireUnchangedContact(result) {
+  if (!result.changes) throw new ContactChangedError();
+}
 app.post("/api/contacts", async (req, res) => {
   const name = typeof req.body?.name === "string" ? req.body.name.trim() : null;
   const email =
@@ -666,21 +683,29 @@ app.put("/api/contacts/:id", async (req, res) => {
       error: "Kontakt nicht gefunden.",
     });
   try {
+    // Clear keys atomically with the address change. MySQL evaluates SET
+    // assignments left to right, so the email assignment follows the checks.
     const result = await db
       .prepare(
-        "UPDATE contacts SET name=?,email=?,source='manual',updated_at=? WHERE id=? AND user_id=?",
+        "UPDATE contacts SET name=?,pgp_public=CASE WHEN LOWER(email)=LOWER(?) THEN pgp_public ELSE NULL END,smime_cert=CASE WHEN LOWER(email)=LOWER(?) THEN smime_cert ELSE NULL END,pgp_verified=CASE WHEN LOWER(email)=LOWER(?) THEN pgp_verified ELSE 1 END,smime_verified=CASE WHEN LOWER(email)=LOWER(?) THEN smime_verified ELSE 1 END,pgp_source=CASE WHEN LOWER(email)=LOWER(?) THEN pgp_source ELSE 'manual' END,smime_source=CASE WHEN LOWER(email)=LOWER(?) THEN smime_source ELSE 'manual' END,email=?,source='manual',updated_at=? WHERE id=? AND user_id=?",
       )
-      .run(name, email, Date.now(), id, req.user.id);
+      .run(
+        name,
+        email,
+        email,
+        email,
+        email,
+        email,
+        email,
+        email,
+        Date.now(),
+        id,
+        req.user.id,
+      );
     if (!result.changes)
       return res.status(404).json({
         error: "Kontakt nicht gefunden.",
       });
-    if (previous.email.toLowerCase() !== email.toLowerCase())
-      await db
-        .prepare(
-          "UPDATE contacts SET pgp_public=NULL,smime_cert=NULL,pgp_verified=1,smime_verified=1,pgp_source='manual',smime_source='manual' WHERE id=? AND user_id=?",
-        )
-        .run(id, req.user.id);
     res.json(
       publicContact(
         await db.prepare("SELECT * FROM contacts WHERE id=?").get(id),
@@ -723,9 +748,10 @@ app.put(
         const { fingerprint } = await validatePgpPublic(key, contact.email);
         await db
           .prepare(
-            "UPDATE contacts SET pgp_public=?,pgp_verified=1,pgp_source='manual',updated_at=? WHERE id=? AND user_id=?",
+            "UPDATE contacts SET pgp_public=?,pgp_verified=1,pgp_source='manual',updated_at=? WHERE id=? AND user_id=? AND email=?",
           )
-          .run(key, Date.now(), contact.id, req.user.id);
+          .run(key, Date.now(), contact.id, req.user.id, contact.email)
+          .then((result) => requireUnchangedContact(result));
         return res.json({
           ok: true,
           fingerprint,
@@ -739,9 +765,10 @@ app.put(
         );
         await db
           .prepare(
-            "UPDATE contacts SET smime_cert=?,smime_verified=1,smime_source='manual',updated_at=? WHERE id=? AND user_id=?",
+            "UPDATE contacts SET smime_cert=?,smime_verified=1,smime_source='manual',updated_at=? WHERE id=? AND user_id=? AND email=?",
           )
-          .run(certificate, Date.now(), contact.id, req.user.id);
+          .run(certificate, Date.now(), contact.id, req.user.id, contact.email)
+          .then((result) => requireUnchangedContact(result));
         return res.json({
           ok: true,
           fingerprint,
@@ -750,7 +777,9 @@ app.put(
       return res.status(404).json({
         error: "Verfahren nicht gefunden.",
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ContactChangedError)
+        return res.status(409).json({ error: error.message });
       return res.status(400).json({
         error:
           "Schlüssel oder Zertifikat ist ungültig oder passt nicht zur Adresse.",
@@ -761,19 +790,22 @@ app.put(
 app.delete("/api/contacts/:id/crypto/:kind", async (req, res) => {
   const contact = await contactFor(req, res);
   if (!contact) return;
-  const column = {
-    pgp: "pgp_public",
-    smime: "smime_cert",
-  }[req.params.kind];
+  const column =
+    req.params.kind === "pgp"
+      ? "pgp_public"
+      : req.params.kind === "smime"
+        ? "smime_cert"
+        : null;
   if (!column)
     return res.status(404).json({
       error: "Verfahren nicht gefunden.",
     });
-  await db
+  const result = await db
     .prepare(
-      `UPDATE contacts SET ${column}=NULL,${column === "pgp_public" ? "pgp_verified=1,pgp_source='manual'" : "smime_verified=1,smime_source='manual'"},updated_at=? WHERE id=? AND user_id=?`,
+      `UPDATE contacts SET ${column}=NULL,${column === "pgp_public" ? "pgp_verified=1,pgp_source='manual'" : "smime_verified=1,smime_source='manual'"},updated_at=? WHERE id=? AND user_id=? AND email=? AND ${column} <=> ?`,
     )
-    .run(Date.now(), contact.id, req.user.id);
+    .run(Date.now(), contact.id, req.user.id, contact.email, contact[column]);
+  requireUnchangedContact(result);
   res.json({
     ok: true,
   });
@@ -823,9 +855,16 @@ app.post(
     const source = discovered.kind === "pgp" ? "pgp_source" : "smime_source";
     await db
       .prepare(
-        `UPDATE contacts SET ${column}=?,${verified}=1,${source}='confirmed',updated_at=? WHERE id=? AND user_id=?`,
+        `UPDATE contacts SET ${column}=?,${verified}=1,${source}='confirmed',updated_at=? WHERE id=? AND user_id=? AND email=?`,
       )
-      .run(discovered.material, Date.now(), contact.id, req.user.id);
+      .run(
+        discovered.material,
+        Date.now(),
+        contact.id,
+        req.user.id,
+        contact.email,
+      )
+      .then((result) => requireUnchangedContact(result));
     res.json({
       ok: true,
       fingerprint: discovered.fingerprint,
@@ -1080,11 +1119,21 @@ app.put(
         passphrase,
         account.email,
       );
-      await db
+      const result = await db
         .prepare(
-          "UPDATE accounts SET pgp_private_enc=?,pgp_passphrase_enc=? WHERE id=? AND user_id=?",
+          "UPDATE accounts SET pgp_private_enc=?,pgp_passphrase_enc=? WHERE id=? AND user_id=? AND email=?",
         )
-        .run(encrypt(privateKey), encrypt(passphrase), account.id, req.user.id);
+        .run(
+          encrypt(privateKey),
+          encrypt(passphrase),
+          account.id,
+          req.user.id,
+          account.email,
+        );
+      if (!result.changes)
+        return res.status(409).json({
+          error: "Das Postfach wurde inzwischen geändert. Bitte erneut öffnen.",
+        });
       res.json({
         ok: true,
         fingerprint,
@@ -1121,16 +1170,21 @@ app.put(
               allowExpired: true,
             },
           );
-      await db
+      const result = await db
         .prepare(
-          "UPDATE accounts SET smime_cert=?,smime_key_enc=? WHERE id=? AND user_id=?",
+          "UPDATE accounts SET smime_cert=?,smime_key_enc=? WHERE id=? AND user_id=? AND email=?",
         )
         .run(
           identity.certificate,
           encrypt(identity.privateKey),
           account.id,
           req.user.id,
+          account.email,
         );
+      if (!result.changes)
+        return res.status(409).json({
+          error: "Das Postfach wurde inzwischen geändert. Bitte erneut öffnen.",
+        });
       res.json({
         ok: true,
         fingerprint: identity.fingerprint,
@@ -1149,13 +1203,13 @@ app.delete("/api/accounts/:id/crypto/:kind", async (req, res) => {
   if (req.params.kind === "pgp")
     await db
       .prepare(
-        "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,crypto_mode=CASE WHEN crypto_mode='pgp' THEN 'none' ELSE crypto_mode END,crypto_sign_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_encrypt_default END WHERE id=? AND user_id=?",
+        "UPDATE accounts SET pgp_private_enc=NULL,pgp_passphrase_enc=NULL,crypto_sign_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='pgp' THEN 0 ELSE crypto_encrypt_default END,crypto_mode=CASE WHEN crypto_mode='pgp' THEN 'none' ELSE crypto_mode END WHERE id=? AND user_id=?",
       )
       .run(account.id, req.user.id);
   else if (req.params.kind === "smime")
     await db
       .prepare(
-        "UPDATE accounts SET smime_cert=NULL,smime_key_enc=NULL,crypto_mode=CASE WHEN crypto_mode='smime' THEN 'none' ELSE crypto_mode END,crypto_sign_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_encrypt_default END WHERE id=? AND user_id=?",
+        "UPDATE accounts SET smime_cert=NULL,smime_key_enc=NULL,crypto_sign_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_sign_default END,crypto_encrypt_default=CASE WHEN crypto_mode='smime' THEN 0 ELSE crypto_encrypt_default END,crypto_mode=CASE WHEN crypto_mode='smime' THEN 'none' ELSE crypto_mode END WHERE id=? AND user_id=?",
       )
       .run(account.id, req.user.id);
   else
@@ -1607,6 +1661,8 @@ app.get(
 app.patch(
   "/api/accounts/:id/messages/:uid/flags",
   asyncRoute(async (req, res) => {
+    if (!validMessageFlags(req.body?.flags))
+      return res.status(400).json({ error: "Ungültiger Nachrichtenstatus." });
     const account = await accountFor(req, res);
     if (!account) return;
     await updateFlags(
@@ -1741,6 +1797,8 @@ if (fs.existsSync(dist)) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error instanceof ContactChangedError)
+    return res.status(409).json({ error: error.message });
   if (error instanceof MailRuleError)
     return res.status(error.status).json({ error: error.message });
   if (res.headersSent) return next(error);

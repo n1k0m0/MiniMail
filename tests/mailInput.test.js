@@ -4,12 +4,53 @@ import {
   normalizeReferences,
   outgoingMailError,
   validOutgoingMail,
+  validMessageUid,
+  validMessageFlags,
 } from "../server/mailInput.js";
 
 const mail = (extra = {}) => ({
   to: "receiver@example.test",
   text: "A synthetic reply",
   ...extra,
+});
+
+test("single-message operations reject ranges, malformed UIDs and nonboolean flags", () => {
+  for (const uid of ["1", "4294967295"])
+    assert.equal(validMessageUid(uid), true);
+  for (const uid of [
+    "0",
+    "-1",
+    "1:99",
+    "1,2",
+    "*",
+    "1e3",
+    "Infinity",
+    "NaN",
+    "4294967296",
+    "01",
+    "",
+    1,
+    null,
+  ])
+    assert.equal(validMessageUid(uid), false);
+  for (const flags of [
+    { seen: false },
+    { flagged: true },
+    { seen: true, flagged: false },
+  ])
+    assert.equal(validMessageFlags(flags), true);
+  for (const flags of [
+    null,
+    [],
+    {},
+    "false",
+    { seen: "false" },
+    { seen: 0 },
+    { flagged: null },
+    { deleted: true },
+    { seen: false, unknown: true },
+  ])
+    assert.equal(validMessageFlags(flags), false);
 });
 
 test("reply-all accepts comma-joined reference IDs without losing the thread", () => {

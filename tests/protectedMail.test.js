@@ -623,6 +623,147 @@ test("Autocrypt keys are collected without silently trusting or replacing them",
     "pgp-inline",
   );
 });
+test("discovery cannot overwrite a manually saved key or follow a renamed contact", async () => {
+  const email = "race-discovery@example.test";
+  const candidate = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ email }],
+  });
+  const account = { user_id: 1, email: "owner@example.test" };
+  const raw = Buffer.from(
+    `From: ${email}\r\nContent-Type: text/plain\r\n\r\n${candidate.publicKey}`,
+  );
+  for (const rename of [false, true]) {
+    await db
+      .prepare("DELETE FROM contacts WHERE user_id=1 AND email IN (?,?)")
+      .run(email, "renamed-race@example.test");
+    let interleaved = false;
+    const racing = {
+      ...db,
+      prepare(sql) {
+        const statement = db.prepare(sql);
+        if (!sql.startsWith("SELECT * FROM contacts WHERE user_id="))
+          return statement;
+        return {
+          ...statement,
+          async get(...args) {
+            const snapshot = await statement.get(...args);
+            interleaved = true;
+            if (rename)
+              await db
+                .prepare("UPDATE contacts SET email=? WHERE id=?")
+                .run("renamed-race@example.test", snapshot.id);
+            else
+              await db
+                .prepare(
+                  "UPDATE contacts SET pgp_public=?,pgp_verified=1,pgp_source='manual' WHERE id=?",
+                )
+                .run("manually-saved-key", snapshot.id);
+            return snapshot;
+          },
+        };
+      },
+    };
+    assert.deepEqual(await collectMessageKeys(racing, account, raw), {
+      stored: 0,
+      alternate: 1,
+    });
+    assert.ok(
+      interleaved,
+      "the edit occurs after discovery reads its contact snapshot",
+    );
+    const stored = await db
+      .prepare("SELECT * FROM contacts WHERE user_id=1 AND email=?")
+      .get(rename ? "renamed-race@example.test" : email);
+    assert.equal(stored.pgp_public, rename ? null : "manually-saved-key");
+    assert.equal(stored.pgp_verified, 1);
+    assert.equal(stored.pgp_source, "manual");
+  }
+});
+
+test("PGP signatures use trust from the same snapshot as the verification key", async () => {
+  const email = "race-signature@example.test";
+  const key = await openpgp.generateKey({
+    type: "ecc",
+    curve: "curve25519",
+    userIDs: [{ email }],
+  });
+  const account = {
+    user_id: 1,
+    email,
+    pgp_private_enc: encrypt(key.privateKey),
+    pgp_passphrase_enc: encrypt(""),
+  };
+  await db
+    .prepare(
+      "INSERT INTO contacts(user_id,name,email,created_at,updated_at,pgp_public,pgp_verified) VALUES (1,'Race signer',?,1,1,?,0)",
+    )
+    .run(email, key.publicKey);
+  const signed = await protectOutgoing(
+    account,
+    {
+      to: email,
+      cc: "",
+      bcc: "",
+      crypto: { mode: "pgp", sign: true, encrypt: false },
+    },
+    outgoing(email, email, "Signed snapshot"),
+  );
+  const encrypted = await protectOutgoing(
+    account,
+    {
+      to: email,
+      cc: "",
+      bcc: "",
+      crypto: { mode: "pgp", sign: true, encrypt: true },
+    },
+    outgoing(email, email, "Encrypted snapshot"),
+  );
+  const cleartext = await openpgp.sign({
+    message: await openpgp.createCleartextMessage({
+      text: "Cleartext snapshot",
+    }),
+    signingKeys: await openpgp.readPrivateKey({ armoredKey: key.privateKey }),
+  });
+  const prepare = db.prepare;
+  try {
+    for (const raw of [
+      signed.smtpRaw,
+      encrypted.smtpRaw,
+      Buffer.from(
+        `From: ${email}\r\nContent-Type: text/plain\r\n\r\n${cleartext}`,
+      ),
+    ]) {
+      await prepare(
+        "UPDATE contacts SET pgp_public=?,pgp_verified=0 WHERE user_id=1 AND email=?",
+      ).run(key.publicKey, email);
+      let replaced = false;
+      db.prepare = (sql) => {
+        const statement = prepare(sql);
+        if (!sql.startsWith("SELECT pgp_public")) return statement;
+        return {
+          ...statement,
+          async get(...args) {
+            const snapshot = await statement.get(...args);
+            await prepare(
+              "UPDATE contacts SET pgp_public='replacement-key',pgp_verified=1 WHERE user_id=1 AND email=?",
+            ).run(email);
+            replaced = true;
+            return snapshot;
+          },
+        };
+      };
+      const result = await inspectIncoming(account, raw);
+      assert.ok(replaced);
+      assert.equal(result.security.signature, "untrusted");
+      db.prepare = prepare;
+    }
+  } finally {
+    db.prepare = prepare;
+  }
+});
+
 test.after(async () => {
   await db.close();
   await storage.close();

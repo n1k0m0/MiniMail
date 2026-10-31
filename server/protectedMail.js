@@ -78,24 +78,21 @@ function multipartFirstPart(raw, boundary) {
 async function senderKey(userId, email) {
   const contact = await db
     .prepare(
-      "SELECT pgp_public FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
+      "SELECT pgp_public,pgp_verified FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(userId, email);
-  if (contact?.pgp_public) return contact.pgp_public;
+  // Trust belongs to the exact material used to verify this message. Looking
+  // it up again after async crypto could instead read a replacement key's trust.
+  if (contact?.pgp_public)
+    return { material: contact.pgp_public, verified: !!contact.pgp_verified };
   const own = await db
     .prepare(
       "SELECT pgp_private_enc FROM accounts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
     )
     .get(userId, email);
-  return own?.pgp_private_enc ? decrypt(own.pgp_private_enc) : null;
-}
-async function senderKeyVerified(userId, email) {
-  const contact = await db
-    .prepare(
-      "SELECT pgp_verified FROM contacts WHERE user_id=? AND email=? COLLATE utf8mb4_0900_as_ci",
-    )
-    .get(userId, email);
-  return !contact || !!contact.pgp_verified;
+  return own?.pgp_private_enc
+    ? { material: decrypt(own.pgp_private_enc), verified: true }
+    : null;
 }
 async function unlockedPgp(account) {
   if (!account.pgp_private_enc)
@@ -409,7 +406,8 @@ export async function protectOutgoing(account, mail, outgoing) {
   };
 }
 async function verifyPgp(content, armoredSignature, userId, sender) {
-  const armored = await senderKey(userId, sender);
+  const saved = await senderKey(userId, sender);
+  const armored = saved?.material;
   if (!armored)
     return {
       signed: true,
@@ -440,9 +438,7 @@ async function verifyPgp(content, armoredSignature, userId, sender) {
     await result.signatures[0].verified;
     return {
       signed: true,
-      signature: (await senderKeyVerified(userId, sender))
-        ? "valid"
-        : "untrusted",
+      signature: saved.verified ? "valid" : "untrusted",
       fingerprint: key.getFingerprint().toUpperCase(),
     };
   } catch {
@@ -494,7 +490,8 @@ async function readPgp(account, raw, parsed, kind) {
       },
     };
   const key = await unlockedPgp(account);
-  const signer = await senderKey(account.user_id, sender);
+  const savedSigner = await senderKey(account.user_id, sender);
+  const signer = savedSigner?.material;
   const verificationKeys = signer
     ? signer.includes("PRIVATE KEY")
       ? (
@@ -522,9 +519,7 @@ async function readPgp(account, raw, parsed, kind) {
   if (result.signatures?.length && verificationKeys) {
     try {
       await result.signatures[0].verified;
-      signature = (await senderKeyVerified(account.user_id, sender))
-        ? "valid"
-        : "untrusted";
+      signature = savedSigner.verified ? "valid" : "untrusted";
     } catch {
       signature = "invalid";
     }
@@ -777,10 +772,11 @@ export async function inspectIncoming(account, raw) {
       return result;
     }
     if (parsed.text?.includes("-----BEGIN PGP SIGNED MESSAGE-----")) {
-      const armored = await senderKey(
+      const saved = await senderKey(
         account.user_id,
         parsed.from?.value?.[0]?.address || "",
       );
+      const armored = saved?.material;
       const clear = await openpgp.readCleartextMessage({
         cleartextMessage: parsed.text,
       });
@@ -814,13 +810,7 @@ export async function inspectIncoming(account, raw) {
       let signature = "valid";
       try {
         await result.signatures[0].verified;
-        if (
-          !(await senderKeyVerified(
-            account.user_id,
-            parsed.from?.value?.[0]?.address || "",
-          ))
-        )
-          signature = "untrusted";
+        if (!saved.verified) signature = "untrusted";
       } catch {
         signature = "invalid";
       }

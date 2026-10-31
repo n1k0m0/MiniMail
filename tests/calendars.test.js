@@ -52,18 +52,16 @@ test("primary calendars are personal, survive edits, allow writable CalDAV and d
     setupPending: true,
   });
   await assert.rejects(setPrimaryCalendar(db, 1, remote.id), { status: 403 });
-  await db
-    .prepare("UPDATE calendars SET config_enc=? WHERE id=?")
-    .run(
-      encrypt(
-        JSON.stringify({
-          url: "https://calendar.example.test/dav/",
-          username: "fixture",
-          password: "preserved",
-        }),
-      ),
-      remote.id,
-    );
+  await db.prepare("UPDATE calendars SET config_enc=? WHERE id=?").run(
+    encrypt(
+      JSON.stringify({
+        url: "https://calendar.example.test/dav/",
+        username: "fixture",
+        password: "preserved",
+      }),
+    ),
+    remote.id,
+  );
   let preferences = await setPrimaryCalendar(db, 1, remote.id);
   assert.equal(preferences.primaryCalendarId, remote.id);
   assert.equal(
@@ -676,6 +674,15 @@ test("reminders only expose the owner's due events and honor dismissal", async (
     )
     .run(item.id, uidHash(alerts[0].occurrence));
   assert.deepEqual(await calendarAlerts(db, 1, now), []);
+  await db
+    .prepare(
+      "UPDATE calendar_alerts SET dismissed=0,snooze_until=? WHERE user_id=1 AND item_id=?",
+    )
+    .run(now + 60000, item.id);
+  assert.deepEqual(await calendarAlerts(db, 1, now), []);
+  const snoozed = await calendarAlerts(db, 1, now + 60001);
+  assert.equal(snoozed.length, 1);
+  assert.equal(snoozed[0].snoozeUntil, now + 60000);
 });
 
 test("moving calendars preserves a series and cannot cross user boundaries", async (t) => {

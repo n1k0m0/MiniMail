@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Prevent background key discovery and delayed imports from attaching encryption keys to renamed contacts or overwriting manually saved material. Bind signature trust to the exact OpenPGP verification key snapshot.
+- Clear contact keys atomically with address changes; reset signing/encryption defaults correctly when removing the active mailbox key on MySQL. Reject unknown crypto kinds, invalid single-message UIDs and nonboolean message flags before IMAP operations.
+- Index calendar reminder states for linear lookup work while preserving dismissal and snooze behavior. Document the security/correctness review and its verification scope in `docs/security-review-2026-10-31.md`.
+
 ## 0.1.0-rc.20
 
 - Give desktop notifications a MiniMail wordmark icon with distinct envelope and calendar badges, served locally as PNG images for native browser compatibility. Identify notification types in their titles while preserving lock-screen privacy and click actions.

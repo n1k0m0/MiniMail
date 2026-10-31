@@ -4,6 +4,27 @@ import { validContact } from "./contacts.js";
 const maxAttachmentBytes = 8 * 1024 * 1024;
 const messageId = /^<[^<>\s\u0000-\u001f\u007f]{1,998}>$/;
 
+export function validMessageUid(value) {
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d{0,9}$/.test(value) &&
+    Number(value) <= 0xffffffff
+  );
+}
+
+export function validMessageFlags(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length > 0 &&
+    Object.entries(value).every(
+      ([flag, enabled]) =>
+        ["seen", "flagged"].includes(flag) && typeof enabled === "boolean",
+    )
+  );
+}
+
 export function normalizeReferences(references) {
   if (!Array.isArray(references) || references.length > 30) return references;
   const result = [];

@@ -390,6 +390,24 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     assert.equal(ownerAccount.data.mail_rules_enc, undefined);
     assert.equal(ownerAccount.data.mail_rule_state_enc, undefined);
     assert.equal(ownerAccount.data.needsCredentials, false);
+    for (const [route, method, body] of [
+      ["messages/NaN", "GET"],
+      ["messages/4294967296", "DELETE"],
+      ["messages/1:99/move", "POST", { destination: "Trash" }],
+      ["messages/1/flags", "PATCH", { flags: { seen: "false" } }],
+      ["messages/1/flags", "PATCH", { flags: { deleted: true } }],
+    ])
+      assert.equal(
+        (
+          await admin(
+            `/accounts/${ownerAccount.data.id}/${route}`,
+            method,
+            body,
+          )
+        ).status,
+        400,
+        "malformed requests are rejected before contacting a mail server",
+      );
     assert.equal(
       (await admin(`/accounts/${ownerAccount.data.id}/crypto`)).data.mode,
       "none",
@@ -497,6 +515,84 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
     const afterContactKey = (await admin("/contacts")).data[0];
     assert.equal(afterContactKey.hasPgpKey, true);
     assert.equal(afterContactKey.pgp_public, undefined);
+    for (const kind of ["constructor", "toString", "__proto__"])
+      assert.equal(
+        (await admin(`/contacts/${contact.data.id}/crypto/${kind}`, "DELETE"))
+          .status,
+        404,
+      );
+    await database
+      .prepare(
+        "UPDATE contacts SET smime_cert='synthetic-certificate',pgp_source='confirmed',smime_source='confirmed' WHERE id=?",
+      )
+      .run(contact.data.id);
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}`, "PUT", {
+          name: "Alice renamed",
+          email: "ALICE@example.test",
+        })
+      ).status,
+      200,
+    );
+    let contactState = await database
+      .prepare("SELECT * FROM contacts WHERE id=?")
+      .get(contact.data.id);
+    assert.equal(contactState.pgp_public, contactKey.publicKey);
+    assert.equal(contactState.smime_cert, "synthetic-certificate");
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}`, "PUT", {
+          name: "Alice changed address",
+          email: "changed@example.test",
+        })
+      ).status,
+      200,
+    );
+    contactState = await database
+      .prepare("SELECT * FROM contacts WHERE id=?")
+      .get(contact.data.id);
+    assert.equal(contactState.pgp_public, null);
+    assert.equal(contactState.smime_cert, null);
+    assert.equal(contactState.pgp_source, "manual");
+    assert.equal(contactState.smime_source, "manual");
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}/crypto/pgp`, "PUT", {
+          publicKey: contactKey.publicKey,
+        })
+      ).status,
+      400,
+      "a key for the previous address cannot be reattached",
+    );
+    for (const removed of ["pgp", "smime"])
+      for (const active of ["pgp", "smime"]) {
+        await database
+          .prepare(
+            "UPDATE accounts SET crypto_mode=?,crypto_sign_default=1,crypto_encrypt_default=1 WHERE id=?",
+          )
+          .run(active, ownerAccount.data.id);
+        assert.equal(
+          (
+            await admin(
+              `/accounts/${ownerAccount.data.id}/crypto/${removed}`,
+              "DELETE",
+            )
+          ).status,
+          200,
+        );
+        const settings = (
+          await admin(`/accounts/${ownerAccount.data.id}/crypto`)
+        ).data;
+        assert.equal(settings.mode, active === removed ? "none" : active);
+        assert.equal(settings.sign, active !== removed);
+        assert.equal(settings.encrypt, active !== removed);
+      }
+    await database
+      .prepare(
+        "UPDATE accounts SET crypto_mode='none',crypto_sign_default=0,crypto_encrypt_default=0 WHERE id=?",
+      )
+      .run(ownerAccount.data.id);
     assert.equal(ownerAccount.data.is_primary, true);
     assert.equal(ownerAccount.data.check_interval_minutes, 5);
     assert.equal(ownerAccount.data.vpn_profile, "");

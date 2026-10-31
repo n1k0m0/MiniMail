@@ -1112,14 +1112,15 @@ export async function calendarAlerts(
   const saved = await db
     .prepare("SELECT * FROM calendar_alerts WHERE user_id=?")
     .all(userId);
+  const states = new Map(
+    saved.map((state) => [`${state.item_id}:${state.occurrence_hash}`, state]),
+  );
   return events
     .filter((event) => event.status !== "COMPLETED")
     .flatMap((event) => {
       const key = `${event.recurrenceId || event.start}`;
       const hash = uidHash(key),
-        state = saved.find(
-          (s) => s.item_id === event.eventId && s.occurrence_hash === hash,
-        );
+        state = states.get(`${event.eventId}:${hash}`);
       if (state?.dismissed || (state?.snooze_until && state.snooze_until > now))
         return [];
       const due =
