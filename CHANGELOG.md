@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.21
+## 0.1.0-rc.22
 
 - Reject redirected calendar writes before changing local event state.
 - Cache conversation grouping per active folder, hydrate only visible thread members and stream initial index writes in bounded batches.
@@ -12,6 +12,8 @@
 - Clear contact keys atomically with address changes; reset signing/encryption defaults correctly when removing the active mailbox key on MySQL. Reject unknown crypto kinds, invalid single-message UIDs and nonboolean message flags before IMAP operations.
 - Refuse mail deletion when a selectable Trash folder is missing instead of permanently deleting the message. Recognize localized provider Trash names consistently and preserve messages after failed moves.
 - Index calendar reminder states for linear lookup work while preserving dismissal and snooze behavior. Document the security/correctness review and its verification scope in `docs/security-review-2026-10-31.md`.
+
+The rc.21 tag was used for validation; its release was not published.
 
 ## 0.1.0-rc.20
 

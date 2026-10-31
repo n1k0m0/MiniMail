@@ -223,7 +223,10 @@ test("large thread pages reuse grouping and decrypt only visible members", async
   const counted = {
     ...database,
     prepare(sql) {
-      if (sql.startsWith("SELECT data_enc FROM mail_index_messages"))
+      if (
+        sql ===
+        "SELECT data_enc FROM mail_index_messages WHERE account_id=? AND folder=?"
+      )
         fullReads++;
       if (sql.startsWith("SELECT uid,data_enc FROM mail_index_messages"))
         pageReads++;
