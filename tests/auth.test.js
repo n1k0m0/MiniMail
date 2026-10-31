@@ -565,6 +565,24 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       400,
       "a key for the previous address cannot be reattached",
     );
+    // Restore the shared fixture before the ownership checks later in this scenario.
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}`, "PUT", {
+          name: "Alice B",
+          email: "alice@example.test",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await admin(`/contacts/${contact.data.id}/crypto/pgp`, "PUT", {
+          publicKey: contactKey.publicKey,
+        })
+      ).status,
+      200,
+    );
     for (const removed of ["pgp", "smime"])
       for (const active of ["pgp", "smime"]) {
         await database
