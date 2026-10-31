@@ -19,6 +19,18 @@ function orderByDate(a, b) {
   return difference || a.uid - b.uid;
 }
 
+export function summarizeThread(members) {
+  members.sort(orderByDate);
+  const latest = members.at(-1);
+  return {
+    ...latest,
+    thread: members.map(
+      ({ messageId, inReplyTo, references, threadId, ...member }) => member,
+    ),
+    threadUnread: members.some((member) => !member.seen),
+  };
+}
+
 export function groupMessages(items, { unreadOnly = false } = {}) {
   const parents = new Map(items.map((item) => [item.uid, item.uid]));
   const sizes = new Map(items.map((item) => [item.uid, 1]));
@@ -75,15 +87,7 @@ export function groupMessages(items, { unreadOnly = false } = {}) {
         ? allMembers.filter((member) => !member.seen)
         : allMembers;
       if (!members.length) return null;
-      members.sort(orderByDate);
-      const latest = members.at(-1);
-      return {
-        ...latest,
-        thread: members.map(
-          ({ messageId, inReplyTo, references, threadId, ...member }) => member,
-        ),
-        threadUnread: members.some((member) => !member.seen),
-      };
+      return summarizeThread(members);
     })
     .filter(Boolean)
     .sort((a, b) => orderByDate(b, a));

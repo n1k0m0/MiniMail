@@ -52,6 +52,7 @@ import {
 } from "./mailUi.js";
 import { t, choose, dateLocale, getLanguage } from "./i18n.js";
 import { findSpamFolder } from "./spamFolder.js";
+import { handleMessageRowKeydown } from "./messageRowKeyboard.js";
 import { buildFolderTree, visibleFolderNodes } from "./folderTree.js";
 import AccountModal from "./AccountModal.jsx";
 import AddressBookModal from "./AddressBookModal.jsx";
@@ -1561,14 +1562,14 @@ export default function App() {
                             }
                             role="button"
                             tabIndex={0}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") setSelected(item.uid);
-                              if (
-                                event.key === "ContextMenu" ||
-                                (event.shiftKey && event.key === "F10")
+                            onKeyDown={(event) =>
+                              handleMessageRowKeydown(
+                                event,
+                                item.uid,
+                                setSelected,
+                                openContextMenu,
                               )
-                                openContextMenu(event, item.uid);
-                            }}
+                            }
                           >
                             {threaded && item.thread?.length > 1 && (
                               <button
@@ -1679,15 +1680,14 @@ export default function App() {
                                   }
                                   role="button"
                                   tabIndex={0}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter")
-                                      setSelected(member.uid);
-                                    if (
-                                      event.key === "ContextMenu" ||
-                                      (event.shiftKey && event.key === "F10")
+                                  onKeyDown={(event) =>
+                                    handleMessageRowKeydown(
+                                      event,
+                                      member.uid,
+                                      setSelected,
+                                      openContextMenu,
                                     )
-                                      openContextMenu(event, member.uid);
-                                  }}
+                                  }
                                 >
                                   <div
                                     className="thread-line"

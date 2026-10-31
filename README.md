@@ -71,7 +71,9 @@ Register optional files with the installed updater before starting the correspon
 
 An existing `.env` is never replaced. An initialized installation is never reset by rerunning the installer. To bring an existing source installation under updater management, use the **adoption** procedure below instead.
 
-The current candidate release is `v0.1.0-rc.9`; candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews.
+Candidate releases require an explicit version selection or the preview channel. The stable channel does not install previews. Choose a published version from GitHub Releases; the version of this source tree is recorded in `package.json`.
+
+The optional Caddy proxy image in the signed `compose.https.yaml` template is pinned by digest. Update that digest deliberately with a new verified template and restart the proxy service after testing; applying an app update alone does not define a proxy upgrade.
 
 ## Encrypted backups and restore
 
@@ -179,7 +181,7 @@ Configure HTTPS as described below, then open your HTTPS address, sign in and en
 
 **Production cookies require HTTPS.** Direct HTTP access is intended only to check whether the service responds; production sign-in must go through an HTTPS reverse proxy. For local sign-in during development, use the development instructions below.
 
-Keep `.env` private and back it up with the database. On Windows, restrict its filesystem permissions to the account operating the installation. Do not replace an existing encryption key: doing so makes saved credentials, private keys, TOTP secrets and drafts unreadable.
+Keep `.env` private and back it up with the database. The source installers restrict its permissions automatically (Unix mode `600`; on Windows, an ACL for the installing account, SYSTEM and Administrators). Apply equivalent restrictions when installing manually. Do not replace an existing encryption key: doing so makes saved credentials, private keys, TOTP secrets and drafts unreadable.
 
 ### Manual Docker installation
 
@@ -496,11 +498,12 @@ For an existing Docker installation, run the executable from the downloaded rele
 
 Adoption verifies the running Compose project, private configuration, encryption/database environment, persistent mounts and supported schema. It records the existing files and volumes without moving or recreating them. Automatic legacy adoption supports the audited schema baseline from commit `1678969`; other historical layouts require an explicit migration first. Existing private Compose overrides remain part of every managed operation. Prefer the updater's `compose` subcommand for subsequent container commands so its image override stays active.
 
-On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows uses `.minimail/bin/minimail.exe`. Run commands from the installation directory, or append `--root /absolute/path`:
+On Linux/macOS the installed executable is `.minimail/bin/minimail`; Windows uses `.minimail/bin/minimail.exe`. Set `RELEASE_VERSION` to the newer published tag without a leading `v`. Run commands from the installation directory, or append `--root /absolute/path`:
 
 ```sh
 .minimail/bin/minimail check
-.minimail/bin/minimail apply --version 0.1.0-rc.9
+: "${RELEASE_VERSION:?Set RELEASE_VERSION to a newer published release tag}"
+.minimail/bin/minimail apply --version "$RELEASE_VERSION"
 .minimail/bin/minimail status
 .minimail/bin/minimail rollback
 .minimail/bin/minimail recover

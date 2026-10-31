@@ -29,6 +29,7 @@ import UpdateSettings from "./settings/UpdateSettings.jsx";
 import BackupSettings from "./settings/BackupSettings.jsx";
 import MailFilterSettings from "./settings/MailFilterSettings.jsx";
 import NotificationSettings from "./settings/NotificationSettings.jsx";
+import { useModalFocus } from "./useModalFocus.js";
 
 const icons = {
   mailboxes: Inbox,
@@ -77,41 +78,7 @@ export default function SettingsModal({
   const PageIcon = icons[current.id];
   const [visited, setVisited] = useState(() => new Set([current.id]));
   const panel = useRef(null);
-  const dialog = useRef(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previous = document.activeElement;
-    dialog.current?.querySelector('[aria-current="page"]')?.focus();
-    function keydown(event) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const controls = [
-        ...dialog.current.querySelectorAll(
-          'button:not(:disabled),select:not(:disabled),input:not(:disabled),a[href],[tabindex="0"]',
-        ),
-      ].filter((element) => element.getClientRects().length);
-      const first = controls[0],
-        last = controls.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    }
-    document.addEventListener("keydown", keydown);
-    return () => {
-      document.removeEventListener("keydown", keydown);
-      previous?.focus?.();
-    };
-  }, []);
+  const dialog = useModalFocus(onClose, '[aria-current="page"]');
   useEffect(() => {
     if (panel.current) panel.current.scrollTop = 0;
   }, [current.id]);

@@ -4,6 +4,7 @@ import { feature } from "topojson-client";
 import world from "world-atlas/countries-110m.json";
 import { LoaderCircle, X } from "lucide-react";
 import { getLanguage, t } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 const projection = geoEqualEarth().fitExtent(
   [
@@ -23,6 +24,7 @@ function locationName(hop) {
 }
 
 export default function MailTrace({ accountId, folder, uid, onClose }) {
+  const dialog = useModalFocus(onClose);
   const [trace, setTrace] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -59,11 +61,17 @@ export default function MailTrace({ accountId, folder, uid, onClose }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal trace-modal">
+      <div
+        className="modal trace-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="trace-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">MINIMAIL</div>
-            <h2>{t("Mail-Weg auf Karte")}</h2>
+            <h2 id="trace-title">{t("Mail-Weg auf Karte")}</h2>
             <p>{t("Stationen aus den Received-Headern")}</p>
           </div>
           <button

@@ -326,7 +326,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       400,
     );
-    assert.deepEqual((await admin("/contacts")).data, []);
+    assert.deepEqual((await admin("/contacts")).data, { items: [], total: 0 });
     assert.equal(
       (
         await admin("/contacts", "POST", {
@@ -350,7 +350,42 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       409,
     );
-    assert.equal((await admin("/contacts?q=alice")).data.length, 1);
+    assert.equal((await admin("/contacts?q=alice")).data.items.length, 1);
+    const ownerId = (
+      await database
+        .prepare("SELECT id FROM users WHERE username='owner'")
+        .get()
+    ).id;
+    const temporaryContacts = Array.from({ length: 55 }, (_, index) => [
+      ownerId,
+      `Temp ${String(index).padStart(3, "0")}`,
+      `temp-${index}@example.test`,
+      Date.now(),
+      Date.now(),
+    ]);
+    await database
+      .prepare(
+        `INSERT INTO contacts (user_id,name,email,created_at,updated_at) VALUES ${temporaryContacts.map(() => "(?,?,?,?,?)").join(",")}`,
+      )
+      .run(...temporaryContacts.flat());
+    const firstContactPage = (await admin("/contacts?limit=50&page=0")).data;
+    const secondContactPage = (await admin("/contacts?limit=50&page=1")).data;
+    assert.equal(firstContactPage.total, 56);
+    assert.equal(firstContactPage.items.length, 50);
+    assert.equal(secondContactPage.items.length, 6);
+    assert.equal((await admin("/contacts?q=Temp%200&limit=6")).data.total, 55);
+    assert.equal((await admin("/contacts?q=%25")).data.total, 0);
+    assert.equal((await admin("/contacts?limit=101")).status, 400);
+    assert.equal(
+      (await admin(`/contacts/${contact.data.id}`)).data.name,
+      "Alice",
+    );
+    assert.equal((await admin("/contacts/not-an-id")).status, 404);
+    await database
+      .prepare(
+        "DELETE FROM contacts WHERE user_id=? AND email LIKE 'temp-%@example.test'",
+      )
+      .run(ownerId);
     assert.equal(
       (
         await admin(`/contacts/${contact.data.id}`, "PUT", {
@@ -528,7 +563,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       200,
     );
-    const afterContactKey = (await admin("/contacts")).data[0];
+    const afterContactKey = (await admin("/contacts")).data.items[0];
     assert.equal(afterContactKey.hasPgpKey, true);
     assert.equal(afterContactKey.pgp_public, undefined);
     for (const kind of ["constructor", "toString", "__proto__"])
@@ -1082,7 +1117,8 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       ).status,
       403,
     );
-    assert.deepEqual((await member("/contacts")).data, []);
+    assert.deepEqual((await member("/contacts")).data, { items: [], total: 0 });
+    assert.equal((await member(`/contacts/${contact.data.id}`)).status, 404);
     assert.equal(
       (
         await member(`/contacts/${contact.data.id}`, "PUT", {
@@ -1126,7 +1162,7 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
         ).status,
         404,
       );
-    assert.equal((await admin("/contacts")).data[0].name, "Alice B");
+    assert.equal((await admin("/contacts")).data.items[0].name, "Alice B");
     assert.deepEqual((await member("/vpn-profiles")).data, []);
     assert.equal((await member("/admin/system")).status, 403);
     assert.equal(

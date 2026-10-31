@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { t } from "../i18n.js";
+import { useModalFocus } from "../useModalFocus.js";
 
 export default function CalendarDialog({
   title,
@@ -8,45 +8,10 @@ export default function CalendarDialog({
   children,
   wide = false,
 }) {
-  const ref = useRef(null),
-    close = useRef(onClose);
-  close.current = onClose;
-  useEffect(() => {
-    const previous = document.activeElement;
-    (
-      ref.current?.querySelector(
-        "input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
-      ) || ref.current?.querySelector("button")
-    )?.focus();
-    const keydown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        close.current();
-      }
-      if (event.key !== "Tab") return;
-      const controls = [
-        ...ref.current.querySelectorAll(
-          "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex='0']",
-        ),
-      ].filter((el) => el.getClientRects().length);
-      if (event.shiftKey && document.activeElement === controls[0]) {
-        event.preventDefault();
-        controls.at(-1)?.focus();
-      } else if (
-        !event.shiftKey &&
-        document.activeElement === controls.at(-1)
-      ) {
-        event.preventDefault();
-        controls[0]?.focus();
-      }
-    };
-    document.addEventListener("keydown", keydown);
-    return () => {
-      document.removeEventListener("keydown", keydown);
-      previous?.focus?.();
-    };
-  }, []);
+  const ref = useModalFocus(
+    onClose,
+    "input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
+  );
   return (
     <div className="modal-backdrop calendar-backdrop">
       <div

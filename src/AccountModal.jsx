@@ -13,8 +13,10 @@ import {
 } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function AccountModal({ account, onClose, onSaved, setError }) {
+  const dialog = useModalFocus(onClose, "input:not(:disabled)");
   const [form, setForm] = useState(
     account ? { ...account, password: "", smtp_password: "" } : blankAccount,
   );
@@ -74,18 +76,28 @@ export default function AccountModal({ account, onClose, onSaved, setError }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal account-modal">
+      <div
+        className="modal account-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-modal-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">{t("POSTFACH-EINSTELLUNGEN")}</div>
-            <h2>
+            <h2 id="account-modal-title">
               {account ? t("Postfach bearbeiten") : t("Postfach verbinden")}
             </h2>
             <p>
               {t("Deine Zugangsdaten bleiben verschlüsselt auf deinem Server.")}
             </p>
           </div>
-          <button className="icon-button" onClick={onClose}>
+          <button
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t("Schließen")}
+          >
             <X size={20} />
           </button>
         </div>

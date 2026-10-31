@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t } from "./i18n.js";
 import { highlightMailSource } from "./mailSourceHighlight.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function SourceModal({
   accountId,
@@ -11,6 +12,7 @@ export default function SourceModal({
   onClose,
   setError,
 }) {
+  const dialog = useModalFocus(onClose);
   const [source, setSource] = useState("");
   const [loading, setLoading] = useState(true);
   const highlightedSource = useMemo(
@@ -45,11 +47,17 @@ export default function SourceModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal source-modal">
+      <div
+        className="modal source-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="source-modal-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">MINIMAIL</div>
-            <h2>{t("Nachrichtenquelltext")}</h2>
+            <h2 id="source-modal-title">{t("Nachrichtenquelltext")}</h2>
           </div>
           <button
             className="icon-button"

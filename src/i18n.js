@@ -303,6 +303,9 @@ const translations = {
   "Neue Adressen nach erfolgreichem Senden im Adressbuch speichern.":
     "Save new addresses to the address book after sending.",
   "Kontakte suchen …": "Search contacts …",
+  Kontaktseiten: "Contact pages",
+  Zurück: "Previous",
+  Weiter: "Next",
   "Keine Kontakte gefunden.": "No contacts found.",
   "Kontakt bearbeiten": "Edit contact",
   "Kontakt hinzufügen": "Add contact",

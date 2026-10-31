@@ -534,21 +534,48 @@ app.get("/api/contacts", async (req, res) => {
     return res.status(400).json({
       error: "Suchbegriff zu lang.",
     });
+  const page = Number(req.query.page ?? 0);
+  const limit = Number(req.query.limit ?? 50);
+  if (
+    !Number.isSafeInteger(page) ||
+    page < 0 ||
+    page > 100000 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 100
+  )
+    return res.status(400).json({ error: "Ungültige Kontaktseite." });
+  const filter = query
+    ? " AND LOCATE(?, CONCAT(name, ' ', email) COLLATE utf8mb4_0900_as_ci) > 0"
+    : "";
+  const values = query ? [req.user.id, query] : [req.user.id];
+  const total = await db
+    .prepare(`SELECT COUNT(*) AS total FROM contacts WHERE user_id=?${filter}`)
+    .get(...values);
   const contacts = await db
     .prepare(
-      "SELECT * FROM contacts WHERE user_id=? ORDER BY name COLLATE utf8mb4_0900_as_ci, email COLLATE utf8mb4_0900_as_ci",
+      `SELECT id,name,email,source,
+       pgp_public IS NOT NULL AND pgp_public <> '' AS hasPgpKey,
+       smime_cert IS NOT NULL AND smime_cert <> '' AS hasSmimeCertificate,
+       pgp_public IS NOT NULL AND pgp_public <> '' AND pgp_verified <> 0 AS pgpVerified,
+       smime_cert IS NOT NULL AND smime_cert <> '' AND smime_verified <> 0 AS smimeVerified,
+       IF(pgp_public IS NOT NULL AND pgp_public <> '', pgp_source, NULL) AS pgpSource,
+       IF(smime_cert IS NOT NULL AND smime_cert <> '', smime_source, NULL) AS smimeSource
+       FROM contacts WHERE user_id=?${filter}
+       ORDER BY name COLLATE utf8mb4_0900_as_ci, email COLLATE utf8mb4_0900_as_ci, id
+       LIMIT ? OFFSET ?`,
     )
-    .all(req.user.id);
-  res.json(
-    (query
-      ? contacts.filter((item) =>
-          `${item.name} ${item.email}`
-            .toLocaleLowerCase()
-            .includes(query.toLocaleLowerCase()),
-        )
-      : contacts
-    ).map(publicContact),
-  );
+    .all(...values, limit, page * limit);
+  res.json({
+    items: contacts.map((contact) => ({
+      ...contact,
+      hasPgpKey: !!contact.hasPgpKey,
+      hasSmimeCertificate: !!contact.hasSmimeCertificate,
+      pgpVerified: !!contact.pgpVerified,
+      smimeVerified: !!contact.smimeVerified,
+    })),
+    total: total.total,
+  });
 });
 function publicContact(contact) {
   const {
@@ -574,15 +601,24 @@ function publicContact(contact) {
   };
 }
 async function contactFor(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    res.status(404).json({ error: "Kontakt nicht gefunden." });
+    return null;
+  }
   const contact = await db
     .prepare("SELECT * FROM contacts WHERE id=? AND user_id=?")
-    .get(Number(req.params.id), req.user.id);
+    .get(id, req.user.id);
   if (!contact)
     res.status(404).json({
       error: "Kontakt nicht gefunden.",
     });
   return contact;
 }
+app.get("/api/contacts/:id", async (req, res) => {
+  const contact = await contactFor(req, res);
+  if (contact) res.json(publicContact(contact));
+});
 class ContactChangedError extends Error {
   constructor() {
     super("Der Kontakt wurde inzwischen geändert. Bitte erneut öffnen.");

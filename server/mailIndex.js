@@ -1,8 +1,156 @@
-import { messageReferences } from "./threading.js";
+import {
+  groupMessages,
+  messageReferences,
+  summarizeThread,
+} from "./threading.js";
 import { decrypt, encrypt } from "./security.js";
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 const FETCH_BATCH_SIZE = 200;
-const pendingSyncs = new Map();
+const CACHED_FOLDERS = 3;
+const states = new WeakMap();
+const indexKey = (accountId, folder) => JSON.stringify([accountId, folder]);
+
+function stateFor(database) {
+  let state = states.get(database);
+  if (!state) {
+    state = {
+      projections: new Map(),
+      pendingProjections: new Map(),
+      projectionVersions: new Map(),
+      pendingSyncs: new Map(),
+    };
+    states.set(database, state);
+  }
+  return state;
+}
+
+function invalidateProjection(database, accountId, folder) {
+  const { projections, pendingProjections, projectionVersions } =
+    stateFor(database);
+  const key = indexKey(accountId, folder);
+  if (pendingProjections.has(key))
+    projectionVersions.set(key, (projectionVersions.get(key) || 0) + 1);
+  else projectionVersions.delete(key);
+  projections.delete(key);
+}
+
+export function clearThreadProjections(database) {
+  const { projections, pendingProjections, projectionVersions } =
+    stateFor(database);
+  for (const key of new Set([
+    ...projections.keys(),
+    ...pendingProjections.keys(),
+    ...projectionVersions.keys(),
+  ]))
+    invalidateProjection(database, ...JSON.parse(key));
+}
+
+function projectionVariant(groups) {
+  const entries = groups.map((group) =>
+    group.thread.map((member) => member.uid),
+  );
+  const byUid = new Map();
+  entries.forEach((uids, index) => {
+    for (const uid of uids) byUid.set(uid, index);
+  });
+  return { entries, byUid };
+}
+
+async function threadProjection(database, accountId, folder) {
+  const { projections, pendingProjections, projectionVersions } =
+    stateFor(database);
+  const key = indexKey(accountId, folder);
+  for (;;) {
+    const version = projectionVersions.get(key) || 0;
+    const cached = projections.get(key);
+    if (cached?.version === version) {
+      projections.delete(key);
+      projections.set(key, cached);
+      return cached;
+    }
+    let pending = pendingProjections.get(key);
+    if (!pending || pending.version !== version) {
+      const promise = indexedMessages(database, accountId, folder).then(
+        (items) => ({
+          normal: projectionVariant(groupMessages(items)),
+          unread: projectionVariant(groupMessages(items, { unreadOnly: true })),
+          count: items.length,
+          unreadCount: items.filter((item) => !item.seen).length,
+          version,
+        }),
+      );
+      pending = { version, promise };
+      pendingProjections.set(key, pending);
+    }
+    try {
+      const result = await pending.promise;
+      if ((projectionVersions.get(key) || 0) !== version) continue;
+      projections.set(key, result);
+      while (projections.size > CACHED_FOLDERS) {
+        const oldest = projections.keys().next().value;
+        projections.delete(oldest);
+        if (!pendingProjections.has(oldest)) projectionVersions.delete(oldest);
+      }
+      return result;
+    } finally {
+      if (pendingProjections.get(key) === pending)
+        pendingProjections.delete(key);
+    }
+  }
+}
+
+export async function indexedThreadPage(
+  database,
+  accountId,
+  folder,
+  { page, pageSize, matches = null, unreadOnly = false },
+) {
+  const projection = await threadProjection(database, accountId, folder);
+  const variant = unreadOnly ? projection.unread : projection.normal;
+  const matchingIndexes = matches
+    ? [
+        ...new Set(
+          matches
+            .map((uid) => variant.byUid.get(uid))
+            .filter((index) => index !== undefined),
+        ),
+      ].sort((a, b) => a - b)
+    : null;
+  const total = matchingIndexes?.length ?? variant.entries.length;
+  const indexes = matchingIndexes
+    ? matchingIndexes.slice(page * pageSize, (page + 1) * pageSize)
+    : Array.from(
+        { length: Math.max(0, Math.min(pageSize, total - page * pageSize)) },
+        (_, index) => page * pageSize + index,
+      );
+  const entries = indexes.map((index) => variant.entries[index]);
+  const uids = entries.flat();
+  const indexedByUid = new Map();
+  for (let start = 0; start < uids.length; start += FETCH_BATCH_SIZE) {
+    const batch = uids.slice(start, start + FETCH_BATCH_SIZE);
+    const rows = await database
+      .prepare(
+        `SELECT uid,data_enc FROM mail_index_messages WHERE account_id=? AND folder=? AND uid IN (${batch.map(() => "?").join(",")})`,
+      )
+      .all(accountId, folder, ...batch);
+    for (const row of rows)
+      indexedByUid.set(row.uid, JSON.parse(decrypt(row.data_enc)));
+  }
+  const messages = entries
+    .map((entry) => entry.map((uid) => indexedByUid.get(uid)).filter(Boolean))
+    .filter((members) => members.length)
+    .map(summarizeThread);
+  return {
+    messages,
+    indexedByUid,
+    total,
+    messageTotal: matches
+      ? matches.length
+      : unreadOnly
+        ? projection.unreadCount
+        : projection.count,
+  };
+}
 export async function indexedMessages(database, accountId, folder) {
   return (
     await database
@@ -19,6 +167,15 @@ export async function clearAccountIndex(database, accountId) {
   await database
     .prepare("DELETE FROM mail_index_folders WHERE account_id=?")
     .run(accountId);
+  const { projections, pendingProjections, projectionVersions } =
+    stateFor(database);
+  for (const key of new Set([
+    ...projections.keys(),
+    ...pendingProjections.keys(),
+    ...projectionVersions.keys(),
+  ]))
+    if (String(JSON.parse(key)[0]) === String(accountId))
+      invalidateProjection(database, ...JSON.parse(key));
 }
 export async function clearFolderIndex(database, accountId, folder) {
   await database
@@ -27,6 +184,7 @@ export async function clearFolderIndex(database, accountId, folder) {
   await database
     .prepare("DELETE FROM mail_index_folders WHERE account_id=? AND folder=?")
     .run(accountId, folder);
+  invalidateProjection(database, accountId, folder);
 }
 export async function updateIndexedFlags(
   database,
@@ -42,13 +200,18 @@ export async function updateIndexedFlags(
     .get(accountId, folder, uid);
   if (!row) return;
   const message = JSON.parse(decrypt(row.data_enc));
+  const originalSeen = message.seen;
+  const originalFlagged = message.flagged;
   if (flags.seen !== undefined) message.seen = !!flags.seen;
   if (flags.flagged !== undefined) message.flagged = !!flags.flagged;
+  if (message.seen === originalSeen && message.flagged === originalFlagged)
+    return;
   await database
     .prepare(
       "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
     )
     .run(encrypt(JSON.stringify(message)), accountId, folder, uid);
+  invalidateProjection(database, accountId, folder);
 }
 export async function markIndexedFolderRead(database, accountId, folder) {
   const rows = await database
@@ -59,10 +222,12 @@ export async function markIndexedFolderRead(database, accountId, folder) {
   const update = database.prepare(
     "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
   );
+  let changed = false;
   await database.transaction(async () => {
     for (const row of rows) {
       const message = JSON.parse(decrypt(row.data_enc));
       if (!message.seen) {
+        changed = true;
         message.seen = true;
         await update.run(
           encrypt(JSON.stringify(message)),
@@ -73,6 +238,7 @@ export async function markIndexedFolderRead(database, accountId, folder) {
       }
     }
   });
+  if (changed) invalidateProjection(database, accountId, folder);
 }
 export async function removeIndexedMessage(database, accountId, folder, uid) {
   await database
@@ -80,6 +246,7 @@ export async function removeIndexedMessage(database, accountId, folder, uid) {
       "DELETE FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
     )
     .run(accountId, folder, uid);
+  invalidateProjection(database, accountId, folder);
 }
 function indexedMessage(item, summarize) {
   const { size, hasAttachments, ...base } = summarize(item);
@@ -91,8 +258,8 @@ function indexedMessage(item, summarize) {
     threadId: item.threadId == null ? null : String(item.threadId),
   };
 }
-async function fetchIndexMessages(client, range, summarize, options = {}) {
-  const messages = [];
+async function* fetchIndexBatches(client, range, summarize, options = {}) {
+  let messages = [];
   for await (const item of client.fetch(
     range,
     {
@@ -109,8 +276,27 @@ async function fetchIndexMessages(client, range, summarize, options = {}) {
     },
   )) {
     messages.push(indexedMessage(item, summarize));
+    if (messages.length === FETCH_BATCH_SIZE) {
+      yield messages;
+      messages = [];
+    }
   }
-  return messages;
+  if (messages.length) yield messages;
+}
+async function storeIndexBatch(database, accountId, folder, messages) {
+  const placeholders = messages.map(() => "(?,?,?,?)").join(",");
+  await database
+    .prepare(
+      `INSERT INTO mail_index_messages (account_id,folder,uid,data_enc) VALUES ${placeholders} ON DUPLICATE KEY UPDATE data_enc=VALUES(data_enc)`,
+    )
+    .run(
+      ...messages.flatMap((message) => [
+        accountId,
+        folder,
+        message.uid,
+        encrypt(JSON.stringify(message)),
+      ]),
+    );
 }
 async function performSync(database, accountId, folder, client, summarize) {
   const mailbox = client.mailbox;
@@ -136,11 +322,16 @@ async function performSync(database, accountId, folder, client, summarize) {
     previous.highest_modseq &&
     BigInt(modseq) > BigInt(previous.highest_modseq);
   if (!reconcile && !modseqChanged) return;
-  let messages = [];
+  let indexChanged = reset;
   let currentUids = null;
   let flags = [];
   if (reset) {
-    if (exists) messages = await fetchIndexMessages(client, "1:*", summarize);
+    // Leave folder metadata unset until all batches arrive. A failed fetch is
+    // retried as a reset, so a partial index is never treated as complete.
+    await clearFolderIndex(database, accountId, folder);
+    if (exists)
+      for await (const batch of fetchIndexBatches(client, "1:*", summarize))
+        await storeIndexBatch(database, accountId, folder, batch);
   } else {
     if (reconcile) {
       currentUids = exists
@@ -163,14 +354,14 @@ async function performSync(database, accountId, folder, client, summarize) {
         ).map((row) => row.uid),
       );
       const missing = currentUids.filter((uid) => !known.has(uid));
+      if (missing.length) indexChanged = true;
       for (let start = 0; start < missing.length; start += FETCH_BATCH_SIZE) {
-        messages.push(
-          ...(await fetchIndexMessages(
-            client,
-            missing.slice(start, start + FETCH_BATCH_SIZE),
-            summarize,
-          )),
-        );
+        for await (const batch of fetchIndexBatches(
+          client,
+          missing.slice(start, start + FETCH_BATCH_SIZE),
+          summarize,
+        ))
+          await storeIndexBatch(database, accountId, folder, batch);
       }
     }
     if (modseqChanged || (reconcile && !supportsChanges)) {
@@ -197,14 +388,10 @@ async function performSync(database, accountId, folder, client, summarize) {
       }
     }
   }
-  const insert = database.prepare(
-    "INSERT INTO mail_index_messages (account_id,folder,uid,data_enc) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE data_enc=VALUES(data_enc)",
-  );
   const update = database.prepare(
     "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
   );
   await database.transaction(async () => {
-    if (reset) await clearFolderIndex(database, accountId, folder);
     if (currentUids) {
       const live = new Set(currentUids);
       const rows = await database
@@ -216,15 +403,11 @@ async function performSync(database, accountId, folder, client, summarize) {
         "DELETE FROM mail_index_messages WHERE account_id=? AND folder=? AND uid=?",
       );
       for (const row of rows)
-        if (!live.has(row.uid)) await remove.run(accountId, folder, row.uid);
+        if (!live.has(row.uid)) {
+          indexChanged = true;
+          await remove.run(accountId, folder, row.uid);
+        }
     }
-    for (const message of messages)
-      await insert.run(
-        accountId,
-        folder,
-        message.uid,
-        encrypt(JSON.stringify(message)),
-      );
     for (const flag of flags) {
       const row = await database
         .prepare(
@@ -235,6 +418,7 @@ async function performSync(database, accountId, folder, client, summarize) {
       const message = JSON.parse(decrypt(row.data_enc));
       if (message.seen === flag.seen && message.flagged === flag.flagged)
         continue;
+      indexChanged = true;
       message.seen = flag.seen;
       message.flagged = flag.flagged;
       await update.run(
@@ -258,6 +442,7 @@ async function performSync(database, accountId, folder, client, summarize) {
         reconcile ? now : previous.reconciled_at,
       );
   });
+  if (indexChanged) invalidateProjection(database, accountId, folder);
 }
 export async function syncThreadIndex(
   database,
@@ -266,7 +451,8 @@ export async function syncThreadIndex(
   client,
   summarize,
 ) {
-  const key = JSON.stringify([accountId, folder]);
+  const { pendingSyncs } = stateFor(database);
+  const key = indexKey(accountId, folder);
   if (pendingSyncs.has(key)) return pendingSyncs.get(key);
   const pending = performSync(database, accountId, folder, client, summarize);
   pendingSyncs.set(key, pending);

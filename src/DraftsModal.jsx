@@ -2,10 +2,14 @@ import { useEffect, useState } from "react";
 import { FileText, LoaderCircle, Trash2, X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t, dateLocale } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function DraftsModal({ onOpen, onClose, setError }) {
   const [drafts, setDrafts] = useState([]);
   const [busy, setBusy] = useState(true);
+  const dialog = useModalFocus(() => {
+    if (!busy) onClose();
+  });
   useEffect(() => {
     const controller = new AbortController();
     api("/drafts", { signal: controller.signal })
@@ -50,6 +54,7 @@ export default function DraftsModal({ onOpen, onClose, setError }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="drafts-title"
+        ref={dialog}
       >
         <div className="modal-header">
           <h2 id="drafts-title">{t("Gespeicherte Entwürfe")}</h2>

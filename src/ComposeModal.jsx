@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import {
   LoaderCircle,
   LockKeyhole,
@@ -14,19 +14,33 @@ import { t, choose, dateLocale } from "./i18n.js";
 import { attachmentFile, encodeAttachments } from "./draftFiles.js";
 import { replyRecipients } from "./replyRecipients.js";
 import AiRewriteModal from "./AiRewriteModal.jsx";
+import { useModalFocus } from "./useModalFocus.js";
 
-function RecipientInput({ value, onChange, contacts, placeholder, label }) {
+function RecipientInput({ value, onChange, placeholder, label, setError }) {
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);
+  const [suggestions, setSuggestions] = useState([]);
+  const listId = useId();
   const token = value.split(/[,;]/).at(-1)?.trim().toLocaleLowerCase() || "";
-  const suggestions =
-    focused && token.length >= 1
-      ? contacts
-          .filter((item) =>
-            `${item.name} ${item.email}`.toLocaleLowerCase().includes(token),
-          )
-          .slice(0, 6)
-      : [];
+  useEffect(() => {
+    setSuggestions([]);
+    if (!focused || !token) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ q: token, page: "0", limit: "6" });
+      api(`/contacts?${params}`, { signal: controller.signal })
+        .then((result) => setSuggestions(result.items))
+        .catch((error) => {
+          if (error.name !== "AbortError") setError(error.message);
+        });
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [focused, token, setError]);
   function chooseContact(contact) {
     const start = Math.max(value.lastIndexOf(","), value.lastIndexOf(";"));
     onChange(
@@ -41,11 +55,15 @@ function RecipientInput({ value, onChange, contacts, placeholder, label }) {
         onChange={(event) => {
           onChange(event.target.value);
           setActive(0);
+          setSuggestions([]);
         }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setFocused(false);
+          if (event.key === "Escape" && suggestions.length) {
+            event.stopPropagation();
+            setFocused(false);
+          }
           if (!suggestions.length) return;
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
@@ -57,7 +75,7 @@ function RecipientInput({ value, onChange, contacts, placeholder, label }) {
                 suggestions.length,
             );
           }
-          if (event.key === "Enter" || event.key === "Tab") {
+          if (event.key === "Enter") {
             event.preventDefault();
             chooseContact(suggestions[active] || suggestions[0]);
           }
@@ -65,13 +83,21 @@ function RecipientInput({ value, onChange, contacts, placeholder, label }) {
         placeholder={placeholder}
         aria-label={label}
         autoComplete="off"
+        role="combobox"
+        aria-expanded={!!suggestions.length}
+        aria-controls={suggestions.length ? listId : undefined}
+        aria-activedescendant={
+          suggestions.length ? `${listId}-${active}` : undefined
+        }
       />
       {!!suggestions.length && (
-        <div className="recipient-suggestions" role="listbox">
+        <div className="recipient-suggestions" role="listbox" id={listId}>
           {suggestions.map((contact, index) => (
             <button
               type="button"
               role="option"
+              tabIndex={-1}
+              id={`${listId}-${index}`}
               aria-selected={index === active}
               className={index === active ? "selected" : ""}
               key={contact.id}
@@ -84,6 +110,40 @@ function RecipientInput({ value, onChange, contacts, placeholder, label }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DraftCloseDialog({ busy, canSave, onCancel, onDiscard, onSave }) {
+  const dialog = useModalFocus(() => {
+    if (!busy) onCancel();
+  }, "button");
+  return (
+    <div
+      className="draft-close-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="draft-close-title"
+      ref={dialog}
+    >
+      <h3 id="draft-close-title">{t("Ungespeicherte Nachricht")}</h3>
+      <p>{t("Möchtest du den aktuellen Stand als Entwurf speichern?")}</p>
+      <div className="draft-close-actions">
+        <button type="button" disabled={busy} onClick={onCancel}>
+          {t("Weiter bearbeiten")}
+        </button>
+        <button type="button" disabled={busy} onClick={onDiscard}>
+          {t("Änderungen verwerfen")}
+        </button>
+        <button
+          type="button"
+          className="primary-button"
+          disabled={busy || !canSave}
+          onClick={onSave}
+        >
+          {t("Speichern und schließen")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -114,12 +174,6 @@ export default function ComposeModal({
   const [to, setTo] = useState(draft?.to ?? initialRecipients.to);
   const [cc, setCc] = useState(draft?.cc ?? initialRecipients.cc);
   const [bcc, setBcc] = useState(draft?.bcc ?? "");
-  const [contacts, setContacts] = useState([]);
-  useEffect(() => {
-    api("/contacts")
-      .then(setContacts)
-      .catch((error) => setError(error.message));
-  }, [setError]);
   const [subject, setSubject] = useState(
     draft?.subject ??
       (original
@@ -274,6 +328,7 @@ export default function ComposeModal({
     if (dirty) setClosing(true);
     else onClose();
   }
+  const dialog = useModalFocus(requestClose, "input");
   async function saveDraft(closeAfter = false) {
     if (busy || !senderAccount) return;
     setBusy(true);
@@ -339,20 +394,13 @@ export default function ComposeModal({
   }
   return (
     <>
-      <div
-        className="modal-backdrop compose-backdrop"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            requestClose();
-          }
-        }}
-      >
+      <div className="modal-backdrop compose-backdrop">
         <div
           className="modal compose-modal"
           role="dialog"
           aria-modal="true"
           aria-labelledby="compose-title"
+          ref={dialog}
         >
           <div className="compose-header">
             <div>
@@ -411,7 +459,7 @@ export default function ComposeModal({
                   <RecipientInput
                     value={to}
                     onChange={setTo}
-                    contacts={contacts}
+                    setError={setError}
                     placeholder={t("Empfänger-Adresse")}
                     label={t("An")}
                   />
@@ -428,7 +476,7 @@ export default function ComposeModal({
                     <RecipientInput
                       value={cc}
                       onChange={setCc}
-                      contacts={contacts}
+                      setError={setError}
                       placeholder={t("Kopie an")}
                       label="Cc"
                     />
@@ -440,7 +488,7 @@ export default function ComposeModal({
                     <RecipientInput
                       value={bcc}
                       onChange={setBcc}
-                      contacts={contacts}
+                      setError={setError}
                       placeholder={t("Blindkopie an")}
                       label="Bcc"
                     />
@@ -661,38 +709,13 @@ export default function ComposeModal({
             </fieldset>
           </form>
           {closing && (
-            <div
-              className="draft-close-dialog"
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="draft-close-title"
-            >
-              <h3 id="draft-close-title">{t("Ungespeicherte Nachricht")}</h3>
-              <p>
-                {t("Möchtest du den aktuellen Stand als Entwurf speichern?")}
-              </p>
-              <div className="draft-close-actions">
-                <button
-                  type="button"
-                  autoFocus
-                  disabled={busy}
-                  onClick={() => setClosing(false)}
-                >
-                  {t("Weiter bearbeiten")}
-                </button>
-                <button type="button" disabled={busy} onClick={onClose}>
-                  {t("Änderungen verwerfen")}
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={busy || !senderAccount}
-                  onClick={() => saveDraft(true)}
-                >
-                  {t("Speichern und schließen")}
-                </button>
-              </div>
-            </div>
+            <DraftCloseDialog
+              busy={busy}
+              canSave={!!senderAccount}
+              onCancel={() => setClosing(false)}
+              onDiscard={onClose}
+              onSave={() => saveDraft(true)}
+            />
           )}
         </div>
       </div>

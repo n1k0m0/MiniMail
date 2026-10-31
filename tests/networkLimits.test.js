@@ -76,3 +76,30 @@ test("calendar redirects share one total deadline instead of resetting it per ho
   assert.ok(signals[0] instanceof AbortSignal);
   assert.equal(signals[0], signals[1]);
 });
+
+test("calendar write redirects are errors and are never replayed", async (t) => {
+  t.mock.method(dns, "lookup", async () => [
+    { address: "93.184.216.34", family: 4 },
+  ]);
+  let calls = 0;
+  t.mock.method(https, "request", (_url, _options, callback) => {
+    calls++;
+    const request = new EventEmitter();
+    request.end = () =>
+      queueMicrotask(() => {
+        const response = new PassThrough();
+        response.statusCode = 307;
+        response.headers = { location: "/redirected" };
+        callback(response);
+        response.end();
+      });
+    return request;
+  });
+  for (const method of ["PUT", "DELETE"]) {
+    await assert.rejects(
+      remoteRequest({ url: "https://calendar.example.test/" }, method),
+      { status: 502 },
+    );
+  }
+  assert.equal(calls, 2);
+});

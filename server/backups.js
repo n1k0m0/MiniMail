@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { finished } from "node:stream/promises";
 import { allTableNames } from "./schema.js";
+import { clearThreadProjections } from "./mailIndex.js";
 import { schemaSupport, buildInfo } from "./buildInfo.js";
 import { migrationStatus } from "./migrations.js";
 import { encrypt, decrypt, tokenHash } from "./security.js";
@@ -495,6 +496,7 @@ export async function restoreDatabase(
     const safetyId = `${Date.now()}-${crypto.randomBytes(12).toString("hex")}.minimail-backup.pgp`;
     await exportDatabase(db, path.join(directory, safetyId), password);
     await replaceDatabase(db, imported.prepared);
+    clearThreadProjections(db);
     return { counts: imported.counts, safetyId };
   });
 }

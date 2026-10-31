@@ -15,8 +15,9 @@ if [ ! -f "$root/.env" ]; then
   fi
   unset key
 fi
-if ! tr -d '\r' < "$root/.env" | grep -Eq '^APP_ENCRYPTION_KEY=[a-fA-F0-9]{64}$'; then
-  echo 'Set APP_ENCRYPTION_KEY in .env to exactly 64 hexadecimal characters. Existing keys are never replaced.' >&2
+key_count=$(grep -c '^APP_ENCRYPTION_KEY=' "$root/.env" || true)
+if [ "$key_count" -ne 1 ] || ! tr -d '\r' < "$root/.env" | grep -Eq '^APP_ENCRYPTION_KEY=[a-fA-F0-9]{64}$'; then
+  echo 'Set exactly one APP_ENCRYPTION_KEY in .env to 64 hexadecimal characters. Existing keys are never replaced.' >&2
   exit 1
 fi
 # Generate missing database passwords without replacing existing credentials.

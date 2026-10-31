@@ -23,7 +23,17 @@ key=$(sed -n 's/^APP_ENCRYPTION_KEY=//p' "$project/.env")
 grep -Eq '^MYSQL_PASSWORD=[a-f0-9]{64}$' "$project/.env"
 grep -Eq '^MYSQL_ROOT_PASSWORD=[a-f0-9]{64}$' "$project/.env"
 grep -F -- '--wait' "$temporary/docker.log" >/dev/null
-[ "$(stat -c '%a' "$project/.env")" = 600 ]
+case "$(uname -s)" in
+  MINGW*|MSYS*) ;; # Git Bash does not expose NTFS ACLs as Unix mode bits.
+  *) [ "$(stat -c '%a' "$project/.env")" = 600 ] ;;
+esac
+grep -Eq 'image: caddy:2@sha256:[a-f0-9]{64}$' "$root/release/compose.https.yaml"
+printf 'APP_ENCRYPTION_KEY=invalid\n' >> "$project/.env"
+if sh "$project/scripts/install.sh" test-admin >/dev/null 2>&1; then
+  echo 'Duplicate encryption keys must be rejected.' >&2
+  exit 1
+fi
+cp "$temporary/environment-before" "$project/.env"
 sh "$project/scripts/compose.sh" --vpn --geoip config
 grep -F "$project/compose.vpn.yaml" "$temporary/docker.log" >/dev/null
 grep -F "$project/compose.geoip.yaml" "$temporary/docker.log" >/dev/null

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LoaderCircle, Sparkles, X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t, getLanguage } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 function splitEditableDraft(value) {
   const marker =
@@ -26,6 +27,7 @@ export default function AiRewriteModal({
   onApply,
   onClose,
 }) {
+  const dialog = useModalFocus(onClose, "textarea");
   const { editable, quoted } = splitEditableDraft(body);
   const [instructions, setInstructions] = useState("");
   const [proposal, setProposal] = useState("");
@@ -66,6 +68,7 @@ export default function AiRewriteModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-rewrite-title"
+        ref={dialog}
       >
         <div className="modal-header">
           <div>

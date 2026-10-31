@@ -172,7 +172,7 @@ export async function remoteRequest(
       "Der Termin wurde inzwischen auf dem Kalenderserver geändert. Bitte synchronisieren und erneut öffnen.",
       409,
     );
-  if (response.status >= 400)
+  if (response.status < 200 || response.status >= 300)
     throw new CalendarError(
       `Der Kalenderserver antwortet mit HTTP ${response.status}.`,
       502,

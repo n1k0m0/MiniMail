@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function CryptoSettingsModal({
   account,
@@ -9,6 +10,7 @@ export default function CryptoSettingsModal({
   onChanged,
   setError,
 }) {
+  const dialog = useModalFocus(onClose, "select");
   const [state, setState] = useState({
     mode: account.crypto_mode || "none",
     sign: !!account.cryptoSignDefault,
@@ -74,11 +76,19 @@ export default function CryptoSettingsModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal crypto-modal">
+      <div
+        className="modal crypto-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mailbox-crypto-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">{account.email}</div>
-            <h2>{t("Verschlüsselung und Schlüssel")}</h2>
+            <h2 id="mailbox-crypto-title">
+              {t("Verschlüsselung und Schlüssel")}
+            </h2>
             <p>
               {t("Private Schlüssel bleiben verschlüsselt auf deinem Server.")}
             </p>

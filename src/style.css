@@ -2616,6 +2616,17 @@ svg {
   overflow: auto;
   margin: 12px 0;
 }
+.contacts-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 0 12px;
+  font-size: 12px;
+}
+.contacts-pagination button {
+  padding: 6px 10px;
+}
 .contact-row {
   display: flex;
   align-items: center;

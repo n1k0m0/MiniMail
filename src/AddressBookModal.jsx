@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import { KeyRound, Mail, PenLine, Search, Trash2, X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t, choose } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
+  const dialog = useModalFocus(onClose, "textarea");
   const [pgp, setPgp] = useState("");
   const [certificate, setCertificate] = useState("");
   const [fingerprint, setFingerprint] = useState("");
@@ -73,11 +75,17 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal crypto-modal">
+      <div
+        className="modal crypto-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contact-crypto-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">{contact.email}</div>
-            <h2>{t("Schlüssel und Zertifikate")}</h2>
+            <h2 id="contact-crypto-title">{t("Schlüssel und Zertifikate")}</h2>
           </div>
           <button
             className="icon-button"
@@ -233,7 +241,12 @@ function ContactCryptoModal({ contact, onClose, onChanged, setError }) {
 }
 
 export default function AddressBookModal({ onClose, setError }) {
+  const dialog = useModalFocus(onClose, "input");
   const [contacts, setContacts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   const [cryptoContact, setCryptoContact] = useState(null);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
@@ -241,10 +254,40 @@ export default function AddressBookModal({ onClose, setError }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api("/contacts")
-      .then(setContacts)
-      .catch((error) => setError(error.message));
-  }, [setError]);
+    setLoading(true);
+    setContacts([]);
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: "50",
+          q: search.trim(),
+        });
+        api(`/contacts?${params}`, { signal: controller.signal })
+          .then((result) => {
+            if (page > 0 && page * 50 >= result.total) {
+              setPage(Math.max(0, Math.ceil(result.total / 50) - 1));
+              return;
+            }
+            setContacts(result.items);
+            setTotal(result.total);
+            setLoading(false);
+          })
+          .catch((error) => {
+            if (error.name !== "AbortError") {
+              setError(error.message);
+              setLoading(false);
+            }
+          });
+      },
+      search ? 150 : 0,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [page, search, reload, setError]);
   async function save(event) {
     event.preventDefault();
     if (busy) return;
@@ -254,7 +297,7 @@ export default function AddressBookModal({ onClose, setError }) {
         method: editing ? "PUT" : "POST",
         body: { name, email },
       });
-      setContacts(await api("/contacts"));
+      setReload((value) => value + 1);
       setEditing(null);
       setName("");
       setEmail("");
@@ -279,6 +322,8 @@ export default function AddressBookModal({ onClose, setError }) {
       setContacts((current) =>
         current.filter((item) => item.id !== contact.id),
       );
+      setTotal((current) => Math.max(0, current - 1));
+      setReload((value) => value + 1);
       if (editing === contact.id) {
         setEditing(null);
         setName("");
@@ -288,11 +333,6 @@ export default function AddressBookModal({ onClose, setError }) {
       setError(error.message);
     }
   }
-  const visible = contacts.filter((contact) =>
-    `${contact.name} ${contact.email}`
-      .toLocaleLowerCase()
-      .includes(search.toLocaleLowerCase()),
-  );
   return (
     <div
       className="modal-backdrop"
@@ -300,17 +340,18 @@ export default function AddressBookModal({ onClose, setError }) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="modal contacts-modal">
+      <div
+        className="modal contacts-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contacts-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">MINIMAIL</div>
-            <h2>{t("Adressbuch")}</h2>
-            <p>
-              {choose(
-                `${contacts.length} Kontakte`,
-                `${contacts.length} contacts`,
-              )}
-            </p>
+            <h2 id="contacts-title">{t("Adressbuch")}</h2>
+            <p>{choose(`${total} Kontakte`, `${total} contacts`)}</p>
           </div>
           <button
             className="icon-button"
@@ -325,13 +366,16 @@ export default function AddressBookModal({ onClose, setError }) {
             <Search size={17} />
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(0);
+              }}
               placeholder={t("Kontakte suchen …")}
               aria-label={t("Kontakte suchen …")}
             />
           </div>
           <div className="contacts-list">
-            {visible.map((contact) => (
+            {contacts.map((contact) => (
               <div className="contact-row" key={contact.id}>
                 <div className="contact-avatar">
                   {(contact.name || contact.email)[0]?.toUpperCase()}
@@ -373,12 +417,36 @@ export default function AddressBookModal({ onClose, setError }) {
                 </button>
               </div>
             ))}
-            {!visible.length && (
+            {!loading && !contacts.length && (
               <div className="contacts-empty">
                 {t("Keine Kontakte gefunden.")}
               </div>
             )}
           </div>
+          {total > 50 && (
+            <div
+              className="contacts-pagination"
+              aria-label={t("Kontaktseiten")}
+            >
+              <button
+                type="button"
+                disabled={loading || page === 0}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                {t("Zurück")}
+              </button>
+              <span>
+                {page + 1} / {Math.ceil(total / 50)}
+              </span>
+              <button
+                type="button"
+                disabled={loading || (page + 1) * 50 >= total}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                {t("Weiter")}
+              </button>
+            </div>
+          )}
           <form className="contact-form" onSubmit={save}>
             <strong>
               {editing ? t("Kontakt bearbeiten") : t("Kontakt hinzufügen")}
@@ -427,11 +495,8 @@ export default function AddressBookModal({ onClose, setError }) {
             contact={cryptoContact}
             onClose={() => setCryptoContact(null)}
             onChanged={async () => {
-              const next = await api("/contacts");
-              setContacts(next);
-              setCryptoContact(
-                next.find((item) => item.id === cryptoContact.id) || null,
-              );
+              setCryptoContact(await api(`/contacts/${cryptoContact.id}`));
+              setReload((value) => value + 1);
             }}
             setError={setError}
           />

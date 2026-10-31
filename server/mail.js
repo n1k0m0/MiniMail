@@ -7,7 +7,6 @@ import nodemailer from "nodemailer";
 import sanitizeHtml from "sanitize-html";
 import { decrypt, encrypt } from "./security.js";
 import { isTrashFolder } from "./folderTypes.js";
-import { groupMessages } from "./threading.js";
 import { mailDestination } from "./mailNetwork.js";
 import { inspectIncoming, protectOutgoing } from "./protectedMail.js";
 import { collectMessageKeys } from "./keyDiscovery.js";
@@ -18,7 +17,7 @@ import { loadMailRules, mailboxOperation } from "./mailRuleStore.js";
 import { reconcileFolderDelete } from "./folderActions.js";
 import {
   clearFolderIndex,
-  indexedMessages,
+  indexedThreadPage,
   markIndexedFolderRead,
   removeIndexedMessage,
   syncThreadIndex,
@@ -391,18 +390,22 @@ export async function listMessages(
     const pageSize = 60;
     if (threaded) {
       await syncThreadIndex(db, account.id, path, client, summary);
-      const items = await indexedMessages(db, account.id, path);
       const matches = query
         ? (await client.search(messageSearchCriteria(query, unreadOnly), {
             uid: true,
           })) || []
         : null;
-      const matchSet = matches ? new Set(matches) : null;
-      const groups = groupMessages(items, { unreadOnly }).filter(
-        (group) =>
-          !matchSet || group.thread.some((member) => matchSet.has(member.uid)),
-      );
-      const visible = groups.slice(page * pageSize, (page + 1) * pageSize);
+      const {
+        messages: visible,
+        indexedByUid,
+        total,
+        messageTotal,
+      } = await indexedThreadPage(db, account.id, path, {
+        page,
+        pageSize,
+        matches,
+        unreadOnly,
+      });
       const missingDetails = visible.filter((group) => group.size == null);
       if (missingDetails.length) {
         const detail = await client.fetchAll(
@@ -420,13 +423,12 @@ export async function listMessages(
         const update = db.prepare(
           "UPDATE mail_index_messages SET data_enc=? WHERE account_id=? AND folder=? AND uid=?",
         );
-        const byIndexedUid = new Map(items.map((item) => [item.uid, item]));
         for (const group of visible) {
           const extra = byUid.get(group.uid);
           if (!extra) continue;
           group.size = extra.size;
           group.hasAttachments = extra.hasAttachments;
-          const indexed = byIndexedUid.get(group.uid);
+          const indexed = indexedByUid.get(group.uid);
           if (indexed) {
             indexed.size = extra.size;
             indexed.hasAttachments = extra.hasAttachments;
@@ -441,12 +443,8 @@ export async function listMessages(
       }
       return {
         messages: visible,
-        total: groups.length,
-        messageTotal: matches
-          ? matches.length
-          : unreadOnly
-            ? items.filter((item) => !item.seen).length
-            : items.length,
+        total,
+        messageTotal,
         page,
       };
     }

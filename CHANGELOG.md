@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.21
 
+- Reject redirected calendar writes before changing local event state.
+- Cache conversation grouping per active folder, hydrate only visible thread members and stream initial index writes in bounded batches.
+- Restrict `.env` ACLs in the Windows source installer and reject duplicate encryption-key assignments in both source installers.
+- Keep keyboard actions on nested message controls separate from row selection and share focus, Escape and Tab handling across dialogs.
+- Page contact searches and recipient suggestions, refresh release instructions and pin the optional Caddy image by digest.
 - Apply CSRF and no-store protection to mixed-case API paths accepted by Express, closing the `/API/...` origin-check bypass.
 - Prevent background key discovery and delayed imports from attaching encryption keys to renamed contacts or overwriting manually saved material. Bind signature trust to the exact OpenPGP verification key snapshot.
 - Clear contact keys atomically with address changes; reset signing/encryption defaults correctly when removing the active mailbox key on MySQL. Reject unknown crypto kinds, invalid single-message UIDs and nonboolean message flags before IMAP operations.

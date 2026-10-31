@@ -2,8 +2,10 @@ import { useState } from "react";
 import { LoaderCircle, Sparkles, X } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t, getLanguage } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function AiSummaryModal({ accountId, folder, uid, onClose }) {
+  const dialog = useModalFocus(onClose);
   const [summary, setSummary] = useState("");
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,11 +34,17 @@ export default function AiSummaryModal({ accountId, folder, uid, onClose }) {
       className="modal-backdrop"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div className="modal ai-modal">
+      <div
+        className="modal ai-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-summary-title"
+        ref={dialog}
+      >
         <div className="modal-header">
           <div>
             <div className="eyebrow">MINIMAIL AI</div>
-            <h2>{t("KI-Zusammenfassung")}</h2>
+            <h2 id="ai-summary-title">{t("KI-Zusammenfassung")}</h2>
           </div>
           <button
             className="icon-button"

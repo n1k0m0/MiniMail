@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { LoaderCircle, Trash2 } from "lucide-react";
 import { t } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function EmptyTrashModal({ path, onClose, onConfirm }) {
   const [busy, setBusy] = useState(false);
+  const dialog = useModalFocus(() => {
+    if (!busy) onClose();
+  });
   async function confirm() {
     if (busy) return;
     setBusy(true);
@@ -19,15 +23,13 @@ export default function EmptyTrashModal({ path, onClose, onConfirm }) {
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onClose();
       }}
-      onKeyDown={(event) => {
-        if (!busy && event.key === "Escape") onClose();
-      }}
     >
       <div
         className="modal confirm-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="empty-trash-title"
+        ref={dialog}
       >
         <div className="modal-header">
           <div>

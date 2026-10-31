@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { LoaderCircle, FolderPlus, Trash2 } from "lucide-react";
 import { api } from "./mailUi.js";
 import { t } from "./i18n.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 export default function FolderActionModal({
   accountId,
@@ -16,6 +17,9 @@ export default function FolderActionModal({
   const [busy, setBusy] = useState(false),
     [reload, setReload] = useState(0),
     [loading, setLoading] = useState(deleting);
+  const dialog = useModalFocus(() => {
+    if (!busy) onClose();
+  }, "input:not(:disabled)");
   const base = `/accounts/${accountId}/folders`;
   useEffect(() => {
     if (!deleting) return;
@@ -65,15 +69,13 @@ export default function FolderActionModal({
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onClose();
       }}
-      onKeyDown={(event) => {
-        if (!busy && event.key === "Escape") onClose();
-      }}
     >
       <form
         className="modal confirm-modal folder-action-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="folder-action-title"
+        ref={dialog}
         onSubmit={submit}
       >
         <div className="modal-header">

@@ -80,6 +80,10 @@ test("extracted dialogs render and saved drafts retain all compose modes", async
         }),
       );
       assert.ok(html, name);
+      if (name !== "EmptyAccount") {
+        assert.match(html, /role="dialog"[^>]*aria-modal="true"/, name);
+        assert.match(html, /aria-labelledby="[^"]+"/, name);
+      }
       if (name === "SettingsModal") {
         assert.match(
           html,
