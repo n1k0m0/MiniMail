@@ -4,6 +4,7 @@
 
 - Prevent background key discovery and delayed imports from attaching encryption keys to renamed contacts or overwriting manually saved material. Bind signature trust to the exact OpenPGP verification key snapshot.
 - Clear contact keys atomically with address changes; reset signing/encryption defaults correctly when removing the active mailbox key on MySQL. Reject unknown crypto kinds, invalid single-message UIDs and nonboolean message flags before IMAP operations.
+- Refuse mail deletion when a selectable Trash folder is missing instead of permanently deleting the message. Recognize localized provider Trash names consistently and preserve messages after failed moves.
 - Index calendar reminder states for linear lookup work while preserving dismissal and snooze behavior. Document the security/correctness review and its verification scope in `docs/security-review-2026-10-31.md`.
 
 ## 0.1.0-rc.20

@@ -1,6 +1,6 @@
 import { listMessagePage, messageSearchCriteria } from "./messageList.js";
 import { normalizeReferences } from "./mailInput.js";
-import { requireMailResult } from "./mailActions.js";
+import { requireMailResult, deleteMailboxMessage } from "./mailActions.js";
 import { saveSentCopy } from "./sentCopy.js";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
@@ -743,32 +743,9 @@ export async function moveMessage(account, folder, uid, destination) {
   return result;
 }
 export async function deleteMessage(account, folder, uid) {
-  const result = await withImap(account, async (client) => {
-    const folders = await client.list();
-    const trash =
-      folders.find((item) => item.specialUse === "\\Trash")?.path ||
-      folders.find((item) => /^(trash|papierkorb|gelöscht)$/i.test(item.name))
-        ?.path;
-    const lock = await client.getMailboxLock(folder);
-    try {
-      if (trash && trash !== folder)
-        requireMailResult(
-          await client.messageMove(uid, trash, {
-            uid: true,
-          }),
-          "Nachricht konnte nicht verschoben werden.",
-        );
-      else
-        requireMailResult(
-          await client.messageDelete(uid, {
-            uid: true,
-          }),
-          "Nachricht konnte nicht gelöscht werden.",
-        );
-    } finally {
-      lock.release();
-    }
-  });
+  const result = await withImap(account, (client) =>
+    deleteMailboxMessage(client, folder, uid),
+  );
   await removeIndexedMessage(db, account.id, folder || "INBOX", uid);
   return result;
 }
