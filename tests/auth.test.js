@@ -187,6 +187,22 @@ test("only admins create users; password changes, 2FA, and mailboxes stay separa
       }),
     });
     assert.equal(wrongOrigin.status, 403);
+    for (const prefix of ["API", "Api", "aPi"]) {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/${prefix}/auth/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://other.example.test",
+          },
+          body: JSON.stringify({ username: "owner", password: "wrong" }),
+        },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      await response.arrayBuffer();
+    }
     assert.notEqual(
       (
         await admin("/auth/setup", "POST", {
